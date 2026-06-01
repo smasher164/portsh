@@ -1,0 +1,34 @@
+name: test
+on: [push, pull_request]
+
+jobs:
+  # Unix shells (+ Wine for a first cmd approximation) under one reproducible
+  # Nix dev shell. This is the fast, fan-out-across-shells leg.
+  unix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+      - run: nix develop --command sh tests/run.sh
+
+  # The trust anchor: real cmd.exe on real Windows. Wine is only an
+  # approximation, so the cmd-side golden files are ultimately defined by THIS.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: cmd
+        run: |
+          setlocal enabledelayedexpansion
+          set rc=0
+          for %%f in (tests\fixtures\*.cmd) do (
+            if exist "tests\fixtures\%%~nf.cmd.expected" (
+              cmd /c "%%f" > "%TEMP%\%%~nf.out" 2>nul
+              fc /n "tests\fixtures\%%~nf.cmd.expected" "%TEMP%\%%~nf.out" >nul && (
+                echo PASS %%~nf [cmd]
+              ) || (
+                echo FAIL %%~nf [cmd] & set rc=1
+              )
+            )
+          )
+          exit /b !rc!

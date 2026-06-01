@@ -1,0 +1,8 @@
+(print (map (lambda (x) (* x x)) (list 1 2 3 4)))
+(print (filter (lambda (x) (< x 3)) (list 1 2 3 4)))
+(print (foldl + 0 (list 1 2 3 4 5)))
+(print (reverse (list 1 2 3)))
+(print (cond (nil 1) (t 2)))
+(print (let ((x 10) (y 20)) (+ x y)))
+(print (and t t))
+(print (or nil 5))
