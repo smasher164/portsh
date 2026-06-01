@@ -255,6 +255,7 @@ prim_app() {
     '-')     arg2 "$args"; R="I:$(( ${ARG1#I:} - ${ARG2#I:} ))" ;;
     '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
+    'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
@@ -303,7 +304,7 @@ PRELUDE="
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' wrap unwrap eval print; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"

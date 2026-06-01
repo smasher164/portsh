@@ -130,7 +130,9 @@ local), `tests/kernel-cmd.sh` (batch kernel on the VM, `PORTSH_WIN_SSH=...`).
 
 Running commands: `(run tok ...)` renders its unevaluated operands into a
 command line and executes it on the host shell — `(run echo hi)`, `(run gcc -o
-foo foo.c)` — returning the exit code. See `examples/build.lisp`.
+foo foo.c)` — returning the exit code. `(file-exists? "path")` returns `t`/`()`
+for build conditionals, and `"..."` string literals work on both hosts. See
+`examples/build.lisp`.
 
 Performance: the batch kernel uses a variable-based heap (O(1) `cons`/`car`/
 `cdr`/`set-car`) and move-to-front environment lookup. That's plenty for build

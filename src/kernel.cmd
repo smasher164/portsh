@@ -386,7 +386,13 @@ if "!paN!"=="wrap" goto pa_wrap
 if "!paN!"=="unwrap" goto pa_unwrap
 if "!paN!"=="eval" goto pa_eval
 if "!paN!"=="print" goto pa_print
+if "!paN!"=="file-exists?" goto pa_fex
 set "R=NIL" & goto :eof
+:pa_fex
+call :hp_car "%~3"
+set "fexP=!R:~2!"
+if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
+goto :eof
 :pa_cons
 call :hp_car "%~3"
 set "paA1=!R!"
@@ -536,6 +542,7 @@ call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 call :env_define "!GLOBAL!" "S:eval" "R:eval"
 call :env_define "!GLOBAL!" "S:print" "R:print"
+call :env_define "!GLOBAL!" "S:file-exists?" "R:file-exists?"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
