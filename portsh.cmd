@@ -274,7 +274,7 @@ lisp_write() {
     NIL) printf '()' ;;
     I:*) printf '%s' "${v#I:}" ;;
     S:*) printf '%s' "${v#S:}" ;;
-    T:*) printf '"%s"' "${v#T:}" ;;
+    T:*) printf '%s' "${v#T:}" ;;
     O:*) printf '#<operative>' ;;
     A:*) printf '#<applicative>' ;;
     F:*) printf '#<prim-op %s>' "${v#F:}" ;;
@@ -385,7 +385,24 @@ if "!SRC!"=="" goto :eof
 set "ch=!SRC:~0,1!"
 if "!ch!"=="(" goto rf_open
 if "!ch!"==")" goto rf_close
+set "chq=!ch:"=!"
+if "!chq!"=="" goto rf_string
 goto rf_atom
+:rf_string
+rem string literal "..." -> T:...  (quote detected by removing " and testing empty)
+set "SRC=!SRC:~1!"
+set "rfs="
+:rfs_loop
+if "!SRC!"=="" goto rfs_done
+set "sc=!SRC:~0,1!"
+set "scq=!sc:"=!"
+if "!scq!"=="" set "SRC=!SRC:~1!" & goto rfs_done
+set "rfs=!rfs!!sc!" & set "SRC=!SRC:~1!"
+goto rfs_loop
+:rfs_done
+set "R=T:!rfs!"
+call :emit_top "!R!"
+goto rf_loop
 :rf_open
 set "ST_!SP!=LP" & set /a SP+=1 & set /a DEPTH+=1 & set "SRC=!SRC:~1!"
 goto rf_loop
@@ -818,6 +835,7 @@ if "!lwV!"=="NIL" set "R=()" & goto :eof
 set "lwPre=!lwV:~0,2!"
 if "!lwPre!"=="I:" set "R=!lwV:~2!" & goto :eof
 if "!lwPre!"=="S:" set "R=!lwV:~2!" & goto :eof
+if "!lwPre!"=="T:" set "R=!lwV:~2!" & goto :eof
 if "!lwPre!"=="P:" goto lw_pair
 set "R=#<obj>" & goto :eof
 :lw_pair

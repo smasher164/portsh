@@ -270,7 +270,7 @@ lisp_write() {
     NIL) printf '()' ;;
     I:*) printf '%s' "${v#I:}" ;;
     S:*) printf '%s' "${v#S:}" ;;
-    T:*) printf '"%s"' "${v#T:}" ;;
+    T:*) printf '%s' "${v#T:}" ;;
     O:*) printf '#<operative>' ;;
     A:*) printf '#<applicative>' ;;
     F:*) printf '#<prim-op %s>' "${v#F:}" ;;
