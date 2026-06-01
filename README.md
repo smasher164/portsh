@@ -128,6 +128,14 @@ shared userspace prelude. Verified on `dash`/`bash` and on real Windows
 Tests: `tests/kernel.sh` (sh kernel, local), `tests/weave.sh` (woven file as sh,
 local), `tests/kernel-cmd.sh` (batch kernel on the VM, `PORTSH_WIN_SSH=...`).
 
-Open next: embed the Lisp payload in the file for a self-contained executable;
-a faster batch heap (file scans make it ~15-36s/fixture); string literals + a
-`run` primitive; a richer prelude (`let`/`cond`/`and`/`or`/`map`).
+Running commands: `(run tok ...)` renders its unevaluated operands into a
+command line and executes it on the host shell — `(run echo hi)`, `(run gcc -o
+foo foo.c)` — returning the exit code. See `examples/build.lisp`.
+
+Performance: the batch kernel uses a variable-based heap (O(1) `cons`/`car`/
+`cdr`/`set-car`) and move-to-front environment lookup. That's plenty for build
+scripts; deeply recursive numeric code is still slow on `cmd` (each step is many
+`cmd` `call`s) — fine, since speed was never the goal. The `sh` kernel is fast.
+
+Open next: string literals (`"..."`) on the batch side (needs careful quote
+handling); file-I/O primitives; a richer stdlib.

@@ -209,8 +209,16 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 
 # ---- primitive operatives (unevaluated operands + env) --------------------
 prim_oper() {
-  local name=$1 ops=$2 denv=$3 formals eformal body sym test r
+  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok
   case $name in
+    run)
+      _cmd=; _lst=$ops
+      while [ "$_lst" != NIL ]; do
+        hp_car "$_lst"; _tok=$R
+        _cmd="$_cmd ${_tok#?:}"
+        hp_cdr "$_lst"; _lst=$R
+      done
+      sh -c "$_cmd"; R="I:$?" ;;
     vau)
       hp_car "$ops"; formals=$R
       hp_cdr "$ops"; r=$R; hp_car "$r"; eformal=$R
@@ -254,7 +262,6 @@ prim_app() {
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
-    run)     arg1 "$args"; sh -c "${ARG1#T:}"; R="I:$?" ;;
     print)   arg1 "$args"; lisp_write "$ARG1"; printf '\n'; R=NIL ;;
     *)       die "unknown primitive: $name" ;;
   esac
@@ -299,8 +306,8 @@ PRELUDE="
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' wrap unwrap eval run print; do
+  for p in vau define if run; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -361,10 +368,10 @@ set "MK=!MK!_PAYLOAD__"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 || goto after_payload
 for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do set "MLINE=%%n" & goto load_payload
 :load_payload
-for /f "usebackq skip=%MLINE% delims=" %%L in ("%~f0") do set "SRC=!SRC! %%L"
+for /f "usebackq skip=%MLINE% eol=; delims=" %%L in ("%~f0") do set "SRC=!SRC! %%L"
 :after_payload
 if "%~1"=="" goto run_it
-for /f "usebackq delims=" %%L in ("%~1") do set "SRC=!SRC! %%L"
+for /f "usebackq eol=; delims=" %%L in ("%~1") do set "SRC=!SRC! %%L"
 :run_it
 set "SP=0" & set "DEPTH=0"
 call :run_forms
@@ -453,6 +460,10 @@ goto :eof
 set "scp=%~1" & set "scp=!scp:P:=!"
 set "CAR_%scp%=%~2"
 goto :eof
+:hp_setcdr
+set "sdp=%~1" & set "sdp=!sdp:P:=!"
+set "CDR_%sdp%=%~2"
+goto :eof
 
 rem ============================== environment ==============================
 :env_new
@@ -468,17 +479,21 @@ call :hp_setcar "%~1" "!R!"
 goto :eof
 
 :env_lookup
+rem walk frames; within a frame walk the binding alist. On a hit past the head,
+rem splice the binding to the front (move-to-front) so hot symbols become O(1).
 set "elkEnv=%~1" & set "elkSym=%~2"
 :elk_env
 if "!elkEnv!"=="NIL" goto elk_unbound
 call :hp_car "!elkEnv!"
 set "elkB=!R!"
+set "elkPrev="
 :elk_b
 if "!elkB!"=="NIL" goto elk_next
 call :hp_car "!elkB!"
 set "elkP=!R!"
 call :hp_car "!elkP!"
 if "!R!"=="!elkSym!" goto elk_found
+set "elkPrev=!elkB!"
 call :hp_cdr "!elkB!"
 set "elkB=!R!"
 goto elk_b
@@ -487,6 +502,13 @@ call :hp_cdr "!elkEnv!"
 set "elkEnv=!R!"
 goto elk_env
 :elk_found
+if "!elkPrev!"=="" goto elk_val
+call :hp_cdr "!elkB!"
+call :hp_setcdr "!elkPrev!" "!R!"
+call :hp_car "!elkEnv!"
+call :hp_setcdr "!elkB!" "!R!"
+call :hp_setcar "!elkEnv!" "!elkB!"
+:elk_val
 call :hp_cdr "!elkP!"
 goto :eof
 :elk_unbound
@@ -558,7 +580,23 @@ set "poN=%~2"
 if "!poN!"=="vau" goto po_vau
 if "!poN!"=="define" goto po_define
 if "!poN!"=="if" goto po_if
+if "!poN!"=="run" goto po_run
 set "R=NIL" & goto :eof
+:po_run
+rem render unevaluated operands (symbols/ints) into a command line, execute it
+set "porCmd=" & set "porLst=%~3"
+:po_run_loop
+if "!porLst!"=="NIL" goto po_run_exec
+call :hp_car "!porLst!"
+set "porTok=!R!"
+set "porCmd=!porCmd! !porTok:~2!"
+call :hp_cdr "!porLst!"
+set "porLst=!R!"
+goto po_run_loop
+:po_run_exec
+cmd /c "!porCmd!"
+set "R=I:!errorlevel!"
+goto :eof
 :po_vau
 call :hp_car "%~3"
 set "poF=!R!"
@@ -824,41 +862,42 @@ call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 call :env_define "!GLOBAL!" "S:eval" "R:eval"
 call :env_define "!GLOBAL!" "S:print" "R:print"
+call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
 goto :eof
 __PORTSH_PAYLOAD__
-;;; portsh standard library — plain userspace Lisp on top of the kernel.
-;;; Loaded at boot in the "full" distribution (portsh-full.cmd). Everything
-;;; here is written with kernel primitives + the minimal prelude only.
+
+
+
 
 (define not (lambda (x) (if x nil t)))
 
-;; list accessors
+
 (define cadr  (lambda (x) (car (cdr x))))
 (define caddr (lambda (x) (car (cdr (cdr x)))))
 (define cddr  (lambda (x) (cdr (cdr x))))
 
-;; sequence
+
 (define last (lambda (xs) (if (null? (cdr xs)) (car xs) (last (cdr xs)))))
-(define begin (lambda args (last args)))            ; evaluate args left-to-right, return last
+(define begin (lambda args (last args)))            
 (define length (lambda (xs) (if (null? xs) 0 (+ 1 (length (cdr xs))))))
 (define append (lambda (a b) (if (null? a) b (cons (car a) (append (cdr a) b)))))
 (define reverse (lambda (xs) (if (null? xs) nil (append (reverse (cdr xs)) (cons (car xs) nil)))))
 
-;; higher-order
+
 (define map (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map f (cdr xs))))))
 (define filter (lambda (p xs)
   (if (null? xs) nil
     (if (p (car xs)) (cons (car xs) (filter p (cdr xs))) (filter p (cdr xs))))))
 (define foldl (lambda (f acc xs) (if (null? xs) acc (foldl f (f acc (car xs)) (cdr xs)))))
 
-;; comparison derivatives (kernel gives < and =)
+
 (define <= (lambda (a b) (if (< a b) t (= a b))))
 (define >  (lambda (a b) (< b a)))
 (define >= (lambda (a b) (<= b a)))
 
-;; control-flow operatives (need vau so operands stay unevaluated)
+
 (define and (vau args env
   (if (null? args) t
     (if (null? (cdr args)) (eval (car args) env)
@@ -874,7 +913,7 @@ __PORTSH_PAYLOAD__
         (eval (cons (quote begin) (cdr (car clauses))) env)
         (eval (cons (quote cond) (cdr clauses)) env)))))
 
-;; let: ((x a) (y b)) body...  ->  ((lambda (x y) body...) a b)
+
 (define let (vau args env
   (eval (cons (cons (quote lambda) (cons (map car (car args)) (cdr args)))
               (map cadr (car args)))

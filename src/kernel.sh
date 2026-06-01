@@ -205,8 +205,16 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 
 # ---- primitive operatives (unevaluated operands + env) --------------------
 prim_oper() {
-  local name=$1 ops=$2 denv=$3 formals eformal body sym test r
+  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok
   case $name in
+    run)
+      _cmd=; _lst=$ops
+      while [ "$_lst" != NIL ]; do
+        hp_car "$_lst"; _tok=$R
+        _cmd="$_cmd ${_tok#?:}"
+        hp_cdr "$_lst"; _lst=$R
+      done
+      sh -c "$_cmd"; R="I:$?" ;;
     vau)
       hp_car "$ops"; formals=$R
       hp_cdr "$ops"; r=$R; hp_car "$r"; eformal=$R
@@ -250,7 +258,6 @@ prim_app() {
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
-    run)     arg1 "$args"; sh -c "${ARG1#T:}"; R="I:$?" ;;
     print)   arg1 "$args"; lisp_write "$ARG1"; printf '\n'; R=NIL ;;
     *)       die "unknown primitive: $name" ;;
   esac
@@ -295,8 +302,8 @@ PRELUDE="
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' wrap unwrap eval run print; do
+  for p in vau define if run; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"

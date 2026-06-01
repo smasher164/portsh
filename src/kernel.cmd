@@ -24,10 +24,10 @@ set "MK=!MK!_PAYLOAD__"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 || goto after_payload
 for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do set "MLINE=%%n" & goto load_payload
 :load_payload
-for /f "usebackq skip=%MLINE% delims=" %%L in ("%~f0") do set "SRC=!SRC! %%L"
+for /f "usebackq skip=%MLINE% eol=; delims=" %%L in ("%~f0") do set "SRC=!SRC! %%L"
 :after_payload
 if "%~1"=="" goto run_it
-for /f "usebackq delims=" %%L in ("%~1") do set "SRC=!SRC! %%L"
+for /f "usebackq eol=; delims=" %%L in ("%~1") do set "SRC=!SRC! %%L"
 :run_it
 set "SP=0" & set "DEPTH=0"
 call :run_forms
@@ -116,6 +116,10 @@ goto :eof
 set "scp=%~1" & set "scp=!scp:P:=!"
 set "CAR_%scp%=%~2"
 goto :eof
+:hp_setcdr
+set "sdp=%~1" & set "sdp=!sdp:P:=!"
+set "CDR_%sdp%=%~2"
+goto :eof
 
 rem ============================== environment ==============================
 :env_new
@@ -131,17 +135,21 @@ call :hp_setcar "%~1" "!R!"
 goto :eof
 
 :env_lookup
+rem walk frames; within a frame walk the binding alist. On a hit past the head,
+rem splice the binding to the front (move-to-front) so hot symbols become O(1).
 set "elkEnv=%~1" & set "elkSym=%~2"
 :elk_env
 if "!elkEnv!"=="NIL" goto elk_unbound
 call :hp_car "!elkEnv!"
 set "elkB=!R!"
+set "elkPrev="
 :elk_b
 if "!elkB!"=="NIL" goto elk_next
 call :hp_car "!elkB!"
 set "elkP=!R!"
 call :hp_car "!elkP!"
 if "!R!"=="!elkSym!" goto elk_found
+set "elkPrev=!elkB!"
 call :hp_cdr "!elkB!"
 set "elkB=!R!"
 goto elk_b
@@ -150,6 +158,13 @@ call :hp_cdr "!elkEnv!"
 set "elkEnv=!R!"
 goto elk_env
 :elk_found
+if "!elkPrev!"=="" goto elk_val
+call :hp_cdr "!elkB!"
+call :hp_setcdr "!elkPrev!" "!R!"
+call :hp_car "!elkEnv!"
+call :hp_setcdr "!elkB!" "!R!"
+call :hp_setcar "!elkEnv!" "!elkB!"
+:elk_val
 call :hp_cdr "!elkP!"
 goto :eof
 :elk_unbound
@@ -221,7 +236,23 @@ set "poN=%~2"
 if "!poN!"=="vau" goto po_vau
 if "!poN!"=="define" goto po_define
 if "!poN!"=="if" goto po_if
+if "!poN!"=="run" goto po_run
 set "R=NIL" & goto :eof
+:po_run
+rem render unevaluated operands (symbols/ints) into a command line, execute it
+set "porCmd=" & set "porLst=%~3"
+:po_run_loop
+if "!porLst!"=="NIL" goto po_run_exec
+call :hp_car "!porLst!"
+set "porTok=!R!"
+set "porCmd=!porCmd! !porTok:~2!"
+call :hp_cdr "!porLst!"
+set "porLst=!R!"
+goto po_run_loop
+:po_run_exec
+cmd /c "!porCmd!"
+set "R=I:!errorlevel!"
+goto :eof
 :po_vau
 call :hp_car "%~3"
 set "poF=!R!"
@@ -487,6 +518,7 @@ call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 call :env_define "!GLOBAL!" "S:eval" "R:eval"
 call :env_define "!GLOBAL!" "S:print" "R:print"
+call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
 goto :eof
