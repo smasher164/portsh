@@ -34,42 +34,41 @@ hp_car()    { _i=${1#P:}; eval "R=\$H_${_i}_a"; }
 hp_cdr()    { _i=${1#P:}; eval "R=\$H_${_i}_d"; }
 hp_setcar() { _i=${1#P:}; eval "H_${_i}_a=\$2"; }
 
-# ---- reader ---------------------------------------------------------------
-# Peek the first char of SRC. The portable ${SRC%"${SRC#?}"} removes a whole-
-# string suffix *per char*, which makes parsing O(n^2) — ~80s to read the stdlib.
-# Bash/ksh/zsh substring is O(1) and cuts that to ~0.2s. Feature-detect at boot
-# (the fast definition is eval'd so dash doesn't choke parsing the substring) and
-# fall back to the portable form on shells without it.
-if ( eval '_pt=ab; [ "${_pt:0:1}" = a ]' ) 2>/dev/null; then
-  eval 'rd_first() { R=${SRC:0:1}; }'
-else
-  rd_first() { R=${SRC%"${SRC#?}"}; }
-fi
+# ---- reader (token-based, pure POSIX — no per-char peek) ------------------
+# We never extract one character at a time: dispatch by matching the SRC prefix
+# with `case`, and grab whole atoms/strings with ${SRC%%[set]*} (cost is the
+# distance to the next delimiter, not O(n) per char). A char-at-a-time reader is
+# the *only* thing that needs the portable first-char peek ${SRC%"${SRC#?}"},
+# which removes a whole-string suffix per char and makes parsing O(n^2) (~80s on
+# the stdlib). This is O(n) (~0.2s) on every POSIX shell, dash included.
+_NL='
+'
+_TAB=$(printf '\t')
+_WS=" $_TAB$_NL"            # whitespace: space, tab, newline
+_DELIM="$_WS()'\";"        # atom delimiters: whitespace + ( ) ' " ;
 
 rd_skipws() {
   while :; do
-    rd_first
-    case $R in
-      ' '|'	') SRC=${SRC#?} ;;
-      '
-') SRC=${SRC#?} ;;
-      ';') case $SRC in *'
-'*) SRC=${SRC#*'
-'} ;; *) SRC= ;; esac ;;
-      *) break ;;
+    SRC=${SRC#"${SRC%%[!$_WS]*}"}              # drop the leading whitespace run
+    case $SRC in
+      ';'*) case $SRC in
+              *"$_NL"*) SRC=${SRC#*"$_NL"} ;;  # comment: skip to end of line...
+              *)        SRC= ;;                #          ...or to EOF
+            esac ;;
+      *) return ;;
     esac
   done
 }
 
 rd_expr() {
-  rd_skipws; rd_first
-  case $R in
-    '')  R=EOF; return 1 ;;
-    '(') SRC=${SRC#?}; rd_list ;;
-    ')') SRC=${SRC#?}; R=RPAREN ;;
-    "'") SRC=${SRC#?}; rd_quote ;;
-    '"') rd_string ;;
-    *)   rd_atom ;;
+  rd_skipws
+  case $SRC in
+    '')   R=EOF; return 1 ;;
+    '('*) SRC=${SRC#?}; rd_list ;;
+    ')'*) SRC=${SRC#?}; R=RPAREN ;;
+    "'"*) SRC=${SRC#?}; rd_quote ;;
+    '"'*) rd_string ;;
+    *)    rd_atom ;;
   esac
   return 0
 }
@@ -92,15 +91,9 @@ rd_list() {
 }
 
 rd_atom() {
-  local tok=''
-  while :; do
-    rd_first
-    case $R in
-      ''|' '|'	'|'
-'|'('|')'|"'"|'"'|';') break ;;
-      *) tok=$tok$R; SRC=${SRC#?} ;;
-    esac
-  done
+  local tok
+  tok=${SRC%%[$_DELIM]*}        # grab up to the next delimiter, in one op
+  SRC=${SRC#"$tok"}
   case $tok in
     -|''|*[!0-9-]*) R="S:$tok" ;;
     *)              R="I:$tok" ;;
@@ -113,18 +106,14 @@ rd_string() {
   # to keep the language consistent: a multiline string literal fails loudly on
   # sh exactly as it would mis-parse on batch, instead of silently working on
   # one host only. Multiline text is a list of line-strings (see read-lines).
-  local s=''
-  SRC=${SRC#?}
-  while :; do
-    rd_first
-    case $R in
-      '')  die "unterminated string literal" ;;
-      '
-')   die "newline in string literal (strings are single-line; use a list of lines)" ;;
-      '"') SRC=${SRC#?}; break ;;
-      *)   s=$s$R; SRC=${SRC#?} ;;
-    esac
-  done
+  local s
+  SRC=${SRC#?}                       # drop the opening "
+  s=${SRC%%\"*}                      # body up to the closing " (one op)
+  if [ "$s" = "$SRC" ]; then die "unterminated string literal"; fi
+  SRC=${SRC#"$s"}; SRC=${SRC#?}      # drop the body and the closing "
+  case $s in
+    *"$_NL"*) die "newline in string literal (strings are single-line; use a list of lines)" ;;
+  esac
   R="T:$s"
 }
 
