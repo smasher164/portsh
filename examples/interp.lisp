@@ -1,47 +1,39 @@
-;;; interp — string interpolation in userspace, as a showcase of fexpr + read.
+;;; interp — string interpolation in userspace, as a showcase of split + read.
 ;;;
-;;; This is an EXAMPLE, not a stdlib function. It demonstrates that the vau core
-;;; plus `read` is expressive enough to build string interpolation entirely in
-;;; Lisp — but it scans the string a character at a time through the evaluator,
-;;; which is fine on sh and very slow on cmd. For real code, prefer `str` from
-;;; the stdlib: (str "i have " (+ 0 5) " fingers") — the holes are ordinary
-;;; pre-parsed arguments, so there's no per-char scan and no `read` at all.
+;;; This is an EXAMPLE, not a stdlib function. It shows that the vau core plus
+;;; `read` and the `split` primitive are enough to build interpolation in plain
+;;; Lisp. Holes are (expr) regions evaluated in the CALLER's environment;
+;;; everything else is literal.  (interp "x=(+ 1 2) y=(* 3 4)") => "x=3 y=12".
 ;;;
-;;; Run it with the stdlib bundled (it uses cond/let/foldl/->string):
+;;; It uses `split` so the scanning is native (a primitive call) rather than a
+;;; per-character loop through the evaluator — far faster, especially on cmd.
+;;; The tradeoff: split can't balance parens, so holes must NOT nest. (An earlier
+;;; char-scan version handled nesting but was orders of magnitude slower; see the
+;;; git history.) For real code prefer `str` from the stdlib, whose holes are
+;;; ordinary pre-parsed arguments:  (str "x=" (+ 1 2) " y=" (* 3 4)).
+;;;
+;;; Run with the stdlib bundled (it uses let/foldl/->string/join/str):
 ;;;   cat portsh-full.cmd examples/interp.lisp > demo.cmd && sh demo.cmd
-;;;
-;;; How it works: `interp` is a vau, so it receives the CALLER's environment.
-;;; For each parenthesized region in the string it uses `read` to turn that text
-;;; into a form and `eval` to run it where the call site lives; everything else
-;;; is copied literally.  (interp "i have (+ 0 5) fingers") => "i have 5 fingers".
 
-;; Single chars via substring (we have no string-ref); compare by eq?, since
-;; equal strings share a tag.
-(define char-at (lambda (s i) (substring s i 1)))
-(define idx-from (lambda (s c i n)
-  (if (= i n) -1 (if (eq? (char-at s i) c) i (idx-from s c (+ i 1) n)))))
-(define index-of (lambda (s c) (idx-from s c 0 (string-length s))))
+;; A hole-segment is "code) trailing-literal" — the text right after a '('.
+;; Split once on ')': the first part is the code, the rest is the literal that
+;; followed the close paren (rejoined in case it contained ')').
+(define interp-seg (lambda (seg env)
+  (let ((parts (split seg ")")))
+    (string-append
+      (->string (eval (read (str "(" (car parts) ")")) env))
+      (join ")" (cdr parts))))))
 
-;; match-paren: given a '(' at index op, return the index of the matching ')'.
-(define match-go (lambda (s i n depth)
-  (if (= i n) -1
-    (cond ((eq? (char-at s i) "(") (match-go s (+ i 1) n (+ depth 1)))
-          ((eq? (char-at s i) ")") (if (= depth 1) i (match-go s (+ i 1) n (- depth 1))))
-          (t (match-go s (+ i 1) n depth))))))
-(define match-paren (lambda (s op) (match-go s (+ op 1) (string-length s) 1)))
-
-(define interp-go (lambda (s env)
-  (let ((op (index-of s "(")))
-    (if (< op 0) s
-      (let ((close (match-paren s op)))
-        (string-append
-          (substring s 0 op)
-          (->string (eval (read (substring s op (+ 1 (- close op)))) env))
-          (interp-go (substring s (+ close 1) (- (string-length s) (+ close 1))) env)))))))
-(define interp (vau (s) env (interp-go (eval s env) env)))
+;; Split on '(' -> [prefix, hole-seg, ...]: the prefix is literal, each later
+;; segment opens a hole. `vau` hands us the caller's env, so (expr) is evaluated
+;; where the call site lives.
+(define interp (vau (s) env
+  (let ((segs (split (eval s env) "(")))
+    (foldl (lambda (acc seg) (string-append acc (interp-seg seg env)))
+           (car segs) (cdr segs)))))
 
 (define a 3)
 (define b 4)
-(print (interp "i have (+ 0 5) fingers"))            ; i have 5 fingers
-(print (interp "a=(+ a b), nested=(+ (* a 2) b)"))   ; a=7, nested=10
-(print (interp "no holes here"))                     ; no holes here
+(print (interp "i have (+ 0 5) fingers"))         ; i have 5 fingers
+(print (interp "a=(+ a b) b=(* a b) c=(- b a)"))   ; a=7 b=12 c=1
+(print (interp "no holes here"))                   ; no holes here

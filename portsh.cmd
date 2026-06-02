@@ -35,7 +35,16 @@ hp_cdr()    { _i=${1#P:}; eval "R=\$H_${_i}_d"; }
 hp_setcar() { _i=${1#P:}; eval "H_${_i}_a=\$2"; }
 
 # ---- reader ---------------------------------------------------------------
-rd_first() { R=${SRC%"${SRC#?}"}; }
+# Peek the first char of SRC. The portable ${SRC%"${SRC#?}"} removes a whole-
+# string suffix *per char*, which makes parsing O(n^2) — ~80s to read the stdlib.
+# Bash/ksh/zsh substring is O(1) and cuts that to ~0.2s. Feature-detect at boot
+# (the fast definition is eval'd so dash doesn't choke parsing the substring) and
+# fall back to the portable form on shells without it.
+if ( eval '_pt=ab; [ "${_pt:0:1}" = a ]' ) 2>/dev/null; then
+  eval 'rd_first() { R=${SRC:0:1}; }'
+else
+  rd_first() { R=${SRC%"${SRC#?}"}; }
+fi
 
 rd_skipws() {
   while :; do
