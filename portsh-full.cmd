@@ -707,7 +707,7 @@ set "ccArgs=" & set "ccLst=!R!"
 :cc_loop
 if "!ccLst!"=="NIL" goto cc_call
 call :hp_car "!ccLst!"
-set "ccArgs=!ccArgs! !R:~2!"
+set "ccArgs=!ccArgs! !R!"
 call :hp_cdr "!ccLst!"
 set "ccLst=!R!"
 goto cc_loop
