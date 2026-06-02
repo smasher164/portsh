@@ -6,9 +6,13 @@
 ;;;   operatives : vau define if quote lambda
 ;;;   applicative: cons car cdr eq? null? atom? + - * < = wrap unwrap eval
 ;;;                print run file-exists? list
+;;;                string-append string-length substring
+;;;                symbol->string string->symbol number->string string->number
+;;;                read-lines write-lines        (run-capture is an operative)
 ;;; Notes / deliberate gaps in the kernel this stdlib must respect:
 ;;;   - binary - < =, no / and no mod, no >  (we derive > >= <= here)
-;;;   - no string primitives (no length/concat/substring) -> out of scope
+;;;   - strings are single-line (host vars hold no newline); multi-line text is
+;;;     a list of line-strings, so I/O is line-oriented (read-lines/write-lines)
 ;;;   - eq? compares the underlying tagged value, so it works for symbols,
 ;;;     integers, nil, t, and identity of pairs (same cell).
 ;;;

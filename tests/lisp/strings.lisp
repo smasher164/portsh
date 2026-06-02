@@ -1,0 +1,7 @@
+(print (string-append "foo" "bar" "baz"))
+(print (string-length "hello"))
+(print (substring "hello world" 6 5))
+(print (symbol->string (quote abc)))
+(print (string->symbol "xyz"))
+(print (number->string 42))
+(print (string->number "7"))

@@ -205,7 +205,7 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 
 # ---- primitive operatives (unevaluated operands + env) --------------------
 prim_oper() {
-  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok
+  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out
   case $name in
     run)
       _cmd=; _lst=$ops
@@ -215,6 +215,20 @@ prim_oper() {
         hp_cdr "$_lst"; _lst=$R
       done
       sh -c "$_cmd"; R="I:$?" ;;
+    'run-capture')
+      _cmd=; _lst=$ops
+      while [ "$_lst" != NIL ]; do
+        hp_car "$_lst"; _tok=$R
+        _cmd="$_cmd ${_tok#?:}"
+        hp_cdr "$_lst"; _lst=$R
+      done
+      _out=$(sh -c "$_cmd"); _acc=NIL
+      while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done <<RCEOF
+$_out
+RCEOF
+      _rev=NIL
+      while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done
+      R=$_rev ;;
     vau)
       hp_car "$ops"; formals=$R
       hp_cdr "$ops"; r=$R; hp_car "$r"; eformal=$R
@@ -242,7 +256,7 @@ arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
 prim_app() {
-  local name=$1 args=$2 sum prod lst v
+  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v
   case $name in
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
@@ -256,6 +270,26 @@ prim_app() {
     '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
+    'string-append') _sa=; _l=$args
+             while [ "$_l" != NIL ]; do hp_car "$_l"; _sa="$_sa${R#T:}"; hp_cdr "$_l"; _l=$R; done
+             R="T:$_sa" ;;
+    'string-length') arg1 "$args"; _sa=${ARG1#T:}; R="I:${#_sa}" ;;
+    substring) hp_car "$args"; _sa=${R#T:}
+             hp_cdr "$args"; hp_car "$R"; _o=${R#I:}
+             hp_cdr "$args"; hp_cdr "$R"; hp_car "$R"; _n=${R#I:}
+             R="T:$(printf '%s' "$_sa" | cut -c$((_o + 1))-$((_o + _n)) 2>/dev/null)" ;;
+    'symbol->string') arg1 "$args"; R="T:${ARG1#S:}" ;;
+    'string->symbol') arg1 "$args"; R="S:${ARG1#T:}" ;;
+    'number->string') arg1 "$args"; R="T:${ARG1#I:}" ;;
+    'string->number') arg1 "$args"; R="I:${ARG1#T:}" ;;
+    'read-lines') arg1 "$args"; _f=${ARG1#T:}; _acc=NIL
+             while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
+             _rev=NIL
+             while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done
+             R=$_rev ;;
+    'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
+             while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
+             R="S:t" ;;
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
@@ -303,8 +337,8 @@ PRELUDE="
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if run; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' wrap unwrap eval print; do
+  for p in vau define if run 'run-capture'; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read-lines' 'write-lines' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"

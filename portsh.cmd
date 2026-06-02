@@ -209,7 +209,7 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 
 # ---- primitive operatives (unevaluated operands + env) --------------------
 prim_oper() {
-  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok
+  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out
   case $name in
     run)
       _cmd=; _lst=$ops
@@ -219,6 +219,20 @@ prim_oper() {
         hp_cdr "$_lst"; _lst=$R
       done
       sh -c "$_cmd"; R="I:$?" ;;
+    'run-capture')
+      _cmd=; _lst=$ops
+      while [ "$_lst" != NIL ]; do
+        hp_car "$_lst"; _tok=$R
+        _cmd="$_cmd ${_tok#?:}"
+        hp_cdr "$_lst"; _lst=$R
+      done
+      _out=$(sh -c "$_cmd"); _acc=NIL
+      while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done <<RCEOF
+$_out
+RCEOF
+      _rev=NIL
+      while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done
+      R=$_rev ;;
     vau)
       hp_car "$ops"; formals=$R
       hp_cdr "$ops"; r=$R; hp_car "$r"; eformal=$R
@@ -246,7 +260,7 @@ arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
 prim_app() {
-  local name=$1 args=$2 sum prod lst v
+  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v
   case $name in
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
@@ -260,6 +274,26 @@ prim_app() {
     '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
+    'string-append') _sa=; _l=$args
+             while [ "$_l" != NIL ]; do hp_car "$_l"; _sa="$_sa${R#T:}"; hp_cdr "$_l"; _l=$R; done
+             R="T:$_sa" ;;
+    'string-length') arg1 "$args"; _sa=${ARG1#T:}; R="I:${#_sa}" ;;
+    substring) hp_car "$args"; _sa=${R#T:}
+             hp_cdr "$args"; hp_car "$R"; _o=${R#I:}
+             hp_cdr "$args"; hp_cdr "$R"; hp_car "$R"; _n=${R#I:}
+             R="T:$(printf '%s' "$_sa" | cut -c$((_o + 1))-$((_o + _n)) 2>/dev/null)" ;;
+    'symbol->string') arg1 "$args"; R="T:${ARG1#S:}" ;;
+    'string->symbol') arg1 "$args"; R="S:${ARG1#T:}" ;;
+    'number->string') arg1 "$args"; R="T:${ARG1#I:}" ;;
+    'string->number') arg1 "$args"; R="I:${ARG1#T:}" ;;
+    'read-lines') arg1 "$args"; _f=${ARG1#T:}; _acc=NIL
+             while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
+             _rev=NIL
+             while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done
+             R=$_rev ;;
+    'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
+             while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
+             R="S:t" ;;
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
@@ -307,8 +341,8 @@ PRELUDE="
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if run; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' wrap unwrap eval print; do
+  for p in vau define if run 'run-capture'; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read-lines' 'write-lines' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -506,6 +540,18 @@ goto :eof
 set "sdp=%~1" & set "sdp=!sdp:P:=!"
 set "CDR_%sdp%=%~2"
 goto :eof
+:list_reverse
+rem reverse a list (flat helper; never re-enters :ev, so plain temps are safe)
+set "lrL=%~1" & set "lrAcc=NIL"
+:lr_loop
+if "!lrL!"=="NIL" set "R=!lrAcc!" & goto :eof
+call :hp_car "!lrL!"
+set "lrV=!R!"
+call :hp_cdr "!lrL!"
+set "lrL=!R!"
+call :hp_cons "!lrV!" "!lrAcc!"
+set "lrAcc=!R!"
+goto lr_loop
 
 rem ============================== environment ==============================
 :env_new
@@ -622,7 +668,28 @@ if "!poN!"=="vau" goto po_vau
 if "!poN!"=="define" goto po_define
 if "!poN!"=="if" goto po_if
 if "!poN!"=="run" goto po_run
+if "!poN!"=="run-capture" goto po_runcap
 set "R=NIL" & goto :eof
+:po_runcap
+rem render operands into a command line, run it, capture stdout as a line list
+set "rcCmd=" & set "rcLst=%~3"
+:rc_loop
+if "!rcLst!"=="NIL" goto rc_exec
+call :hp_car "!rcLst!"
+set "rcTok=!R!"
+set "rcCmd=!rcCmd! !rcTok:~2!"
+call :hp_cdr "!rcLst!"
+set "rcLst=!R!"
+goto rc_loop
+:rc_exec
+cmd /c "!rcCmd!" > "%TEMP%\portsh_rc.txt" 2>&1
+set "rcAcc=NIL"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
+  call :hp_cons "T:%%L" "!rcAcc!"
+  set "rcAcc=!R!"
+)
+call :list_reverse "!rcAcc!"
+goto :eof
 :po_run
 rem render unevaluated operands (symbols/ints) into a command line, execute it
 set "porCmd=" & set "porLst=%~3"
@@ -748,11 +815,89 @@ if "!paN!"=="unwrap" goto pa_unwrap
 if "!paN!"=="eval" goto pa_eval
 if "!paN!"=="print" goto pa_print
 if "!paN!"=="file-exists?" goto pa_fex
+if "!paN!"=="string-append" goto pa_strapp
+if "!paN!"=="string-length" goto pa_strlen
+if "!paN!"=="substring" goto pa_substr
+if "!paN!"=="symbol->string" goto pa_sym2str
+if "!paN!"=="string->symbol" goto pa_str2sym
+if "!paN!"=="number->string" goto pa_num2str
+if "!paN!"=="string->number" goto pa_str2num
+if "!paN!"=="read-lines" goto pa_rdlines
+if "!paN!"=="write-lines" goto pa_wrlines
 set "R=NIL" & goto :eof
+:pa_rdlines
+call :hp_car "%~3"
+set "rlF=!R:~2!" & set "rlAcc=NIL"
+for /f "usebackq delims=" %%L in ("!rlF!") do (
+  call :hp_cons "T:%%L" "!rlAcc!"
+  set "rlAcc=!R!"
+)
+call :list_reverse "!rlAcc!"
+goto :eof
+:pa_wrlines
+call :hp_car "%~3"
+set "wlF=!R:~2!"
+call :hp_cdr "%~3"
+call :hp_car "!R!"
+set "wlL=!R!"
+break > "!wlF!"
+:pa_wl_loop
+if "!wlL!"=="NIL" set "R=S:t" & goto :eof
+call :hp_car "!wlL!"
+set "wlLine=!R:~2!"
+call :wl_emit "!wlF!"
+call :hp_cdr "!wlL!"
+set "wlL=!R!"
+goto pa_wl_loop
+:wl_emit
+rem redirect-first + delayed !var! so line content isn't re-scanned for redirs
+>>"%~1" echo(!wlLine!
+goto :eof
 :pa_fex
 call :hp_car "%~3"
 set "fexP=!R:~2!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
+goto :eof
+:pa_strapp
+set "saS=" & set "saL=%~3"
+:pa_sa_loop
+if "!saL!"=="NIL" set "R=T:!saS!" & goto :eof
+call :hp_car "!saL!"
+set "saV=!R!" & set "saS=!saS!!saV:~2!"
+call :hp_cdr "!saL!"
+set "saL=!R!"
+goto pa_sa_loop
+:pa_strlen
+call :hp_car "%~3"
+set "slS=!R:~2!" & set "slN=0"
+:pa_sl_loop
+call set "slC=%%slS:~!slN!,1%%"
+if "!slC!"=="" set "R=I:!slN!" & goto :eof
+set /a slN+=1
+goto pa_sl_loop
+:pa_substr
+call :hp_car "%~3"
+set "ssS=!R:~2!"
+call :hp_cdr "%~3"
+call :hp_car "!R!"
+set "ssO=!R:~2!"
+call :hp_cdr "%~3"
+call :hp_cdr "!R!"
+call :hp_car "!R!"
+set "ssN=!R:~2!"
+call set "R=T:%%ssS:~!ssO!,!ssN!%%"
+goto :eof
+:pa_sym2str
+call :hp_car "%~3" & set "R=T:!R:~2!"
+goto :eof
+:pa_str2sym
+call :hp_car "%~3" & set "R=S:!R:~2!"
+goto :eof
+:pa_num2str
+call :hp_car "%~3" & set "R=T:!R:~2!"
+goto :eof
+:pa_str2num
+call :hp_car "%~3" & set "R=I:!R:~2!"
 goto :eof
 :pa_cons
 call :hp_car "%~3"
@@ -904,7 +1049,17 @@ call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 call :env_define "!GLOBAL!" "S:eval" "R:eval"
 call :env_define "!GLOBAL!" "S:print" "R:print"
 call :env_define "!GLOBAL!" "S:file-exists?" "R:file-exists?"
+call :env_define "!GLOBAL!" "S:string-append" "R:string-append"
+call :env_define "!GLOBAL!" "S:string-length" "R:string-length"
+call :env_define "!GLOBAL!" "S:substring" "R:substring"
+call :env_define "!GLOBAL!" "S:symbol->string" "R:symbol->string"
+call :env_define "!GLOBAL!" "S:string->symbol" "R:string->symbol"
+call :env_define "!GLOBAL!" "S:number->string" "R:number->string"
+call :env_define "!GLOBAL!" "S:string->number" "R:string->number"
+call :env_define "!GLOBAL!" "S:read-lines" "R:read-lines"
+call :env_define "!GLOBAL!" "S:write-lines" "R:write-lines"
 call :env_define "!GLOBAL!" "S:run" "F:run"
+call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
 call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
 goto :eof

@@ -46,7 +46,9 @@ above it is Lisp, written **once**, and run identically by both hosts:
 
 - **Kernel (bilingual, small):** a `vau`/`eval` core — operatives instead of a
   special-form table — plus a cons heap, environment, and primitives
-  (`cons`/`car`/`cdr`, arithmetic, `eval`/`wrap`, `run`, `file-exists?`, …).
+  (`cons`/`car`/`cdr`, arithmetic, `eval`/`wrap`, `run`/`run-capture`, strings
+  (`string-append`/`substring`/…), line I/O (`read-lines`/`write-lines`),
+  `file-exists?`, …).
   Cons cells are scalar shell variables: `eval`'d dynamic names (`H_i_a`) in
   `sh`, `CAR_i`/`CDR_i` in batch.
 - **Userspace (shared, written once in Lisp):** apart from a tiny reader
@@ -150,6 +152,9 @@ shared userspace prelude. Verified on `dash`/`bash` and on real Windows
 | fact    | recursion/if/`<`   | 720    |
 | rest    | rest args          | (1 2 3 4) |
 | fexpr   | user-defined `vau` | 100    |
+| string  | string literal     | hello world |
+| strings | string primitives  | foobarbaz/5/world/… |
+| ioline  | write/read-lines + run-capture | alpha/beta/5/cap-line |
 
 Tests: `tests/kernel.sh` (sh kernel, local), `tests/weave.sh` (woven file as sh,
 local), `tests/kernel-cmd.sh` (batch kernel on the VM, `PORTSH_WIN_SSH=...`).
@@ -158,6 +163,18 @@ Running commands: `(run tok ...)` renders its unevaluated operands into a
 command line and executes it on the host shell — `(run echo hi)`, `(run gcc -o
 foo foo.c)` — returning the exit code. `(file-exists? "path")` returns `t`/`()`
 for build conditionals. See `examples/build.lisp`.
+
+Text & I/O: strings are first-class — `string-append`, `string-length`,
+`substring`, and the `symbol`/`number`/`string` converters compute strings
+directly. Because a host shell variable can't hold a newline, **a string is a
+single line** and multi-line text is a *list of line-strings*; I/O is therefore
+line-oriented: `(read-lines "path")` → list of lines, `(write-lines "path"
+lines)` writes them, and `(run-capture cmd …)` runs a command and returns its
+stdout as a line list (vs. `run`, which streams to the console and returns the
+exit code). All verified identical on `sh` and real `cmd.exe`. (Batch caveats,
+both from `for /f`: a blank line and a line beginning with `;` are dropped by
+`read-lines`/`run-capture` — fine for typical line data, divergent for files
+that rely on either.)
 
 Syntax parity: the readers agree on both hosts — `'x` quote-shorthand, `;`
 line comments (inline and full-line), and `"..."` string literals all parse
@@ -171,10 +188,9 @@ Performance: the batch kernel uses a variable-based heap (O(1) `cons`/`car`/
 deeply recursive numeric code is still slow on `cmd` (each step is many `cmd`
 `call`s) — fine, since speed was never the goal. The `sh` kernel is fast.
 
-Open next: the high-value gap is **text** — string primitives
-(`string-append`/`substring`/`string-length`/`string-split`), a path helper,
-whole-file I/O (`read-file`/`write-file`), and `run-capture` (capture a
-command's stdout into a string). Today there's no way to *compute* a string,
-which is the main thing an installer/templating tool needs. Deliberately *not*
-planned: streaming, file descriptors, byte-level I/O — portsh is a text
-language and delegates binary/streaming to `(run …)` + the host shell.
+Open next: the text core landed (strings + line I/O + `run-capture`), so the
+gap is now **userspace ergonomics on top of it** — a `string-split`/`string-join`
+pair, `path-join`, `starts-with?`/`contains?`, and a small templating helper —
+all writable in plain Lisp in `stdlib.lisp`, no kernel work. Deliberately *not*
+planned: streaming, file descriptors, byte-level I/O — portsh is a line-oriented
+text language and delegates binary/streaming to `(run …)` + the host shell.

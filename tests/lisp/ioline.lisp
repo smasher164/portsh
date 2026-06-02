@@ -1,0 +1,6 @@
+(write-lines "portsh_io_fixture.txt" (list "alpha" "beta" "gamma"))
+(define ls (read-lines "portsh_io_fixture.txt"))
+(print (car ls))
+(print (car (cdr ls)))
+(print (string-length (car (cdr (cdr ls)))))
+(print (car (run-capture echo cap-line)))
