@@ -24,10 +24,10 @@ set "MK=!MK!_PAYLOAD__"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 || goto after_payload
 for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do set "MLINE=%%n" & goto load_payload
 :load_payload
-for /f "usebackq skip=%MLINE% eol=; delims=" %%L in ("%~f0") do set "SRC=!SRC! %%L"
+for /f "usebackq skip=%MLINE% delims=" %%L in ("%~f0") do (set "ln=%%L" & call :addsrc)
 :after_payload
 if "%~1"=="" goto run_it
-for /f "usebackq eol=; delims=" %%L in ("%~1") do set "SRC=!SRC! %%L"
+for /f "usebackq delims=" %%L in ("%~1") do (set "ln=%%L" & call :addsrc)
 :run_it
 set "SP=0" & set "DEPTH=0"
 call :run_forms
@@ -41,9 +41,14 @@ if "!SRC!"=="" goto :eof
 set "ch=!SRC:~0,1!"
 if "!ch!"=="(" goto rf_open
 if "!ch!"==")" goto rf_close
+if "!ch!"=="'" goto rf_quote
 set "chq=!ch:"=!"
 if "!chq!"=="" goto rf_string
 goto rf_atom
+:rf_quote
+rem 'x -> (quote x): push a quote-marker; apply_quotes wraps the next datum
+set "ST_!SP!=QM" & set /a SP+=1 & set "SRC=!SRC:~1!"
+goto rf_loop
 :rf_string
 rem string literal "..." -> T:...  (quote detected by removing " and testing empty)
 set "SRC=!SRC:~1!"
@@ -107,11 +112,30 @@ set "acc=!R!"
 goto rl_loop
 
 :emit_top
+call :apply_quotes
 if !DEPTH! GTR 0 goto et_push
-call :ev 1 "%~1" "!GLOBAL!"
+call :ev 1 "!R!" "!GLOBAL!"
 goto :eof
 :et_push
-set "ST_!SP!=%~1" & set /a SP+=1
+set "ST_!SP!=!R!" & set /a SP+=1
+goto :eof
+:apply_quotes
+rem while a quote-marker sits on top of the stack, wrap R as (quote R)
+:aq_loop
+if "!SP!"=="0" goto :eof
+set /a aqsp=SP-1
+call set "aqtop=%%ST_!aqsp!%%"
+if not "!aqtop!"=="QM" goto :eof
+set "SP=!aqsp!"
+call :hp_cons "!R!" "NIL"
+call :hp_cons "S:quote" "!R!"
+goto aq_loop
+
+:addsrc
+rem append a source line to SRC, stripping a ';' line comment. for/f delims=;
+rem keeps the code before the first ';' and preserves string literals; only a
+rem ';' INSIDE a string is mishandled (rare).
+for /f "tokens=1 delims=;" %%C in ("!ln!") do set "SRC=!SRC! %%C"
 goto :eof
 
 rem ===================== heap (variables: CAR_i / CDR_i) =====================

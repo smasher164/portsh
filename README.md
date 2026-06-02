@@ -157,15 +157,24 @@ local), `tests/kernel-cmd.sh` (batch kernel on the VM, `PORTSH_WIN_SSH=...`).
 Running commands: `(run tok ...)` renders its unevaluated operands into a
 command line and executes it on the host shell — `(run echo hi)`, `(run gcc -o
 foo foo.c)` — returning the exit code. `(file-exists? "path")` returns `t`/`()`
-for build conditionals, and `"..."` string literals work on both hosts. See
-`examples/build.lisp`.
+for build conditionals. See `examples/build.lisp`.
+
+Syntax parity: the readers agree on both hosts — `'x` quote-shorthand, `;`
+line comments (inline and full-line), and `"..."` string literals all parse
+identically on `sh` and `cmd`. (The one batch corner: a `;` *inside* a string
+literal is treated as a comment; rare, and the only known reader divergence.)
 
 Performance: the batch kernel uses a variable-based heap (O(1) `cons`/`car`/
-`cdr`/`set-car`) and move-to-front environment lookup. That's plenty for build
-scripts; deeply recursive numeric code is still slow on `cmd` (each step is many
-`cmd` `call`s) — fine, since speed was never the goal. The `sh` kernel is fast.
+`cdr`/`set-car`/`set-cdr`) and inlines the heap accessors in the hot paths
+(`env_lookup`/`ev`/`eval_list`/`combine_oper`), with move-to-front lookup —
+`fact(6)` on real `cmd` went 33s → ~18s. That's plenty for build scripts;
+deeply recursive numeric code is still slow on `cmd` (each step is many `cmd`
+`call`s) — fine, since speed was never the goal. The `sh` kernel is fast.
 
-Open next: file-I/O primitives (`read-file`/`write-file` — multi-line content
-is awkward in a batch variable); a richer stdlib; faster global lookup if
-needed. `(run …)`, `(file-exists? …)`, and `"..."` strings all work on both
-hosts today.
+Open next: the high-value gap is **text** — string primitives
+(`string-append`/`substring`/`string-length`/`string-split`), a path helper,
+whole-file I/O (`read-file`/`write-file`), and `run-capture` (capture a
+command's stdout into a string). Today there's no way to *compute* a string,
+which is the main thing an installer/templating tool needs. Deliberately *not*
+planned: streaming, file descriptors, byte-level I/O — portsh is a text
+language and delegates binary/streaming to `(run …)` + the host shell.

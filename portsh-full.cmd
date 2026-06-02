@@ -369,10 +369,10 @@ set "MK=!MK!_PAYLOAD__"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 || goto after_payload
 for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do set "MLINE=%%n" & goto load_payload
 :load_payload
-for /f "usebackq skip=%MLINE% eol=; delims=" %%L in ("%~f0") do set "SRC=!SRC! %%L"
+for /f "usebackq skip=%MLINE% delims=" %%L in ("%~f0") do (set "ln=%%L" & call :addsrc)
 :after_payload
 if "%~1"=="" goto run_it
-for /f "usebackq eol=; delims=" %%L in ("%~1") do set "SRC=!SRC! %%L"
+for /f "usebackq delims=" %%L in ("%~1") do (set "ln=%%L" & call :addsrc)
 :run_it
 set "SP=0" & set "DEPTH=0"
 call :run_forms
@@ -386,9 +386,14 @@ if "!SRC!"=="" goto :eof
 set "ch=!SRC:~0,1!"
 if "!ch!"=="(" goto rf_open
 if "!ch!"==")" goto rf_close
+if "!ch!"=="'" goto rf_quote
 set "chq=!ch:"=!"
 if "!chq!"=="" goto rf_string
 goto rf_atom
+:rf_quote
+rem 'x -> (quote x): push a quote-marker; apply_quotes wraps the next datum
+set "ST_!SP!=QM" & set /a SP+=1 & set "SRC=!SRC:~1!"
+goto rf_loop
 :rf_string
 rem string literal "..." -> T:...  (quote detected by removing " and testing empty)
 set "SRC=!SRC:~1!"
@@ -452,11 +457,30 @@ set "acc=!R!"
 goto rl_loop
 
 :emit_top
+call :apply_quotes
 if !DEPTH! GTR 0 goto et_push
-call :ev 1 "%~1" "!GLOBAL!"
+call :ev 1 "!R!" "!GLOBAL!"
 goto :eof
 :et_push
-set "ST_!SP!=%~1" & set /a SP+=1
+set "ST_!SP!=!R!" & set /a SP+=1
+goto :eof
+:apply_quotes
+rem while a quote-marker sits on top of the stack, wrap R as (quote R)
+:aq_loop
+if "!SP!"=="0" goto :eof
+set /a aqsp=SP-1
+call set "aqtop=%%ST_!aqsp!%%"
+if not "!aqtop!"=="QM" goto :eof
+set "SP=!aqsp!"
+call :hp_cons "!R!" "NIL"
+call :hp_cons "S:quote" "!R!"
+goto aq_loop
+
+:addsrc
+rem append a source line to SRC, stripping a ';' line comment. for/f delims=;
+rem keeps the code before the first ';' and preserves string literals; only a
+rem ';' INSIDE a string is mishandled (rare).
+for /f "tokens=1 delims=;" %%C in ("!ln!") do set "SRC=!SRC! %%C"
 goto :eof
 
 rem ===================== heap (variables: CAR_i / CDR_i) =====================
@@ -885,30 +909,30 @@ call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
 goto :eof
 __PORTSH_PAYLOAD__
+;;; portsh standard library — plain userspace Lisp on top of the kernel.
+;;; Loaded at boot in the "full" distribution (portsh-full.cmd). Everything
+;;; here is written with kernel primitives + the minimal prelude only.
+;;;
+;;; Primitives available (from the kernel + prelude):
+;;;   operatives : vau define if quote lambda
+;;;   applicative: cons car cdr eq? null? atom? + - * < = wrap unwrap eval
+;;;                print run file-exists? list
+;;; Notes / deliberate gaps in the kernel this stdlib must respect:
+;;;   - binary - < =, no / and no mod, no >  (we derive > >= <= here)
+;;;   - no string primitives (no length/concat/substring) -> out of scope
+;;;   - eq? compares the underlying tagged value, so it works for symbols,
+;;;     integers, nil, t, and identity of pairs (same cell).
+;;;
+;;; Organization (top to bottom): booleans, list accessors, list construction
+;;; & length, list query/access (nth/member/assoc/take/drop), higher-order
+;;; (map/filter/fold/apply/compose/for-each), numeric (min/max/abs),
+;;; comparison derivatives, and control-flow operatives (and/or/when/cond/
+;;; let/let*/case).
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+;;; ------------------------------------------------------------------ booleans
 (define not (lambda (x) (if x nil t)))
 
-
+;;; ----------------------------------------------------------- list accessors
 (define cadr   (lambda (x) (car (cdr x))))
 (define caddr  (lambda (x) (car (cdr (cdr x)))))
 (define cddr   (lambda (x) (cdr (cdr x))))
@@ -916,71 +940,71 @@ __PORTSH_PAYLOAD__
 (define caar   (lambda (x) (car (car x))))
 (define cadar  (lambda (x) (car (cdr (car x)))))
 
-
+;;; -------------------------------------------------- list construction/length
 (define last (lambda (xs) (if (null? (cdr xs)) (car xs) (last (cdr xs)))))
-(define begin (lambda args (last args)))             
+(define begin (lambda args (last args)))             ; eval args L-to-R, return last
 (define length (lambda (xs) (if (null? xs) 0 (+ 1 (length (cdr xs))))))
 (define append (lambda (a b) (if (null? a) b (cons (car a) (append (cdr a) b)))))
 (define reverse (lambda (xs) (if (null? xs) nil (append (reverse (cdr xs)) (cons (car xs) nil)))))
 
-
-
+;;; ----------------------------------------------- list access / query helpers
+;; list-tail: drop the first n cells, return the rest of the list.
 (define list-tail (lambda (xs n) (if (= n 0) xs (list-tail (cdr xs) (- n 1)))))
-
+;; nth: 0-indexed element.
 (define nth (lambda (xs n) (car (list-tail xs n))))
-
+;; take/drop: first n / all-but-first n.
 (define take (lambda (xs n) (if (= n 0) nil (if (null? xs) nil (cons (car xs) (take (cdr xs) (- n 1)))))))
 (define drop list-tail)
-
+;; member?: t if x is in xs (uses eq?, i.e. symbol/int/nil identity).
 (define member? (lambda (x xs)
   (if (null? xs) nil
     (if (eq? x (car xs)) t (member? x (cdr xs))))))
-
+;; assoc: find (key . val) pair in an alist by eq? on the key; nil if absent.
 (define assoc (lambda (k al)
   (if (null? al) nil
     (if (eq? k (caar al)) (car al) (assoc k (cdr al))))))
 
-
+;;; ------------------------------------------------------------- higher-order
 (define map (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map f (cdr xs))))))
-
+;; map2: map a binary fn over two equal-length lists (zipping fn).
 (define map2 (lambda (f xs ys)
   (if (null? xs) nil
     (cons (f (car xs) (car ys)) (map2 f (cdr xs) (cdr ys))))))
-
+;; zip: list of (x . y) pairs from two lists.
 (define zip (lambda (xs ys) (map2 cons xs ys)))
 (define filter (lambda (p xs)
   (if (null? xs) nil
     (if (p (car xs)) (cons (car xs) (filter p (cdr xs))) (filter p (cdr xs))))))
 (define foldl (lambda (f acc xs) (if (null? xs) acc (foldl f (f acc (car xs)) (cdr xs)))))
-
+;; foldr: right fold. (foldr f z (a b c)) = (f a (f b (f c z))).
 (define foldr (lambda (f z xs) (if (null? xs) z (f (car xs) (foldr f z (cdr xs))))))
-
+;; for-each: like map but for side effects (run/print); returns nil.
 (define for-each (lambda (f xs) (if (null? xs) nil (begin (f (car xs)) (for-each f (cdr xs))))))
-
-
-
+;; apply: call applicative f on a list of already-evaluated args.
+;;   built by consing f onto the (quoted) arg list and evaluating it; the
+;;   args are quoted so they pass through unchanged (they're already values).
 (define apply (vau (f args) env
   (eval (cons (eval f env)
               (map (lambda (a) (list (quote quote) a)) (eval args env)))
         env)))
-
+;; compose: (compose f g) is the fn x -> (f (g x)).
 (define compose (lambda (f g) (lambda (x) (f (g x)))))
 
-
+;;; --------------------------------------------- comparison derivatives (< =)
 (define <= (lambda (a b) (if (< a b) t (= a b))))
 (define >  (lambda (a b) (< b a)))
 (define >= (lambda (a b) (<= b a)))
 
-
+;;; ----------------------------------------------------------------- numeric
 (define abs (lambda (n) (if (< n 0) (- 0 n) n)))
 (define max (lambda (a b) (if (< a b) b a)))
 (define min (lambda (a b) (if (< a b) a b)))
-
+;; sum/product over a list (handy for counting build steps, etc.)
 (define sum     (lambda (xs) (foldl + 0 xs)))
 (define product (lambda (xs) (foldl * 1 xs)))
 
-
-
+;;; --------------------------------------------- control-flow operatives (vau)
+;; and/or RETURN THE VALUE (not just t) and short-circuit.
 (define and (vau args env
   (if (null? args) t
     (if (null? (cdr args)) (eval (car args) env)
@@ -996,13 +1020,13 @@ __PORTSH_PAYLOAD__
         (eval (cons (quote begin) (cdr (car clauses))) env)
         (eval (cons (quote cond) (cdr clauses)) env)))))
 
-
+;; let: ((x a) (y b)) body...  ->  ((lambda (x y) body...) a b)
 (define let (vau args env
   (eval (cons (cons (quote lambda) (cons (map car (car args)) (cdr args)))
               (map cadr (car args)))
         env)))
-
-
+;; let*: sequential binding — each binding sees the previous ones. Expands to
+;; nested single-binding lets.
 (define let* (vau args env
   (eval (if (null? (car args))
             (cons (quote begin) (cdr args))
@@ -1013,10 +1037,10 @@ __PORTSH_PAYLOAD__
                               nil))))
         env)))
 
-
-
-
-
+;; case: (case key (datum body...) ... (else body...)) — dispatch on eq? to a
+;; literal datum. The key is evaluated once; clause data are unevaluated
+;; literals (Scheme style: write `(case x (foo 1) (2 'two) (else ...))`, not
+;; `(case x ('foo 1) ...)`). `else` matches anything.
 (define case (vau args env
   ((lambda (k)
      (eval (cons (quote cond)

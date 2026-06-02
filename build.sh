@@ -31,10 +31,9 @@ perl -pe 's/\r?\n/\r\n/' "$tmp" > portsh.cmd   # normalise everything to CRLF (b
 rm -f "$tmp"
 echo "built portsh.cmd ($(wc -c < portsh.cmd) bytes)"
 
-# full distribution = bare interpreter + stdlib appended past the marker (loads at
-# boot). Strip ';' comments from the stdlib here (the batch reader works on a
-# newline-flattened SRC, so it can't strip inline comments itself).
+# full distribution = bare interpreter + stdlib appended past the marker (loads
+# at boot). Comments are kept verbatim now — both readers strip ';' themselves.
 if [ -f src/stdlib.lisp ]; then
-  { cat portsh.cmd; perl -pe 's/;.*//' src/stdlib.lisp; } | perl -pe 's/\r?\n/\r\n/' > portsh-full.cmd
+  { cat portsh.cmd; cat src/stdlib.lisp; } | perl -pe 's/\r?\n/\r\n/' > portsh-full.cmd
   echo "built portsh-full.cmd ($(wc -c < portsh-full.cmd) bytes)"
 fi
