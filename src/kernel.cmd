@@ -15,10 +15,12 @@ rem Boot order: minimal prelude -> embedded Lisp after the marker (stdlib and/or
 rem program) -> file-arg program. MK is built from fragments so the literal
 rem never appears here (the self-scan would match the kernel, not the baked-in
 rem final-line marker).
-set "SRC="
-set "SRC=!SRC! (define quote (vau (x) #ignore x))"
-set "SRC=!SRC! (define list (wrap (vau args #ignore args)))"
-set "SRC=!SRC! (define lambda (vau p env (wrap (eval (cons (quote vau) (cons (car p) (cons (quote #ignore) (cdr p)))) env))))"
+rem Feed source ONE LINE AT A TIME through :addsrc (strip + drain). The reader
+rem keeps only the current line in SRC, so the char-at-a-time advance stays
+rem O(line) and parsing is O(n) — not the O(n^2) of walking one giant SRC. The
+rem parse stack (ST_/SP/DEPTH) persists across calls, so multi-line forms work.
+set "SP=0" & set "DEPTH=0"
+rem quote/list/lambda are kernel primitives now (no prelude to parse each boot).
 set "MK=__PORTSH"
 set "MK=!MK!_PAYLOAD__"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 || goto after_payload
@@ -26,11 +28,9 @@ for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do set "MLINE=%%n" & go
 :load_payload
 for /f "usebackq skip=%MLINE% delims=" %%L in ("%~f0") do (set "ln=%%L" & call :addsrc)
 :after_payload
-if "%~1"=="" goto run_it
+if "%~1"=="" goto done_boot
 for /f "usebackq delims=" %%L in ("%~1") do (set "ln=%%L" & call :addsrc)
-:run_it
-set "SP=0" & set "DEPTH=0"
-call :run_forms
+:done_boot
 exit /b 0
 
 rem ============================ reader (iterative) ============================
@@ -97,11 +97,11 @@ set "t=!tok!"
 if "!t!"=="" set "R=S:" & goto :eof
 set "c0=!t:~0,1!"
 set "isnum=0"
-for %%d in (0 1 2 3 4 5 6 7 8 9) do if "!c0!"=="%%d" set "isnum=1"
-rem negative integer literal: '-' followed by a digit is a number (bare '-' and
-rem '-foo' stay symbols). Matches the sh reader, which reads -1 as I:-1, not the
-rem symbol -1 — otherwise negative literals are unbound symbols on batch only.
-if "!c0!"=="-" for %%d in (0 1 2 3 4 5 6 7 8 9) do if "!t:~1,1!"=="%%d" set "isnum=1"
+rem digit classify via geq/leq (2 cmds) instead of a 10-iteration for-loop per
+rem atom. A leading '-' followed by a digit is a number (bare '-' and '-foo' stay
+rem symbols), matching the sh reader (which reads -1 as I:-1, not the symbol -1).
+if "!c0!" geq "0" if "!c0!" leq "9" set "isnum=1"
+if "!c0!"=="-" if "!t:~1,1!" geq "0" if "!t:~1,1!" leq "9" set "isnum=1"
 if "!isnum!"=="1" (set "R=I:!t!") else (set "R=S:!t!")
 goto :eof
 
@@ -137,16 +137,16 @@ call :hp_cons "S:quote" "!R!"
 goto aq_loop
 
 :addsrc
-rem Append a source line to SRC, stripping a ';' line comment in a STRING-AWARE
-rem way so a ';' INSIDE a string literal survives (matching the sh reader). The
-rem cut must happen per-line: SRC joins lines, so a comment's end-of-line
-rem boundary is only knowable here. Fast path: a line with no ';' is kept whole
-rem (the common case); only lines containing ';' are scanned char by char,
-rem toggling in-string state on '"' and cutting at the first ';' outside a
-rem string. Comment lines hit that ';' almost immediately, so the scan is cheap.
+rem Feed ONE line: strip its ';' comment (string-aware, so a ';' inside a "..."
+rem survives — matching the sh reader), put just that line + a trailing space in
+rem SRC, and drain it through the reader (goto rf_loop; the reader returns via
+rem goto :eof when SRC empties). SRC holds at most one line, so the char advance
+rem stays O(line) and parsing is O(n), not O(n^2). The parse stack persists
+rem across calls, so multi-line forms work. Fast path: a line with no ';' skips
+rem the char scan; comment lines hit the ';' almost immediately.
 set "asLn=!ln!"
 set "asTest=!asLn:;=!"
-if "!asTest!"=="!asLn!" set "SRC=!SRC! !asLn!" & goto :eof
+if "!asTest!"=="!asLn!" set "SRC=!asLn! " & goto rf_loop
 set "asKept=" & set "asIn=0"
 :as_loop
 if "!asLn!"=="" goto as_done
@@ -164,8 +164,8 @@ if "!asIn!"=="0" (set "asIn=1") else (set "asIn=0")
 set "asKept=!asKept!!asC!"
 goto as_loop
 :as_done
-set "SRC=!SRC! !asKept!"
-goto :eof
+set "SRC=!asKept! "
+goto rf_loop
 
 rem ===================== heap (variables: CAR_i / CDR_i) =====================
 :hp_cons
@@ -315,6 +315,8 @@ goto :eof
 :prim_oper
 set "poN=%~2"
 if "!poN!"=="vau" goto po_vau
+if "!poN!"=="quote" goto po_quote
+if "!poN!"=="lambda" goto po_lambda
 if "!poN!"=="define" goto po_define
 if "!poN!"=="if" goto po_if
 if "!poN!"=="run" goto po_run
@@ -376,6 +378,25 @@ call :hp_cons "!poEf!" "!R!"
 call :hp_cons "!poF!" "!R!"
 set "poRes=!R!"
 set "R=O:!poRes:P:=!"
+goto :eof
+:po_quote
+rem (quote x) -> x, unevaluated. Was a prelude macro; a primitive avoids parsing
+rem the prelude every boot.
+call :hp_car "%~3"
+goto :eof
+:po_lambda
+rem (lambda formals . body) -> applicative wrapping a compound operative (a vau
+rem with eformal=#ignore). Primitive form removes the big prelude lambda macro
+rem (the dominant boot cost) and skips macro re-expansion per closure.
+call :hp_car "%~3"
+set "plF=!R!"
+call :hp_cdr "%~3"
+call :hp_cons "!R!" "%~4"
+call :hp_cons "S:#ignore" "!R!"
+call :hp_cons "!plF!" "!R!"
+set "R=O:!R:P:=!"
+call :hp_cons "!R!" "NIL"
+set "R=A:!R:P:=!"
 goto :eof
 :po_define
 call :hp_car "%~3"
@@ -456,6 +477,7 @@ goto es_loop
 rem =========================== primitives (applicative) ===========================
 :prim_app
 set "paN=%~2"
+if "!paN!"=="list" goto pa_list
 if "!paN!"=="cons" goto pa_cons
 if "!paN!"=="car" goto pa_car
 if "!paN!"=="cdr" goto pa_cdr
@@ -633,6 +655,11 @@ goto :eof
 :pa_str2num
 call :hp_car "%~3" & set "R=I:!R:~2!"
 goto :eof
+:pa_list
+rem list returns its already-evaluated args as-is (applicative). Was a prelude
+rem macro; a primitive keeps the prelude empty so boot doesn't parse it.
+set "R=%~3"
+goto :eof
 :pa_cons
 call :hp_car "%~3"
 set "paA1=!R!"
@@ -765,6 +792,9 @@ rem ================================ bootstrap ================================
 call :env_new "NIL"
 set "GLOBAL=!R!"
 call :env_define "!GLOBAL!" "S:vau" "F:vau"
+call :env_define "!GLOBAL!" "S:quote" "F:quote"
+call :env_define "!GLOBAL!" "S:lambda" "F:lambda"
+call :env_define "!GLOBAL!" "S:list" "R:list"
 call :env_define "!GLOBAL!" "S:define" "F:define"
 call :env_define "!GLOBAL!" "S:if" "F:if"
 call :env_define "!GLOBAL!" "S:cons" "R:cons"

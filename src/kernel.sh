@@ -257,6 +257,14 @@ RCEOF
       hp_cons "$eformal" "$r"; r=$R
       hp_cons "$formals" "$r"
       R="O:${R#P:}" ;;
+    quote) hp_car "$ops" ;;                  # (quote x) -> x, unevaluated
+    lambda)                                  # (lambda formals . body) -> applicative
+      hp_car "$ops"; formals=$R              # wrapping a vau with eformal=#ignore
+      hp_cdr "$ops"; body=$R
+      hp_cons "$body" "$denv"; r=$R
+      hp_cons "S:#ignore" "$r"; r=$R
+      hp_cons "$formals" "$r"; r="O:${R#P:}"
+      hp_cons "$r" NIL; R="A:${R#P:}" ;;
     define)
       hp_car "$ops"; sym=$R
       hp_cdr "$ops"; hp_car "$R"; ev "$R" "$denv"
@@ -278,6 +286,7 @@ arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 prim_app() {
   local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv _sep _part
   case $name in
+    list)    R=$args ;;                       # already-evaluated args, as a list
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
     cdr)     arg1 "$args"; hp_cdr "$ARG1" ;;
@@ -358,19 +367,14 @@ write_list() {
 # ---- bootstrap ------------------------------------------------------------
 # Everything here is DEFINED IN LISP, on top of the operative core. None of it
 # lives in the (bilingual) kernel.
-PRELUDE="
-  (define quote  (vau (x) #ignore x))
-  (define list   (wrap (vau args #ignore args)))
-  (define lambda (vau p env
-                   (wrap (eval (cons (quote vau)
-                                     (cons (car p) (cons (quote #ignore) (cdr p))))
-                               env))))
-"
+# quote/list/lambda are kernel primitives (not a parsed prelude) — same as batch,
+# and it skips re-parsing/re-expanding them.
+PRELUDE=""
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if run 'run-capture'; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' wrap unwrap eval print; do
+  for p in vau define if run 'run-capture' quote lambda; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' list wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
