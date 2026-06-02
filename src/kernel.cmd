@@ -98,6 +98,10 @@ if "!t!"=="" set "R=S:" & goto :eof
 set "c0=!t:~0,1!"
 set "isnum=0"
 for %%d in (0 1 2 3 4 5 6 7 8 9) do if "!c0!"=="%%d" set "isnum=1"
+rem negative integer literal: '-' followed by a digit is a number (bare '-' and
+rem '-foo' stay symbols). Matches the sh reader, which reads -1 as I:-1, not the
+rem symbol -1 — otherwise negative literals are unbound symbols on batch only.
+if "!c0!"=="-" for %%d in (0 1 2 3 4 5 6 7 8 9) do if "!t:~1,1!"=="%%d" set "isnum=1"
 if "!isnum!"=="1" (set "R=I:!t!") else (set "R=S:!t!")
 goto :eof
 
