@@ -124,6 +124,8 @@ per-iteration cost further.
   everything else passes through. Verified end-to-end: **compiled on the fast sh
   kernel, the residual runs on real cmd.exe** and returns the right answer by
   executing compiled batch. This is "compile on sh, run on batch."
-- ▢ broaden codegen: calls to *other* functions; cons/list/string via direct
+- ✅ inlining: non-recursive functions are inlined at call sites (removes the
+  external `call`; (g n) with g=x*x becomes (* n n) inline), verified on cmd.
+- ▢ broaden codegen: cons/list/string via direct primitive calls; cons/list/string via direct
   primitive calls (toward covering what `comp` itself needs).
 - ▢ self-hosting: compile `comp` with `comp` → `portshc.cmd`.

@@ -120,6 +120,38 @@
 (define resid-bind (lambda (nm)
   (list (quote define) nm (list (quote make-compiled) (list (quote symbol->string) (list (quote quote) nm))))))
 
+;;; ------------------------------------------------ inlining (small non-recursive fns)
+;; Inlining a function's body at the call site removes the external `call` (the
+;; dominant per-iteration cost), so e.g. (g n) with g=(lambda (x) (* x x)) becomes
+;; (* n n). Only NON-recursive define-lambdas are inlined (recursive ones stay
+;; loops). Args are substituted directly; a complex arg used twice is duplicated
+;; (fine for simple args — the common case).
+(define subst (lambda (s v tree)
+  (cond ((eq? tree s) v)
+        ((pair? tree) (cons (subst s v (car tree)) (subst s v (cdr tree))))
+        (t tree))))
+(define subst* (lambda (ps as body)
+  (if (null? ps) body (subst* (cdr ps) (cdr as) (subst (car ps) (car as) body)))))
+(define refs? (lambda (s tree)
+  (cond ((eq? tree s) t) ((pair? tree) (if (refs? s (car tree)) t (refs? s (cdr tree)))) (t nil))))
+(define inline-expr (lambda (e tbl)
+  (if (pair? e)
+    (let ((ent (assoc (car e) tbl)))
+      (if (null? ent)
+        (cons (car e) (map (lambda (a) (inline-expr a tbl)) (cdr e)))
+        (inline-expr (subst* (cadr ent) (map (lambda (a) (inline-expr a tbl)) (cdr e)) (caddr ent)) tbl)))
+    e)))
+(define mk-tbl (lambda (forms)
+  (if (null? forms) nil
+    (if (if (def-lambda? (car forms)) (not (refs? (cadr (car forms)) (caddr (caddr (car forms))))) nil)
+      (cons (list (cadr (car forms)) (cadr (caddr (car forms))) (caddr (caddr (car forms)))) (mk-tbl (cdr forms)))
+      (mk-tbl (cdr forms))))))
+(define inline-form (lambda (f tbl)
+  (if (def-lambda? f)
+    (list (quote define) (cadr f) (list (quote lambda) (cadr (caddr f)) (inline-expr (caddr (caddr f)) tbl)))
+    (inline-expr f tbl))))
+(define inline-program (lambda (forms) (let ((tbl (mk-tbl forms))) (map (lambda (f) (inline-form f tbl)) forms))))
+
 ;; compile-program: forms + two output paths -> writes the batch subs to cmdpath
 ;; and the residual program to lisppath. Each compilable (define f (lambda ...))
 ;; becomes a compiled sub + a make-compiled binding; everything else passes
@@ -134,4 +166,4 @@
           (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath)
       (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath)))))
 (define compile-program (lambda (forms cmdpath lisppath)
-  (cp forms dispatch-header nil cmdpath lisppath)))
+  (cp (inline-program forms) dispatch-header nil cmdpath lisppath)))
