@@ -151,27 +151,56 @@ env_lookup() {
   die "unbound symbol: ${sym#S:}"
 }
 
-# ---- evaluator: evaluate operator, then combine ---------------------------
+# ---- evaluator: an explicit loop, so tail calls don't grow the host stack ---
+# Self-evaluating values and symbol lookup return immediately. For a combination
+# we evaluate the combiner, then dispatch in an inner loop: applicatives unwrap
+# (and loop) after evaluating operands; primitives return; but the two TAIL
+# positions — the chosen branch of `if`, and the last form of a compound
+# operative's body — set x/env and `continue` the OUTER loop instead of
+# recursing. That gives unbounded tail recursion (loops/foldl) in constant host
+# stack, and skips a frame per tail call.
 ev() {
-  local x=$1 env=$2 c
-  case $x in
-    NIL)                         R=NIL ;;
-    I:*|T:*|F:*|R:*|O:*|A:*)     R=$x ;;
-    S:*)                         env_lookup "$env" "$x" ;;
-    P:*) hp_car "$x"; ev "$R" "$env"; c=$R
-         hp_cdr "$x"; combine "$c" "$R" "$env" ;;
-    *) die "cannot evaluate: $x" ;;
-  esac
-}
-
-ev_seq() {
-  local lst=$1 env=$2 e val=NIL
-  while [ "$lst" != NIL ]; do
-    hp_car "$lst"; e=$R
-    ev "$e" "$env"; val=$R
-    hp_cdr "$lst"; lst=$R
+  local x=$1 env=$2 c operands w r ne formals eformal body senv tv
+  while :; do
+    case $x in
+      S:*) env_lookup "$env" "$x"; return ;;
+      P:*) ;;
+      *)   R=$x; return ;;            # NIL, I:, T:, F:, R:, O:, A: self-evaluate
+    esac
+    hp_car "$x"; ev "$R" "$env"; c=$R     # evaluate the combiner (not tail)
+    hp_cdr "$x"; operands=$R
+    while :; do
+      case $c in
+        R:*) eval_list "$operands" "$env"; prim_app "${c#R:}" "$R"; return ;;
+        A:*) hp_car "P:${c#A:}"; w=$R
+             eval_list "$operands" "$env"; operands=$R; c=$w ;;     # unwrap, loop
+        F:*) case $c in
+               'F:if') hp_car "$operands"; ev "$R" "$env"; tv=$R
+                       hp_cdr "$operands"; r=$R
+                       if [ "$tv" = NIL ]; then hp_cdr "$r"; hp_car "$R"; else hp_car "$r"; fi
+                       x=$R; break ;;                              # tail -> outer loop
+               *) prim_oper "${c#F:}" "$operands" "$env"; return ;;
+             esac ;;
+        O:*) r="P:${c#O:}"
+             hp_car "$r"; formals=$R
+             hp_cdr "$r"; r=$R; hp_car "$r"; eformal=$R
+             hp_cdr "$r"; r=$R; hp_car "$r"; body=$R
+             hp_cdr "$r"; senv=$R
+             env_new "$senv"; ne=$R
+             bind_tree "$ne" "$formals" "$operands"
+             case $eformal in 'S:#ignore') ;; *) env_define "$ne" "$eformal" "$env" ;; esac
+             [ "$body" = NIL ] && { R=NIL; return; }
+             while :; do                                          # eval body
+               hp_cdr "$body"; r=$R
+               [ "$r" = NIL ] && break                           # ...last form is tail
+               hp_car "$body"; ev "$R" "$ne"
+               body=$r
+             done
+             hp_car "$body"; x=$R; env=$ne; break ;;             # tail -> outer loop
+        *) die "not combinable: $c" ;;
+      esac
+    done
   done
-  R=$val
 }
 
 eval_list() {                    # map ev over a list -> R = list of values
@@ -180,32 +209,6 @@ eval_list() {                    # map ev over a list -> R = list of values
   hp_car "$lst"; e=$R; ev "$e" "$env"; e=$R
   hp_cdr "$lst"; eval_list "$R" "$env"; rest=$R
   hp_cons "$e" "$rest"
-}
-
-combine() {                      # combiner operands dynenv -> R
-  local c=$1 operands=$2 denv=$3 w args
-  case $c in
-    F:*) prim_oper "${c#F:}" "$operands" "$denv" ;;
-    R:*) eval_list "$operands" "$denv"; prim_app "${c#R:}" "$R" ;;
-    A:*) hp_car "P:${c#A:}"; w=$R
-         eval_list "$operands" "$denv"; args=$R
-         combine "$w" "$args" "$denv" ;;
-    O:*) combine_oper "$c" "$operands" "$denv" ;;
-    *) die "not combinable: $c" ;;
-  esac
-}
-
-combine_oper() {                 # O:idx operands dynenv
-  local c=$1 operands=$2 denv=$3 cell formals eformal body senv ne r
-  cell="P:${c#O:}"
-  hp_car "$cell"; formals=$R
-  hp_cdr "$cell"; r=$R; hp_car "$r"; eformal=$R
-  hp_cdr "$r"; r=$R; hp_car "$r"; body=$R
-  hp_cdr "$r"; senv=$R
-  env_new "$senv"; ne=$R
-  bind_tree "$ne" "$formals" "$operands"
-  case $eformal in 'S:#ignore') ;; *) env_define "$ne" "$eformal" "$denv" ;; esac
-  ev_seq "$body" "$ne"
 }
 
 bind_tree() {                    # env formals operands  (formals: NIL | symbol-rest | tree)
