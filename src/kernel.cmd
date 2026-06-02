@@ -132,10 +132,34 @@ call :hp_cons "S:quote" "!R!"
 goto aq_loop
 
 :addsrc
-rem append a source line to SRC, stripping a ';' line comment. for/f delims=;
-rem keeps the code before the first ';' and preserves string literals; only a
-rem ';' INSIDE a string is mishandled (rare).
-for /f "tokens=1 delims=;" %%C in ("!ln!") do set "SRC=!SRC! %%C"
+rem Append a source line to SRC, stripping a ';' line comment in a STRING-AWARE
+rem way so a ';' INSIDE a string literal survives (matching the sh reader). The
+rem cut must happen per-line: SRC joins lines, so a comment's end-of-line
+rem boundary is only knowable here. Fast path: a line with no ';' is kept whole
+rem (the common case); only lines containing ';' are scanned char by char,
+rem toggling in-string state on '"' and cutting at the first ';' outside a
+rem string. Comment lines hit that ';' almost immediately, so the scan is cheap.
+set "asLn=!ln!"
+set "asTest=!asLn:;=!"
+if "!asTest!"=="!asLn!" set "SRC=!SRC! !asLn!" & goto :eof
+set "asKept=" & set "asIn=0"
+:as_loop
+if "!asLn!"=="" goto as_done
+set "asC=!asLn:~0,1!"
+set "asLn=!asLn:~1!"
+set "asCq=!asC:"=!"
+if "!asCq!"=="" goto as_quote
+if "!asIn!"=="1" goto as_keep
+if "!asC!"==";" goto as_done
+:as_keep
+set "asKept=!asKept!!asC!"
+goto as_loop
+:as_quote
+if "!asIn!"=="0" (set "asIn=1") else (set "asIn=0")
+set "asKept=!asKept!!asC!"
+goto as_loop
+:as_done
+set "SRC=!SRC! !asKept!"
 goto :eof
 
 rem ===================== heap (variables: CAR_i / CDR_i) =====================
@@ -303,10 +327,17 @@ call :hp_cdr "!rcLst!"
 set "rcLst=!R!"
 goto rc_loop
 :rc_exec
-cmd /c "!rcCmd!" > "%TEMP%\portsh_rc.txt" 2>&1
+rem Redirect-FIRST so NOTHING follows the quoted command. Otherwise the space
+rem before a trailing token (`2>&1`/`|`) is absorbed into the command line and
+rem echo emits a spurious trailing space (a cmd quote-stripping quirk that the
+rem sh capture doesn't have). Capture raw, then prefix every line with "[N]" via
+rem find (keeps blank/';' lines) in a separate step, then iterate.
+> "%TEMP%\portsh_rc1.txt" 2>&1 cmd /c "!rcCmd!"
+type "%TEMP%\portsh_rc1.txt" | find /v /n "" > "%TEMP%\portsh_rc.txt"
 set "rcAcc=NIL"
 for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
-  call :hp_cons "T:%%L" "!rcAcc!"
+  set "rcLn=%%L" & set "rcLn=!rcLn:*]=!"
+  call :hp_cons "T:!rcLn!" "!rcAcc!"
   set "rcAcc=!R!"
 )
 call :list_reverse "!rcAcc!"
@@ -449,8 +480,19 @@ set "R=NIL" & goto :eof
 :pa_rdlines
 call :hp_car "%~3"
 set "rlF=!R:~2!" & set "rlAcc=NIL"
-for /f "usebackq delims=" %%L in ("!rlF!") do (
-  call :hp_cons "T:%%L" "!rlAcc!"
+rem `type file | find /v /n ""` prefixes EVERY line (blanks + ';'-leading
+rem included) with "[N]", so for/f keeps them; !ln:*]=! strips that prefix.
+rem This is what makes read-lines preserve blank/';' lines exactly like the sh
+rem kernel. (find /v /n "" matches all lines; piping via type avoids find's
+rem filename header, and avoids findstr's "^" being eaten in this nested context.)
+rem Run the pipe as a normal redirect FIRST, then iterate the prefixed file with
+rem a plain for/f. A pipe INSIDE for/f deadlocks in this deep call/redirect
+rem context, so the pipe must stand alone. The "[N]" prefix on every line keeps
+rem blank/';'-leading lines visible to for/f; !ln:*]=! strips it back off.
+type "!rlF!" | find /v /n "" > "%TEMP%\portsh_rl.txt"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl.txt") do (
+  set "rlLn=%%L" & set "rlLn=!rlLn:*]=!"
+  call :hp_cons "T:!rlLn!" "!rlAcc!"
   set "rlAcc=!R!"
 )
 call :list_reverse "!rlAcc!"
@@ -491,6 +533,10 @@ goto pa_sa_loop
 :pa_strlen
 call :hp_car "%~3"
 set "slS=!R:~2!" & set "slN=0"
+rem Empty string must be special-cased: `set "slS="` UNSETS slS, and
+rem %slS:~0,1% on an undefined var never yields "", so the scan would loop
+rem forever. (sh's ${#x} has no such trap.)
+if "!slS!"=="" set "R=I:0" & goto :eof
 :pa_sl_loop
 call set "slC=%%slS:~!slN!,1%%"
 if "!slC!"=="" set "R=I:!slN!" & goto :eof

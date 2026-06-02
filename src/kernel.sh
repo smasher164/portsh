@@ -95,12 +95,19 @@ rd_atom() {
 }
 
 rd_string() {
+  # Strings are SINGLE-LINE on both hosts (a batch variable cannot hold a
+  # newline). sh vars happen to tolerate one, so we reject a raw newline here
+  # to keep the language consistent: a multiline string literal fails loudly on
+  # sh exactly as it would mis-parse on batch, instead of silently working on
+  # one host only. Multiline text is a list of line-strings (see read-lines).
   local s=''
   SRC=${SRC#?}
   while :; do
     rd_first
     case $R in
-      '')  break ;;
+      '')  die "unterminated string literal" ;;
+      '
+')   die "newline in string literal (strings are single-line; use a list of lines)" ;;
       '"') SRC=${SRC#?}; break ;;
       *)   s=$s$R; SRC=${SRC#?} ;;
     esac
