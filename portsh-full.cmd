@@ -497,37 +497,36 @@ call :hp_setcar "%~1" "!R!"
 goto :eof
 
 :env_lookup
-rem walk frames; within a frame walk the binding alist. On a hit past the head,
-rem splice the binding to the front (move-to-front) so hot symbols become O(1).
+rem Hot path: heap accessors are INLINED here (no call overhead). Walk frames;
+rem within a frame walk the binding alist; on a hit past the head, splice to
+rem front (move-to-front) so hot symbols settle into a single-set lookup.
 set "elkEnv=%~1" & set "elkSym=%~2"
 :elk_env
 if "!elkEnv!"=="NIL" goto elk_unbound
-call :hp_car "!elkEnv!"
-set "elkB=!R!"
+set "ei=!elkEnv:P:=!"
+set "elkB=!CAR_%ei%!"
 set "elkPrev="
 :elk_b
 if "!elkB!"=="NIL" goto elk_next
-call :hp_car "!elkB!"
-set "elkP=!R!"
-call :hp_car "!elkP!"
-if "!R!"=="!elkSym!" goto elk_found
+set "bi=!elkB:P:=!"
+set "elkP=!CAR_%bi%!"
+set "pi=!elkP:P:=!"
+if "!CAR_%pi%!"=="!elkSym!" goto elk_found
 set "elkPrev=!elkB!"
-call :hp_cdr "!elkB!"
-set "elkB=!R!"
+set "elkB=!CDR_%bi%!"
 goto elk_b
 :elk_next
-call :hp_cdr "!elkEnv!"
-set "elkEnv=!R!"
+set "elkEnv=!CDR_%ei%!"
 goto elk_env
 :elk_found
 if "!elkPrev!"=="" goto elk_val
-call :hp_cdr "!elkB!"
-call :hp_setcdr "!elkPrev!" "!R!"
-call :hp_car "!elkEnv!"
-call :hp_setcdr "!elkB!" "!R!"
+set "elkNext=!CDR_%bi%!"
+call :hp_setcdr "!elkPrev!" "!elkNext!"
+set "elkHead=!CAR_%ei%!"
+call :hp_setcdr "!elkB!" "!elkHead!"
 call :hp_setcar "!elkEnv!" "!elkB!"
 :elk_val
-call :hp_cdr "!elkP!"
+set "R=!CDR_%pi%!"
 goto :eof
 :elk_unbound
 set "elkU=!elkSym:S:=!"
@@ -549,11 +548,11 @@ if "!evPre!"=="S:" call :env_lookup "%~3" "!evX!" & goto :eof
 if "!evPre!"=="P:" goto ev_comb
 set "R=!evX!" & goto :eof
 :ev_comb
-call :hp_car "%~2"
-set /a ND=%1+1 & call :ev !ND! "!R!" "%~3"
+set "eci=%~2" & set "eci=!eci:P:=!"
+set /a ND=%1+1 & call :ev !ND! "!CAR_%eci%!" "%~3"
 set "_%1_c=!R!"
-call :hp_cdr "%~2"
-set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!R!" "%~3"
+set "eci=%~2" & set "eci=!eci:P:=!"
+set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!CDR_%eci%!" "%~3"
 goto :eof
 
 :combine
@@ -585,12 +584,12 @@ goto :eof
 
 :eval_list
 if "%~2"=="NIL" set "R=NIL" & goto :eof
-call :hp_car "%~2"
-set /a ND=%1+1 & call :ev !ND! "!R!" "%~3"
+set "eli=%~2" & set "eli=!eli:P:=!"
+set /a ND=%1+1 & call :ev !ND! "!CAR_%eli%!" "%~3"
 set "_%1_e=!R!"
-call :hp_cdr "%~2"
-set /a ND=%1+1 & call :eval_list !ND! "!R!" "%~3"
-call :hp_cons "!_%1_e!" "!R!"
+set "eli=%~2" & set "eli=!eli:P:=!"
+set /a ND=%1+1 & call :eval_list !ND! "!CDR_%eli%!" "%~3"
+set "CAR_%HN%=!_%1_e!" & set "CDR_%HN%=!R!" & set "R=P:%HN%" & set /a HN+=1
 goto :eof
 
 :prim_oper
@@ -656,20 +655,13 @@ set /a ND=%1+1 & call :ev !ND! "!R!" "%~4"
 goto :eof
 
 :combine_oper
-set "coC=%~2"
-set "coCell=P:!coC:O:=!"
-call :hp_car "!coCell!"
-set "_%1_f=!R!"
-call :hp_cdr "!coCell!"
-set "coR1=!R!"
-call :hp_car "!coR1!"
-set "_%1_ef=!R!"
-call :hp_cdr "!coR1!"
-set "coR2=!R!"
-call :hp_car "!coR2!"
-set "_%1_body=!R!"
-call :hp_cdr "!coR2!"
-set "_%1_senv=!R!"
+set "ci=%~2" & set "ci=!ci:O:=!"
+set "_%1_f=!CAR_%ci%!"
+set "cr1=!CDR_%ci%!" & set "cr1=!cr1:P:=!"
+set "_%1_ef=!CAR_%cr1%!"
+set "cr2=!CDR_%cr1%!" & set "cr2=!cr2:P:=!"
+set "_%1_body=!CAR_%cr2%!"
+set "_%1_senv=!CDR_%cr2%!"
 set /a ND=%1+1 & call :build_alist !ND! "!_%1_f!" "%~3" "NIL"
 set "_%1_al=!R!"
 if "!_%1_ef!"=="S:#ignore" goto co_noenv
@@ -897,31 +889,96 @@ __PORTSH_PAYLOAD__
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 (define not (lambda (x) (if x nil t)))
 
 
-(define cadr  (lambda (x) (car (cdr x))))
-(define caddr (lambda (x) (car (cdr (cdr x)))))
-(define cddr  (lambda (x) (cdr (cdr x))))
+(define cadr   (lambda (x) (car (cdr x))))
+(define caddr  (lambda (x) (car (cdr (cdr x)))))
+(define cddr   (lambda (x) (cdr (cdr x))))
+(define cdar   (lambda (x) (cdr (car x))))
+(define caar   (lambda (x) (car (car x))))
+(define cadar  (lambda (x) (car (cdr (car x)))))
 
 
 (define last (lambda (xs) (if (null? (cdr xs)) (car xs) (last (cdr xs)))))
-(define begin (lambda args (last args)))            
+(define begin (lambda args (last args)))             
 (define length (lambda (xs) (if (null? xs) 0 (+ 1 (length (cdr xs))))))
 (define append (lambda (a b) (if (null? a) b (cons (car a) (append (cdr a) b)))))
 (define reverse (lambda (xs) (if (null? xs) nil (append (reverse (cdr xs)) (cons (car xs) nil)))))
 
 
+
+(define list-tail (lambda (xs n) (if (= n 0) xs (list-tail (cdr xs) (- n 1)))))
+
+(define nth (lambda (xs n) (car (list-tail xs n))))
+
+(define take (lambda (xs n) (if (= n 0) nil (if (null? xs) nil (cons (car xs) (take (cdr xs) (- n 1)))))))
+(define drop list-tail)
+
+(define member? (lambda (x xs)
+  (if (null? xs) nil
+    (if (eq? x (car xs)) t (member? x (cdr xs))))))
+
+(define assoc (lambda (k al)
+  (if (null? al) nil
+    (if (eq? k (caar al)) (car al) (assoc k (cdr al))))))
+
+
 (define map (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map f (cdr xs))))))
+
+(define map2 (lambda (f xs ys)
+  (if (null? xs) nil
+    (cons (f (car xs) (car ys)) (map2 f (cdr xs) (cdr ys))))))
+
+(define zip (lambda (xs ys) (map2 cons xs ys)))
 (define filter (lambda (p xs)
   (if (null? xs) nil
     (if (p (car xs)) (cons (car xs) (filter p (cdr xs))) (filter p (cdr xs))))))
 (define foldl (lambda (f acc xs) (if (null? xs) acc (foldl f (f acc (car xs)) (cdr xs)))))
 
+(define foldr (lambda (f z xs) (if (null? xs) z (f (car xs) (foldr f z (cdr xs))))))
+
+(define for-each (lambda (f xs) (if (null? xs) nil (begin (f (car xs)) (for-each f (cdr xs))))))
+
+
+
+(define apply (vau (f args) env
+  (eval (cons (eval f env)
+              (map (lambda (a) (list (quote quote) a)) (eval args env)))
+        env)))
+
+(define compose (lambda (f g) (lambda (x) (f (g x)))))
+
 
 (define <= (lambda (a b) (if (< a b) t (= a b))))
 (define >  (lambda (a b) (< b a)))
 (define >= (lambda (a b) (<= b a)))
+
+
+(define abs (lambda (n) (if (< n 0) (- 0 n) n)))
+(define max (lambda (a b) (if (< a b) b a)))
+(define min (lambda (a b) (if (< a b) a b)))
+
+(define sum     (lambda (xs) (foldl + 0 xs)))
+(define product (lambda (xs) (foldl * 1 xs)))
+
 
 
 (define and (vau args env
@@ -944,3 +1001,31 @@ __PORTSH_PAYLOAD__
   (eval (cons (cons (quote lambda) (cons (map car (car args)) (cdr args)))
               (map cadr (car args)))
         env)))
+
+
+(define let* (vau args env
+  (eval (if (null? (car args))
+            (cons (quote begin) (cdr args))
+            (cons (quote let)
+                  (cons (cons (car (car args)) nil)
+                        (cons (cons (quote let*)
+                                    (cons (cdr (car args)) (cdr args)))
+                              nil))))
+        env)))
+
+
+
+
+
+(define case (vau args env
+  ((lambda (k)
+     (eval (cons (quote cond)
+                 (map (lambda (cl)
+                        (if (eq? (car cl) (quote else))
+                            (cons (quote t) (cdr cl))
+                            (cons (list (quote eq?) (list (quote quote) (car cl))
+                                        (list (quote quote) k))
+                                  (cdr cl))))
+                      (cdr args)))
+           env))
+   (eval (car args) env))))

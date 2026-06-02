@@ -497,37 +497,36 @@ call :hp_setcar "%~1" "!R!"
 goto :eof
 
 :env_lookup
-rem walk frames; within a frame walk the binding alist. On a hit past the head,
-rem splice the binding to the front (move-to-front) so hot symbols become O(1).
+rem Hot path: heap accessors are INLINED here (no call overhead). Walk frames;
+rem within a frame walk the binding alist; on a hit past the head, splice to
+rem front (move-to-front) so hot symbols settle into a single-set lookup.
 set "elkEnv=%~1" & set "elkSym=%~2"
 :elk_env
 if "!elkEnv!"=="NIL" goto elk_unbound
-call :hp_car "!elkEnv!"
-set "elkB=!R!"
+set "ei=!elkEnv:P:=!"
+set "elkB=!CAR_%ei%!"
 set "elkPrev="
 :elk_b
 if "!elkB!"=="NIL" goto elk_next
-call :hp_car "!elkB!"
-set "elkP=!R!"
-call :hp_car "!elkP!"
-if "!R!"=="!elkSym!" goto elk_found
+set "bi=!elkB:P:=!"
+set "elkP=!CAR_%bi%!"
+set "pi=!elkP:P:=!"
+if "!CAR_%pi%!"=="!elkSym!" goto elk_found
 set "elkPrev=!elkB!"
-call :hp_cdr "!elkB!"
-set "elkB=!R!"
+set "elkB=!CDR_%bi%!"
 goto elk_b
 :elk_next
-call :hp_cdr "!elkEnv!"
-set "elkEnv=!R!"
+set "elkEnv=!CDR_%ei%!"
 goto elk_env
 :elk_found
 if "!elkPrev!"=="" goto elk_val
-call :hp_cdr "!elkB!"
-call :hp_setcdr "!elkPrev!" "!R!"
-call :hp_car "!elkEnv!"
-call :hp_setcdr "!elkB!" "!R!"
+set "elkNext=!CDR_%bi%!"
+call :hp_setcdr "!elkPrev!" "!elkNext!"
+set "elkHead=!CAR_%ei%!"
+call :hp_setcdr "!elkB!" "!elkHead!"
 call :hp_setcar "!elkEnv!" "!elkB!"
 :elk_val
-call :hp_cdr "!elkP!"
+set "R=!CDR_%pi%!"
 goto :eof
 :elk_unbound
 set "elkU=!elkSym:S:=!"
@@ -549,11 +548,11 @@ if "!evPre!"=="S:" call :env_lookup "%~3" "!evX!" & goto :eof
 if "!evPre!"=="P:" goto ev_comb
 set "R=!evX!" & goto :eof
 :ev_comb
-call :hp_car "%~2"
-set /a ND=%1+1 & call :ev !ND! "!R!" "%~3"
+set "eci=%~2" & set "eci=!eci:P:=!"
+set /a ND=%1+1 & call :ev !ND! "!CAR_%eci%!" "%~3"
 set "_%1_c=!R!"
-call :hp_cdr "%~2"
-set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!R!" "%~3"
+set "eci=%~2" & set "eci=!eci:P:=!"
+set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!CDR_%eci%!" "%~3"
 goto :eof
 
 :combine
@@ -585,12 +584,12 @@ goto :eof
 
 :eval_list
 if "%~2"=="NIL" set "R=NIL" & goto :eof
-call :hp_car "%~2"
-set /a ND=%1+1 & call :ev !ND! "!R!" "%~3"
+set "eli=%~2" & set "eli=!eli:P:=!"
+set /a ND=%1+1 & call :ev !ND! "!CAR_%eli%!" "%~3"
 set "_%1_e=!R!"
-call :hp_cdr "%~2"
-set /a ND=%1+1 & call :eval_list !ND! "!R!" "%~3"
-call :hp_cons "!_%1_e!" "!R!"
+set "eli=%~2" & set "eli=!eli:P:=!"
+set /a ND=%1+1 & call :eval_list !ND! "!CDR_%eli%!" "%~3"
+set "CAR_%HN%=!_%1_e!" & set "CDR_%HN%=!R!" & set "R=P:%HN%" & set /a HN+=1
 goto :eof
 
 :prim_oper
@@ -656,20 +655,13 @@ set /a ND=%1+1 & call :ev !ND! "!R!" "%~4"
 goto :eof
 
 :combine_oper
-set "coC=%~2"
-set "coCell=P:!coC:O:=!"
-call :hp_car "!coCell!"
-set "_%1_f=!R!"
-call :hp_cdr "!coCell!"
-set "coR1=!R!"
-call :hp_car "!coR1!"
-set "_%1_ef=!R!"
-call :hp_cdr "!coR1!"
-set "coR2=!R!"
-call :hp_car "!coR2!"
-set "_%1_body=!R!"
-call :hp_cdr "!coR2!"
-set "_%1_senv=!R!"
+set "ci=%~2" & set "ci=!ci:O:=!"
+set "_%1_f=!CAR_%ci%!"
+set "cr1=!CDR_%ci%!" & set "cr1=!cr1:P:=!"
+set "_%1_ef=!CAR_%cr1%!"
+set "cr2=!CDR_%cr1%!" & set "cr2=!cr2:P:=!"
+set "_%1_body=!CAR_%cr2%!"
+set "_%1_senv=!CDR_%cr2%!"
 set /a ND=%1+1 & call :build_alist !ND! "!_%1_f!" "%~3" "NIL"
 set "_%1_al=!R!"
 if "!_%1_ef!"=="S:#ignore" goto co_noenv
