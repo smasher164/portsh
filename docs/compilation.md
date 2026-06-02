@@ -81,6 +81,29 @@ The discipline the 2nd projection demands: `comp` must be written in the
 through-line back to where this project began — a tiny dual kernel and a
 bootstrapping tower, with as much as possible lifted into shared Lisp.
 
+## Measured performance
+
+Program: `g(x)=x*x`, `run(n,acc)=if n=0 then acc else run(n-1, acc+g(n))` — each
+iteration makes a function call, so the interpreter pays its full per-call cost.
+On the (battery/emulated, so inflated) test VM:
+
+| n | compiled | interpreted |
+|---|---|---|
+| 15 | 18.8s | 114s |
+| 50 | 20.2s | ~350s (extrapolated) |
+
+The compiled times are dominated by a **~12s one-time, per-process cost on the
+first execution of the generated `compiled.cmd`** (independent of iteration count
+— `run(5)` and `run(15)` both ≈18s; a double call pays it once). This is
+consistent with on-access AV scanning a freshly-written script: an environment
+artifact, not the compiler. The **per-iteration** compiled cost is ~40–70ms
+(mostly the external `call` to `g`) versus the interpreter's ~7s/iter — roughly
+**100×**. So the headline isn't the small-n ratio; it's that compiled work is
+~two orders of magnitude cheaper per operation, with a one-time first-exec cost
+that amortizes (and largely vanishes on real hardware / with a dev-dir AV
+exclusion). Inlining small functions (no external `call`) would cut the
+per-iteration cost further.
+
 ## Status
 
 - ✅ codegen (`src/compile.lisp`) for arithmetic, comparisons, `if`
