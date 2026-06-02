@@ -126,6 +126,6 @@ per-iteration cost further.
   executing compiled batch. This is "compile on sh, run on batch."
 - ✅ inlining: non-recursive functions are inlined at call sites (removes the
   external `call`; (g n) with g=x*x becomes (* n n) inline), verified on cmd.
-- ▢ broaden codegen: cons/list/string via direct primitive calls; cons/list/string via direct
-  primitive calls (toward covering what `comp` itself needs).
+- ▢ broaden codegen: cons/list/string via direct primitive calls (toward
+  covering what `comp` itself needs — and tagged values, not just raw numbers).
 - ▢ self-hosting: compile `comp` with `comp` → `portshc.cmd`.
