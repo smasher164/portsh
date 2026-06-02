@@ -40,11 +40,13 @@
   (if (null? vs) nil (cons (str "set STK!SP!=!" (car vs) "!") (cons "set /a SP+=1" (save-lines (cdr vs)))))))
 (define restore-lines (lambda (vs)
   (if (null? vs) nil (cons "set /a SP-=1" (cons (str "call set " (car vs) "=%%STK!SP!%%") (restore-lines (cdr vs)))))))
-(define call-wrap (lambda (sv callstr)
-  (append (save-lines sv) (cons callstr (restore-lines (rev sv nil))))))
 
 (define pmap-local  (lambda (fs)   (if (null? fs) nil (cons (cons (car fs) (symbol->string (car fs))) (pmap-local (cdr fs))))))
-(define load-params (lambda (fs i) (if (null? fs) nil (cons (str "set " (symbol->string (car fs)) "=%~" (number->string i)) (load-params (cdr fs) (+ i 1))))))
+;; params arrive in the global A1.. vars (space/special-char safe via delayed
+;; expansion; positional `call` args split on spaces). Read them in immediately,
+;; before any nested call overwrites A1...
+(define load-params (lambda (fs i) (if (null? fs) nil (cons (str "set " (symbol->string (car fs)) "=!A" (number->string i) "!") (load-params (cdr fs) (+ i 1))))))
+(define aassign (lambda (vs i) (if (null? vs) nil (cons (str "set A" (number->string i) "=" (car vs)) (aassign (cdr vs) (+ i 1))))))
 
 ;; cexpr: value-position expr -> (list lines ref next-k). arithmetic -> a raw
 ;; temp; a call -> compute args (tagged), call, take the tagged R into a val temp.
@@ -69,11 +71,13 @@
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote car)) (ccell f "CAR_" pmap k live))
     ((eq? (car f) (quote cdr)) (ccell f "CDR_" pmap k live))
-    (t (let ((ar (cargs (cdr f) pmap k live)))
-         (let ((tmp (str "zt" (number->string (caddr ar)))))
+    (t (let ((ar (cargs* (cdr f) pmap k live)))
+         (let ((tmp (str "zt" (number->string (caddr ar)))) (sv (append (pvars pmap) live)))
            (list (append (car ar)
-                   (append (call-wrap (append (pvars pmap) live) (str "call compiled.cmd " (symbol->string (car f)) (cadr ar)))
-                           (list (str "set " tmp "=!R!"))))
+                   (append (save-lines sv)
+                     (append (aassign (cadr ar) 1)
+                       (cons (str "call compiled.cmd " (symbol->string (car f)))
+                         (append (restore-lines (rev sv nil)) (list (str "set " tmp "=!R!")))))))
                  (cons (quote val) tmp) (+ (caddr ar) 1))))))))
 ;; car/cdr: strip P: from the (val) operand to an index, then read CAR_/CDR_<idx>.
 (define ccell (lambda (f field pmap k live)
@@ -82,14 +86,9 @@
       (list (append (car rx) (list (str "set " zi "=!" (cdr (cadr rx)) ":~2!")
                                    (str "call set " tmp "=%%" field "!" zi "!%%")))
             (cons (quote val) tmp) (+ (caddr rx) 2))))))
-;; cargs: call args rendered as TAGGED values -> (list lines " v v ..." k). Each
-;; arg is evaluated with the earlier args' temps added to `live` (a call inside a
-;; later arg must not clobber an already-computed arg).
-(define cargs (lambda (as pmap k live)
-  (if (null? as) (list nil "" k)
-    (let ((r (cexpr (car as) pmap k live)))
-      (let ((rest (cargs (cdr as) pmap (caddr r) (live-add (cadr r) live))))
-        (list (append (car r) (car rest)) (str " " (vref (cadr r)) (cadr rest)) (caddr rest)))))))
+;; cargs*: evaluate call args left-to-right -> (list lines (vref1 vref2 ...) k).
+;; Each arg is evaluated with the earlier args' temps added to `live`, so a call
+;; inside a later arg won't clobber an already-computed arg.
 (define cargs* (lambda (as pmap k live)
   (if (null? as) (list nil nil k)
     (let ((r (cexpr (car as) pmap k live)))

@@ -423,7 +423,7 @@ rem %2.. (stable across sub-calls), and any value held ACROSS a sub-call is
 rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
-set "HN=0" & set "FID=0"
+set "HN=0" & set "FID=0" & set "SP=0"
 call :setup_global
 
 rem Boot order: minimal prelude -> embedded Lisp after the marker (stdlib and/or
@@ -703,16 +703,16 @@ rem C:<label> — a JIT-compiled applicative. Eval operands, strip tags to raw
 rem args, and call the generated batch sub (in CFILE), which sets R back to us.
 set /a ND=%1+1 & call :eval_list !ND! "%~3" "%~4"
 set "ccL=%~2" & set "ccL=!ccL:~2!"
-set "ccArgs=" & set "ccLst=!R!"
+set "ccN=0" & set "ccLst=!R!"
 :cc_loop
 if "!ccLst!"=="NIL" goto cc_call
 call :hp_car "!ccLst!"
-set "ccArgs=!ccArgs! !R!"
+set /a ccN+=1 & set "A!ccN!=!R!"
 call :hp_cdr "!ccLst!"
 set "ccLst=!R!"
 goto cc_loop
 :cc_call
-call "!CFILE!" !ccL! !ccArgs!
+call "!CFILE!" !ccL!
 goto :eof
 :cmb_oper
 set "cmbN=%~2" & set "cmbN=!cmbN:~2!"
