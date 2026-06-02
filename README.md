@@ -1,200 +1,99 @@
 # portsh
 
-> One file. Runs as a POSIX `sh` script on Unix **and** as a Windows `.cmd`
-> batch program — with no install, no runtime, on any CPU architecture.
-> A *truly* portable shell.
-
-## Authorship
-
-The design and implementation of portsh — the polyglot scaffolding, both
-interpreter kernels, the test harnesses, and this documentation — are the work
-of **Claude** (Anthropic's Claude Opus 4.8), produced over an extended
-pair-programming session. I, Akhil Indurti, directed the exploration, made the
-design calls, stood up the Windows test VM, and am publishing the result — but
-the engineering here is Claude's, and I'm **not** claiming credit for it.
-Commits are co-authored accordingly.
-
-## The idea
-
-A single text file is structured as a **polyglot**: the Unix kernel/`sh` sees a
-valid shell script; `cmd.exe` sees a valid batch file. The two halves hide each
-other with the classic tricks — `:` is a no-op in `sh` and a label in `cmd`; a
-quoted heredoc `:<<'::CMDLITERAL'` hides the batch block from `sh`; `@echo off`
-+ `goto :CMDSTART` steers `cmd` past the shell block — plus a re-exec on line 1
-that runs `sh` on a CR-stripped copy so the all-CRLF file (which `cmd` needs for
-labels) doesn't choke `sh`. Because the artifact ships **no machine code**, it
-is architecture-agnostic by construction — it runs wherever there is a
-`/bin/sh` or a `cmd.exe`.
-
-## What it is
-
-A small, dynamic, homoiconic **Lisp** — a build/installer language you can run
-anywhere: execute commands via a `(run "...")` primitive, branch, do a little
-computation, template config. The interpreter itself is written **in the
-polyglot**, with **no external engine** — the only dependencies are `cmd` and
-`sh`. Self-contained: bundle a user's Lisp script + the interpreter into one
-polyglot executable that runs natively on Unix and double-clicks on Windows.
-
-**Speed is an explicit non-goal.** That is precisely what lets the interpreter
-be pure: no JScript, no awk, no bundled runtime — just the two shells.
-
-## How it runs (no external engine)
-
-The polyglot's `sh` half and its `cmd`/batch half each implement the **same
-tiny Lisp kernel**. The kernel is the *only* code written twice; everything
-above it is Lisp, written **once**, and run identically by both hosts:
-
-- **Kernel (bilingual, small):** a `vau`/`eval` core — operatives instead of a
-  special-form table — plus a cons heap, environment, and primitives
-  (`cons`/`car`/`cdr`, arithmetic, `eval`/`wrap`, `run`/`run-capture`, strings
-  (`string-append`/`substring`/…), line I/O (`read-lines`/`write-lines`),
-  `file-exists?`, …).
-  Cons cells are scalar shell variables: `eval`'d dynamic names (`H_i_a`) in
-  `sh`, `CAR_i`/`CDR_i` in batch.
-- **Userspace (shared, written once in Lisp):** apart from a tiny reader
-  bootstrap, `lambda`/`quote`/`list` and the whole stdlib
-  (`let`/`cond`/`and`/`or`/`map`/`filter`/`foldl`/…) are plain Lisp, evaluated
-  identically on both hosts.
-
-Cost, accepted on purpose: batch is the painful host (dynamic-name heap, no
-`setlocal` in the eval path, shallow host recursion, CRLF discipline on
-`sh`-parsed lines). With speed waived these are correctness/effort issues, not
-performance ones, and the tiny-kernel design bounds them.
-
-## Testing
-
-"Same file, both worlds" is the proposition, so the same Lisp fixtures
-(`tests/lisp/*.lisp`, each with a golden `*.out`) run on **both** kernels and
-are diffed — differential testing across hosts is the conformance metric:
-
-- `tests/kernel.sh` — run the fixtures on the `sh` kernel across every shell
-  found (`dash`/`bash`/…). Fast, local.
-- `tests/weave.sh` — build `portsh.cmd` and run the fixtures through it *as a
-  sh script*, exercising the woven polyglot + the re-exec header. Local.
-- `tests/kernel-cmd.sh` — run the fixtures on the **batch** kernel inside a real
-  Windows VM over SSH (`PORTSH_WIN_SSH=user@vm`); see `docs/windows-vm.md`.
-- CI (`.github/workflows/test.yml`) runs a Nix unix leg + a real
-  `windows-latest` leg.
+portsh is a small Lisp interpreter that lives in a single file which is *both* a
+valid POSIX `sh` script and a Windows `.cmd` batch file. There's no runtime to
+install and no machine code, so the same file runs anywhere there's a `/bin/sh`
+or a `cmd.exe`, on any CPU. It's meant as a portable build/installer scripting
+language — one script that runs commands, checks for files, and computes text
+identically on Unix and Windows.
 
 ```sh
-nix develop                                    # shells + awks + qemu + bats/shellcheck
-sh tests/kernel.sh                             # sh kernel (multi-shell)
-sh tests/weave.sh                              # woven portsh.cmd, run as sh
-PORTSH_WIN_SSH=user@vm sh tests/kernel-cmd.sh  # batch kernel on the Windows VM
+sh build.sh                  # weave src/kernel.{sh,cmd} into portsh.cmd
+sh   portsh.cmd prog.lisp    # run on Unix
+cmd /c portsh.cmd prog.lisp  # run on Windows (real cmd.exe)
 ```
 
-## Layout
-
-```
-flake.nix                 reproducible dev shell (shells, awks, qemu, wine-on-linux, bats)
-build.sh                  weave the two kernels -> portsh.cmd (+ portsh-full.cmd)
-portsh.cmd                built single-file polyglot interpreter (bare)
-portsh-full.cmd           built interpreter + bundled stdlib
-src/kernel.sh             sh-hosted vau-Lisp kernel
-src/kernel.cmd            batch-hosted vau-Lisp kernel (port of kernel.sh)
-src/stdlib.lisp           userspace stdlib (let/cond/and/or/map/filter/foldl/…)
-tests/lisp/               NAME.lisp + NAME.out  (interpreter fixtures)
-tests/kernel.sh           run fixtures on the sh kernel (local, multi-shell)
-tests/weave.sh            build + run fixtures on portsh.cmd as sh (local)
-tests/kernel-cmd.sh       run fixtures on the batch kernel in the VM (PORTSH_WIN_SSH)
-tests/win-smoke.sh        smoke-test the Windows VM pipeline over SSH
-docs/windows-vm.md        UTM Win11-ARM VM setup for real cmd.exe testing
-examples/hello.cmd        minimal sh+cmd polyglot demo
-examples/demo.lisp        stdlib demo (map/filter/foldl/cond/let/…)
-examples/build.lisp       portable build script (run + if + file-exists?)
-.github/workflows/test.yml  unix (nix) + real windows legs
-```
-
-## Build & run
-
-```sh
-sh build.sh                 # weave src/kernel.{sh,cmd} -> portsh.cmd (one polyglot file)
-sh   portsh.cmd prog.lisp   # run on Unix
-cmd /c portsh.cmd prog.lisp # run on Windows (real cmd.exe)
-```
-
-`portsh.cmd` is a single file that is simultaneously a valid POSIX `sh` script
-and a Windows batch file. The whole file is CRLF (cmd needs CR for labels); its
-first line re-execs `sh` on a CR-stripped copy of itself so the sh kernel runs
-clean, while cmd skips the sh half via `goto`.
+`build.sh` also writes `portsh-full.cmd`, which is `portsh.cmd` with the standard
+library bundled in.
 
 ## Packing a self-contained app
 
 `portsh.cmd` ends with a marker line, and everything after the marker is Lisp
 that's evaluated at startup. So bundling a program with the interpreter is just
-**concatenation** — no flag, no tool:
+concatenation — no flag, no tool:
 
 ```sh
 cat portsh.cmd      myprog.lisp > myapp.cmd   # bare interpreter + your program
-cat portsh-full.cmd myprog.lisp > myapp.cmd   # + the bundled stdlib
+cat portsh-full.cmd myprog.lisp > myapp.cmd   # + the standard library
 ```
 
-On Windows the equivalent is `copy /b portsh.cmd + myprog.lisp myapp.cmd`. Both
-are verified to produce a working `myapp.cmd` on both OSes (mixed line endings
-are fine — the sh side strips CRs, the cmd side reads the payload by line).
+On Windows that's `copy /b portsh.cmd + myprog.lisp myapp.cmd`. Either way
+`myapp.cmd` runs `myprog.lisp` with no arguments (`sh myapp.cmd`, or a
+double-click on Windows), and mixed line endings in the result are fine. It's
+plain concatenation, so you can keep stacking: interpreter + stdlib + program.
 
-`myapp.cmd` now runs `myprog.lisp` with **no arguments** — `sh myapp.cmd` on
-Unix, double-click on Windows. It's layered: `portsh-full.cmd` is literally
-`portsh.cmd` with `stdlib.lisp` concatenated on, and you can stack further
-(interpreter + stdlib + program).
+## The language
 
-## Status
+A homoiconic Lisp with a `vau`/operative core (à la Kernel): the only special
+forms baked into the interpreter are `vau`, `define`, and `if` — `lambda`,
+`quote`, `list`, and the whole standard library (`let`, `cond`, `map`, `filter`,
+`foldl`, …) are ordinary Lisp on top of it.
 
-**Working Lisp on both hosts, woven into one file.** A `vau`/operative core
-(`define`/`if`/`vau` primitives) with `lambda`/`quote`/`list` and the rest in a
-shared userspace prelude. Verified on `dash`/`bash` and on real Windows
-`cmd.exe` (in a UTM Win11-ARM VM) — same fixtures, same output:
+```lisp
+(if (file-exists? "Makefile")
+    (run make)
+    (run cc -o app main.c))              ; run a command, returns its exit code
 
-| fixture | meaning            | result |
-|---------|--------------------|--------|
-| arith   | nested arithmetic  | 15     |
-| closure | lexical closure    | 15     |
-| fact    | recursion/if/`<`   | 720    |
-| rest    | rest args          | (1 2 3 4) |
-| fexpr   | user-defined `vau` | 100    |
-| string  | string literal     | hello world |
-| strings | string primitives  | foobarbaz/5/world/… |
-| semistr | `;` inside a string literal | a;b / x;y;z / 3 / i;j;k |
-| slempty | empty-string length/append | 0 / "" / 2 |
-| ioline  | write/read-lines (blank line) + run-capture | alpha/0/beta/cap-line |
+(define me (car (run-capture whoami)))   ; capture stdout as a list of lines
+(write-lines "hello.txt"
+  (list (str "hello, " me)))             ; compute strings, line-oriented file I/O
+```
 
-Tests: `tests/kernel.sh` (sh kernel, local), `tests/weave.sh` (woven file as sh,
-local), `tests/kernel-cmd.sh` (batch kernel on the VM, `PORTSH_WIN_SSH=...`).
+The interpreter provides `cons`/`car`/`cdr`, `eq?`/`null?`/`atom?`, `+ - * < =`,
+`wrap`/`unwrap`/`eval`, `type-of`, `read`, `print`; `run`/`run-capture` and
+`file-exists?` for the host; `string-append`/`string-length`/`substring` plus the
+`symbol`/`number`/`string` converters; and `read-lines`/`write-lines`. Anything
+derivable from those lives in the stdlib.
 
-Running commands: `(run tok ...)` renders its unevaluated operands into a
-command line and executes it on the host shell — `(run echo hi)`, `(run gcc -o
-foo foo.c)` — returning the exit code. `(file-exists? "path")` returns `t`/`()`
-for build conditionals. See `examples/build.lisp`.
+Two things are worth knowing, both forced by `cmd`: a **string is a single line**
+(a batch variable can't hold a newline), so multi-line text is a *list of
+line-strings* and file/command I/O is line-oriented; and `read` exposes the
+interpreter's own reader, so things like string interpolation are libraries, not
+language syntax — see `examples/interp.lisp`, which turns
+`"i have (+ 0 5) fingers"` into `"i have 5 fingers"` using only `read` + a vau.
 
-Text & I/O: strings are first-class — `string-append`, `string-length`,
-`substring`, and the `symbol`/`number`/`string` converters compute strings
-directly. Because a host shell variable can't hold a newline, **a string is a
-single line** and multi-line text is a *list of line-strings*; I/O is therefore
-line-oriented: `(read-lines "path")` → list of lines, `(write-lines "path"
-lines)` writes them, and `(run-capture cmd …)` runs a command and returns its
-stdout as a line list (vs. `run`, which streams to the console and returns the
-exit code). All verified **byte-identical** on `sh` and real `cmd.exe`,
-including the corners: blank lines and `;`-leading lines survive a
-`read-lines`/`run-capture` round-trip, and `string-length ""` is `0` on both.
+## How it runs
 
-Syntax parity: the readers agree on both hosts — `'x` quote-shorthand, `;`
-line comments (inline and full-line), and `"..."` string literals all parse
-identically on `sh` and `cmd`, **including a `;` inside a string literal** (the
-batch reader strips comments string-aware, not by a blunt `delims=;` split).
-Strings are single-line on both hosts — a batch variable can't hold a newline,
-so a raw newline inside a `"..."` literal is a parse error on `sh` too (rather
-than silently working on one host); multi-line text is a list of line-strings.
+The file is a polyglot: `sh` and `cmd.exe` each see a valid program in their own
+language, hidden from each other by the usual tricks — `:` is a no-op in `sh` and
+a label in `cmd`; a `:<<'::CMDLITERAL'` heredoc hides the batch half from `sh`;
+`@echo off` + `goto` steers `cmd` past the shell half. The one genuinely unusual
+move: the whole file is CRLF (which `cmd` needs to recognize labels), so line 1
+re-execs `sh` on a CR-stripped copy of itself so the shell half parses clean.
 
-Performance: the batch kernel uses a variable-based heap (O(1) `cons`/`car`/
-`cdr`/`set-car`/`set-cdr`) and inlines the heap accessors in the hot paths
-(`env_lookup`/`ev`/`eval_list`/`combine_oper`), with move-to-front lookup —
-`fact(6)` on real `cmd` went 33s → ~18s. That's plenty for build scripts;
-deeply recursive numeric code is still slow on `cmd` (each step is many `cmd`
-`call`s) — fine, since speed was never the goal. The `sh` kernel is fast.
+Both halves implement the *same* tiny kernel — the only code written twice.
+Everything above the kernel is Lisp, written once and run identically by both.
+Cons cells are scalar shell variables (`eval`'d `H_i_a` names in `sh`,
+`CAR_i`/`CDR_i` in batch). Speed isn't a goal, and that's the point: it keeps the
+interpreter pure — no JScript, no awk, no bundled runtime, just the two shells.
 
-Open next: the text core landed (strings + line I/O + `run-capture`), so the
-gap is now **userspace ergonomics on top of it** — a `string-split`/`string-join`
-pair, `path-join`, `starts-with?`/`contains?`, and a small templating helper —
-all writable in plain Lisp in `stdlib.lisp`, no kernel work. Deliberately *not*
-planned: streaming, file descriptors, byte-level I/O — portsh is a line-oriented
-text language and delegates binary/streaming to `(run …)` + the host shell.
+## Testing
+
+The same Lisp fixtures (`tests/lisp/*.lisp`, each with a golden `.out`) run on
+both kernels and are diffed — differential testing across hosts is the
+conformance metric. All fixtures are byte-identical on `dash`/`bash` and real
+Windows `cmd.exe`.
+
+```sh
+sh tests/kernel.sh                             # sh kernel, across every shell found
+sh tests/weave.sh                              # the woven portsh.cmd, run as sh
+PORTSH_WIN_SSH=user@vm sh tests/kernel-cmd.sh  # batch kernel on a Windows VM
+```
+
+## Authorship
+
+The design and implementation of portsh — the polyglot scaffolding, both kernels,
+the tests, and these docs — are the work of **Claude** (Anthropic's Claude Opus
+4.8), over an extended pair-programming session. I, Akhil Indurti, directed the
+exploration and stood up the Windows test VM, but the engineering is Claude's,
+and I'm not claiming credit for it.
