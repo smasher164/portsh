@@ -259,6 +259,7 @@ prim_app() {
     '-')     arg2 "$args"; R="I:$(( ${ARG1#I:} - ${ARG2#I:} ))" ;;
     '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
+    'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
@@ -307,7 +308,7 @@ PRELUDE="
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' wrap unwrap eval print; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -730,7 +731,13 @@ if "!paN!"=="wrap" goto pa_wrap
 if "!paN!"=="unwrap" goto pa_unwrap
 if "!paN!"=="eval" goto pa_eval
 if "!paN!"=="print" goto pa_print
+if "!paN!"=="file-exists?" goto pa_fex
 set "R=NIL" & goto :eof
+:pa_fex
+call :hp_car "%~3"
+set "fexP=!R:~2!"
+if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
+goto :eof
 :pa_cons
 call :hp_car "%~3"
 set "paA1=!R!"
@@ -880,6 +887,7 @@ call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 call :env_define "!GLOBAL!" "S:eval" "R:eval"
 call :env_define "!GLOBAL!" "S:print" "R:print"
+call :env_define "!GLOBAL!" "S:file-exists?" "R:file-exists?"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
