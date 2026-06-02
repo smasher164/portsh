@@ -8,7 +8,7 @@ rem %2.. (stable across sub-calls), and any value held ACROSS a sub-call is
 rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
-set "HN=0" & set "FID=0"
+set "HN=0" & set "FID=0" & set "SP=0"
 call :setup_global
 
 rem Boot order: minimal prelude -> embedded Lisp after the marker (stdlib and/or
