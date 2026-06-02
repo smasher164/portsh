@@ -696,7 +696,24 @@ if "!cmbPre!"=="F:" goto cmb_oper
 if "!cmbPre!"=="R:" goto cmb_app
 if "!cmbPre!"=="A:" goto cmb_appl
 if "!cmbPre!"=="O:" goto cmb_compound
+if "!cmbPre!"=="C:" goto cmb_compiled
 set "R=NIL" & goto :eof
+:cmb_compiled
+rem C:<label> — a JIT-compiled applicative. Eval operands, strip tags to raw
+rem args, and call the generated batch sub (in CFILE), which sets R back to us.
+set /a ND=%1+1 & call :eval_list !ND! "%~3" "%~4"
+set "ccL=%~2" & set "ccL=!ccL:~2!"
+set "ccArgs=" & set "ccLst=!R!"
+:cc_loop
+if "!ccLst!"=="NIL" goto cc_call
+call :hp_car "!ccLst!"
+set "ccArgs=!ccArgs! !R:~2!"
+call :hp_cdr "!ccLst!"
+set "ccLst=!R!"
+goto cc_loop
+:cc_call
+call "!CFILE!" !ccL! !ccArgs!
+goto :eof
 :cmb_oper
 set "cmbN=%~2" & set "cmbN=!cmbN:~2!"
 set /a ND=%1+1 & call :prim_oper !ND! "!cmbN!" "%~3" "%~4"
@@ -892,6 +909,7 @@ goto es_loop
 rem =========================== primitives (applicative) ===========================
 :prim_app
 set "paN=%~2"
+if "!paN!"=="make-compiled" goto pa_mkcompiled
 if "!paN!"=="list" goto pa_list
 if "!paN!"=="cons" goto pa_cons
 if "!paN!"=="car" goto pa_car
@@ -1075,6 +1093,11 @@ rem list returns its already-evaluated args as-is (applicative). Was a prelude
 rem macro; a primitive keeps the prelude empty so boot doesn't parse it.
 set "R=%~3"
 goto :eof
+:pa_mkcompiled
+rem (make-compiled "label") -> C:label, a combiner that calls the compiled sub.
+call :hp_car "%~3"
+set "R=C:!R:~2!"
+goto :eof
 :pa_cons
 call :hp_car "%~3"
 set "paA1=!R!"
@@ -1244,5 +1267,9 @@ call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
 call :env_define "!GLOBAL!" "S:t" "S:t"
 call :env_define "!GLOBAL!" "S:nil" "NIL"
+rem --- JIT integration (WIP): CFILE holds the generated subs; make-compiled mints
+rem --- a C:<label> binding so a program can install compiled functions.
+set "CFILE=compiled.cmd"
+call :env_define "!GLOBAL!" "S:make-compiled" "R:make-compiled"
 goto :eof
 __PORTSH_PAYLOAD__

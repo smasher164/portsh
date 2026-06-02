@@ -64,6 +64,8 @@
     (t (cons (list (str "set /a _r=" (ca f pmap)) "set R=I:!_r!" "goto :eof") k)))))
 
 ;; compile a (possibly self-recursive) function -> a list of batch lines.
+;; params arrive at %~1,%~2,... — the dispatcher does `call :<label> %2 %3 ...`,
+;; so the sub's own args start at %~1.
 (define compile-fn (lambda (nm lbl fs body)
-  (append (list (str ":" lbl) (str "set /a " (join "," (load-params fs 2))) (str ":" lbl "_top"))
+  (append (list (str ":" lbl) (str "set /a " (join "," (load-params fs 1))) (str ":" lbl "_top"))
           (car (ctail body nm lbl fs (pmap-local fs) 0)))))
