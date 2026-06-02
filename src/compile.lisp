@@ -32,6 +32,17 @@
 (define updates     (lambda (ps i)      (if (null? ps) nil (cons (str (symbol->string (car ps)) "=_t" (number->string i)) (updates (cdr ps) (+ i 1))))))
 (define is? (lambda (f h) (if (pair? f) (eq? (car f) h) nil)))
 
+;; A simple operand (number or param symbol) can go straight into an `if` —
+;; `if !n! EQU 0` — no temp. Saves a command per branch (5 -> 4 cmds/iter on the
+;; canonical loop). Complex (arithmetic) operands fall back to _a/_b temps.
+(define simple? (lambda (x) (if (number? x) t (symbol? x))))
+(define sref (lambda (x pmap) (if (number? x) (number->string x) (str "!" (cdr (assoc x pmap)) "!"))))
+(define test-lines (lambda (test tl pmap)
+  (if (if (simple? (cadr test)) (simple? (caddr test)) nil)
+    (list (str "if " (sref (cadr test) pmap) " " (cmp->batch (car test)) " " (sref (caddr test) pmap) " goto " tl))
+    (list (str "set /a _a=" (ca (cadr test) pmap) ",_b=" (ca (caddr test) pmap))
+          (str "if !_a! " (cmp->batch (car test)) " !_b! goto " tl)))))
+
 ;; ctail: compile body `f` in TAIL position for a function named symbol `nm`
 ;; (label string `lbl`, params `ps`). Returns (lines . next-label-counter).
 ;;   - tail self-call -> new args into temps, update locals, goto <lbl>_top
@@ -47,8 +58,7 @@
        (let ((tl (str lbl "_t" (number->string k))))
          (let ((er (ctail (cadddr f) nm lbl ps pmap (+ k 1))))
            (let ((tr (ctail (caddr f) nm lbl ps pmap (cdr er))))
-             (cons (append (list (str "set /a _a=" (ca (cadr (cadr f)) pmap) ",_b=" (ca (caddr (cadr f)) pmap))
-                                 (str "if !_a! " (cmp->batch (car (cadr f))) " !_b! goto " tl))
+             (cons (append (test-lines (cadr f) tl pmap)
                            (append (car er) (cons (str ":" tl) (car tr))))
                    (cdr tr))))))
     (t (cons (list (str "set /a _r=" (ca f pmap)) "set R=I:!_r!" "goto :eof") k)))))
