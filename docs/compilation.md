@@ -83,10 +83,15 @@ bootstrapping tower, with as much as possible lifted into shared Lisp.
 
 ## Status
 
-- ✅ codegen for arithmetic, comparisons, one-level `if`, value return — emits
-  quote-free batch, developed and tested on `sh`.
-- ▢ function calls and tail self-recursion (loops → `goto`; TCO for free in
-  compiled code).
+- ✅ codegen (`src/compile.lisp`) for arithmetic, comparisons, `if`
+  (goto-based), params, value return, and **tail self-recursion** (loops →
+  `goto`, TCO for free). Quote-free batch, developed on `sh`.
+- ✅ verified on **real cmd.exe**: a compiled `loop(1000)` returns the right
+  answer, runs ~8× faster per iteration than the interpreter, and — unlike the
+  interpreter — does **not** hit the recursion-stack crash at large N. (Absolute
+  times are inflated by the battery/emulated test VM; relative win holds, and
+  closes most of the gap to bash on real hardware.)
+- ▢ calls to *other* functions; cons/list/string via direct primitive calls.
 - ▢ kernel integration: temp dir, define-time compile trigger, `C:` dispatch,
   caching.
 - ▢ self-hosting: compile `comp` with `comp` → `portshc.cmd`.
