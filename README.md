@@ -51,9 +51,9 @@ forms baked into the interpreter are `vau`, `define`, and `if` — `lambda`,
 
 The interpreter provides `cons`/`car`/`cdr`, `eq?`/`null?`/`atom?`, `+ - * < =`,
 `wrap`/`unwrap`/`eval`, `type-of`, `read`, `print`; `run`/`run-capture` and
-`file-exists?` for the host; `string-append`/`string-length`/`substring` plus the
-`symbol`/`number`/`string` converters; and `read-lines`/`write-lines`. Anything
-derivable from those lives in the stdlib.
+`file-exists?` for the host; `string-append`/`string-length`/`substring`/`split`
+plus the `symbol`/`number`/`string` converters; and `read-lines`/`write-lines`.
+Anything derivable from those lives in the stdlib.
 
 Two things are worth knowing, both forced by `cmd`: a **string is a single line**
 (a batch variable can't hold a newline), so multi-line text is a *list of
@@ -70,6 +70,9 @@ a label in `cmd`; a `:<<'::CMDLITERAL'` heredoc hides the batch half from `sh`;
 `@echo off` + `goto` steers `cmd` past the shell half. The one genuinely unusual
 move: the whole file is CRLF (which `cmd` needs to recognize labels), so line 1
 re-execs `sh` on a CR-stripped copy of itself so the shell half parses clean.
+
+The cmd half is the harder one; the parsing quirks it imposes (and how portsh
+works around them) are catalogued in [`docs/batch-quirks.md`](docs/batch-quirks.md).
 
 Both halves implement the *same* tiny kernel — the only code written twice.
 Everything above the kernel is Lisp, written once and run identically by both.

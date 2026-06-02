@@ -267,7 +267,7 @@ arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
 prim_app() {
-  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv
+  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv _sep _part
   case $name in
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
@@ -294,6 +294,14 @@ prim_app() {
     'number->string') arg1 "$args"; R="T:${ARG1#I:}" ;;
     'string->number') arg1 "$args"; R="I:${ARG1#T:}" ;;
     'read') arg1 "$args"; _rdsave=$SRC; SRC=${ARG1#T:}; rd_expr; _rdv=$R; SRC=$_rdsave; R=$_rdv ;;
+    'split') arg2 "$args"; _sa=${ARG1#T:}; _sep=${ARG2#T:}; _acc=NIL
+             if [ -z "$_sep" ]; then hp_cons "T:$_sa" NIL; else
+               while case "$_sa" in *"$_sep"*) true ;; *) false ;; esac; do
+                 _part=${_sa%%"$_sep"*}; hp_cons "T:$_part" "$_acc"; _acc=$R; _sa=${_sa#*"$_sep"}
+               done
+               hp_cons "T:$_sa" "$_acc"; _acc=$R
+               _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev
+             fi ;;
     'type-of') arg1 "$args"; case $ARG1 in
              NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
              P:*) R="S:pair" ;; O:*|F:*) R="S:operative" ;; A:*|R:*) R="S:applicative" ;; *) R="S:unknown" ;; esac ;;
@@ -353,7 +361,7 @@ PRELUDE="
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture'; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read' 'type-of' 'read-lines' 'write-lines' wrap unwrap eval print; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -873,7 +881,38 @@ if "!paN!"=="read-lines" goto pa_rdlines
 if "!paN!"=="write-lines" goto pa_wrlines
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
+if "!paN!"=="split" goto pa_split
 set "R=NIL" & goto :eof
+:pa_split
+rem Split a string on a (possibly multi-char) separator, empty fields preserved.
+rem Native char-scan in batch (set/goto, no eval) — the whole point of making
+rem this a primitive instead of a userspace per-char loop through the evaluator.
+call :hp_car "%~3"
+set "spS=!R:~2!"
+call :hp_cdr "%~3" & call :hp_car "!R!"
+set "spSep=!R:~2!"
+set "spSL=0"
+:sp_seplen
+call set "spLC=%%spSep:~!spSL!,1%%"
+if not "!spLC!"=="" set /a spSL+=1 & goto sp_seplen
+if "!spSL!"=="0" call :hp_cons "T:!spS!" "NIL" & goto :eof
+set "spAcc=NIL" & set "spCur=" & set "spI=0"
+:sp_loop
+call set "spCh=%%spS:~!spI!,1%%"
+if "!spCh!"=="" goto sp_emit
+call set "spChunk=%%spS:~!spI!,!spSL!%%"
+if "!spChunk!"=="!spSep!" goto sp_match
+set "spCur=!spCur!!spCh!" & set /a spI+=1
+goto sp_loop
+:sp_match
+call :hp_cons "T:!spCur!" "!spAcc!"
+set "spAcc=!R!" & set "spCur=" & set /a spI+=spSL
+goto sp_loop
+:sp_emit
+call :hp_cons "T:!spCur!" "!spAcc!"
+set "spAcc=!R!"
+call :list_reverse "!spAcc!"
+goto :eof
 :pa_read
 rem Parse one datum from a string WITHOUT evaluating. Reuse the kernel reader by
 rem pointing SRC at the string and running it in RDMODE (emit_top captures the
@@ -1153,6 +1192,7 @@ call :env_define "!GLOBAL!" "S:read-lines" "R:read-lines"
 call :env_define "!GLOBAL!" "S:write-lines" "R:write-lines"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
+call :env_define "!GLOBAL!" "S:split" "R:split"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
 call :env_define "!GLOBAL!" "S:t" "S:t"

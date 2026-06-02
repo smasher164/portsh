@@ -165,3 +165,7 @@
 ;; runs. (For the string-embedded `"... (expr) ..."` style, see examples/interp.lisp;
 ;; that one is a read+eval showcase, deliberately not shipped in the stdlib.)
 (define str (lambda args (foldl (lambda (a x) (string-append a (->string x))) "" args)))
+;; join: inverse of the `split` primitive — glue strings with a separator.
+;; Pure userspace (a fold), no native help needed.  (join "," (split s ",")) = s.
+(define join (lambda (sep xs)
+  (if (null? xs) "" (foldl (lambda (a x) (str a sep x)) (car xs) (cdr xs)))))

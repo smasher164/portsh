@@ -1,0 +1,5 @@
+(print (split "a,b,c" ","))
+(print (split "a,,b" ","))
+(print (split "abc" ","))
+(print (split "aXXbXXc" "XX"))
+(print (string-length (car (cdr (split "a,,b" ",")))))

@@ -483,7 +483,38 @@ if "!paN!"=="read-lines" goto pa_rdlines
 if "!paN!"=="write-lines" goto pa_wrlines
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
+if "!paN!"=="split" goto pa_split
 set "R=NIL" & goto :eof
+:pa_split
+rem Split a string on a (possibly multi-char) separator, empty fields preserved.
+rem Native char-scan in batch (set/goto, no eval) — the whole point of making
+rem this a primitive instead of a userspace per-char loop through the evaluator.
+call :hp_car "%~3"
+set "spS=!R:~2!"
+call :hp_cdr "%~3" & call :hp_car "!R!"
+set "spSep=!R:~2!"
+set "spSL=0"
+:sp_seplen
+call set "spLC=%%spSep:~!spSL!,1%%"
+if not "!spLC!"=="" set /a spSL+=1 & goto sp_seplen
+if "!spSL!"=="0" call :hp_cons "T:!spS!" "NIL" & goto :eof
+set "spAcc=NIL" & set "spCur=" & set "spI=0"
+:sp_loop
+call set "spCh=%%spS:~!spI!,1%%"
+if "!spCh!"=="" goto sp_emit
+call set "spChunk=%%spS:~!spI!,!spSL!%%"
+if "!spChunk!"=="!spSep!" goto sp_match
+set "spCur=!spCur!!spCh!" & set /a spI+=1
+goto sp_loop
+:sp_match
+call :hp_cons "T:!spCur!" "!spAcc!"
+set "spAcc=!R!" & set "spCur=" & set /a spI+=spSL
+goto sp_loop
+:sp_emit
+call :hp_cons "T:!spCur!" "!spAcc!"
+set "spAcc=!R!"
+call :list_reverse "!spAcc!"
+goto :eof
 :pa_read
 rem Parse one datum from a string WITHOUT evaluating. Reuse the kernel reader by
 rem pointing SRC at the string and running it in RDMODE (emit_top captures the
@@ -763,6 +794,7 @@ call :env_define "!GLOBAL!" "S:read-lines" "R:read-lines"
 call :env_define "!GLOBAL!" "S:write-lines" "R:write-lines"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
+call :env_define "!GLOBAL!" "S:split" "R:split"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
 call :env_define "!GLOBAL!" "S:t" "S:t"
