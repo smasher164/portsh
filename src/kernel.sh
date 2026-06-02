@@ -263,7 +263,7 @@ arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
 prim_app() {
-  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v
+  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv
   case $name in
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
@@ -289,6 +289,10 @@ prim_app() {
     'string->symbol') arg1 "$args"; R="S:${ARG1#T:}" ;;
     'number->string') arg1 "$args"; R="T:${ARG1#I:}" ;;
     'string->number') arg1 "$args"; R="I:${ARG1#T:}" ;;
+    'read') arg1 "$args"; _rdsave=$SRC; SRC=${ARG1#T:}; rd_expr; _rdv=$R; SRC=$_rdsave; R=$_rdv ;;
+    'type-of') arg1 "$args"; case $ARG1 in
+             NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
+             P:*) R="S:pair" ;; O:*|F:*) R="S:operative" ;; A:*|R:*) R="S:applicative" ;; *) R="S:unknown" ;; esac ;;
     'read-lines') arg1 "$args"; _f=${ARG1#T:}; _acc=NIL
              while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
              _rev=NIL
@@ -345,7 +349,7 @@ PRELUDE="
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture'; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read-lines' 'write-lines' wrap unwrap eval print; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read' 'type-of' 'read-lines' 'write-lines' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"

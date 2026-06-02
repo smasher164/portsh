@@ -267,7 +267,7 @@ arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
 prim_app() {
-  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v
+  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv
   case $name in
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
@@ -293,6 +293,10 @@ prim_app() {
     'string->symbol') arg1 "$args"; R="S:${ARG1#T:}" ;;
     'number->string') arg1 "$args"; R="T:${ARG1#I:}" ;;
     'string->number') arg1 "$args"; R="I:${ARG1#T:}" ;;
+    'read') arg1 "$args"; _rdsave=$SRC; SRC=${ARG1#T:}; rd_expr; _rdv=$R; SRC=$_rdsave; R=$_rdv ;;
+    'type-of') arg1 "$args"; case $ARG1 in
+             NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
+             P:*) R="S:pair" ;; O:*|F:*) R="S:operative" ;; A:*|R:*) R="S:applicative" ;; *) R="S:unknown" ;; esac ;;
     'read-lines') arg1 "$args"; _f=${ARG1#T:}; _acc=NIL
              while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
              _rev=NIL
@@ -349,7 +353,7 @@ PRELUDE="
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture'; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read-lines' 'write-lines' wrap unwrap eval print; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' 'read' 'type-of' 'read-lines' 'write-lines' wrap unwrap eval print; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -500,6 +504,7 @@ goto rl_loop
 :emit_top
 call :apply_quotes
 if !DEPTH! GTR 0 goto et_push
+if "!RDMODE!"=="1" set "RDRESULT=!R!" & set "SRC=" & goto :eof
 call :ev 1 "!R!" "!GLOBAL!"
 goto :eof
 :et_push
@@ -862,7 +867,38 @@ if "!paN!"=="number->string" goto pa_num2str
 if "!paN!"=="string->number" goto pa_str2num
 if "!paN!"=="read-lines" goto pa_rdlines
 if "!paN!"=="write-lines" goto pa_wrlines
+if "!paN!"=="read" goto pa_read
+if "!paN!"=="type-of" goto pa_typeof
 set "R=NIL" & goto :eof
+:pa_read
+rem Parse one datum from a string WITHOUT evaluating. Reuse the kernel reader by
+rem pointing SRC at the string and running it in RDMODE (emit_top captures the
+rem first top-level datum into RDRESULT and clears SRC to stop). The outer
+rem reader's state (SRC/SP/DEPTH) is saved/restored; its stack is empty here
+rem because a top-level datum is fully reduced before eval runs.
+call :hp_car "%~3"
+set "raStr=!R:~2!"
+set "_raSRC=!SRC!" & set "_raSP=!SP!" & set "_raDEPTH=!DEPTH!"
+set "SRC=!raStr!" & set "SP=0" & set "DEPTH=0" & set "RDMODE=1" & set "RDRESULT=NIL"
+call :run_forms
+set "RDMODE="
+set "R=!RDRESULT!"
+set "SRC=!_raSRC!" & set "SP=!_raSP!" & set "DEPTH=!_raDEPTH!"
+goto :eof
+:pa_typeof
+call :hp_car "%~3"
+set "toV=!R!"
+if "!toV!"=="NIL" set "R=S:nil" & goto :eof
+set "toP=!toV:~0,2!"
+if "!toP!"=="I:" set "R=S:number" & goto :eof
+if "!toP!"=="S:" set "R=S:symbol" & goto :eof
+if "!toP!"=="T:" set "R=S:string" & goto :eof
+if "!toP!"=="P:" set "R=S:pair" & goto :eof
+if "!toP!"=="O:" set "R=S:operative" & goto :eof
+if "!toP!"=="F:" set "R=S:operative" & goto :eof
+if "!toP!"=="A:" set "R=S:applicative" & goto :eof
+if "!toP!"=="R:" set "R=S:applicative" & goto :eof
+set "R=S:unknown" & goto :eof
 :pa_rdlines
 call :hp_car "%~3"
 set "rlF=!R:~2!" & set "rlAcc=NIL"
@@ -1111,6 +1147,8 @@ call :env_define "!GLOBAL!" "S:number->string" "R:number->string"
 call :env_define "!GLOBAL!" "S:string->number" "R:string->number"
 call :env_define "!GLOBAL!" "S:read-lines" "R:read-lines"
 call :env_define "!GLOBAL!" "S:write-lines" "R:write-lines"
+call :env_define "!GLOBAL!" "S:read" "R:read"
+call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
 call :env_define "!GLOBAL!" "S:t" "S:t"
@@ -1265,3 +1303,22 @@ __PORTSH_PAYLOAD__
                       (cdr args)))
            env))
    (eval (car args) env))))
+
+;;; -------------------------------------------- type reflection / string coercion
+;; All derived from the single `type-of` primitive (returns a symbol).
+(define number? (lambda (x) (eq? (type-of x) (quote number))))
+(define string? (lambda (x) (eq? (type-of x) (quote string))))
+(define symbol? (lambda (x) (eq? (type-of x) (quote symbol))))
+(define pair?   (lambda (x) (eq? (type-of x) (quote pair))))
+;; ->string: render any value as a string (the coercion `str`/interp build on).
+(define ->string (lambda (x)
+  (cond ((string? x) x)
+        ((number? x) (number->string x))
+        ((symbol? x) (symbol->string x))
+        (t x))))
+;; str: concatenate the string forms of all args.  (str "n=" (+ 1 2) "!") => "n=3!"
+;; This is the "form-hole" answer to interpolation — needs no reader/`read`,
+;; since each argument was already parsed and is evaluated normally before str
+;; runs. (For the string-embedded `"... (expr) ..."` style, see examples/interp.lisp;
+;; that one is a read+eval showcase, deliberately not shipped in the stdlib.)
+(define str (lambda args (foldl (lambda (a x) (string-append a (->string x))) "" args)))

@@ -146,3 +146,22 @@
                       (cdr args)))
            env))
    (eval (car args) env))))
+
+;;; -------------------------------------------- type reflection / string coercion
+;; All derived from the single `type-of` primitive (returns a symbol).
+(define number? (lambda (x) (eq? (type-of x) (quote number))))
+(define string? (lambda (x) (eq? (type-of x) (quote string))))
+(define symbol? (lambda (x) (eq? (type-of x) (quote symbol))))
+(define pair?   (lambda (x) (eq? (type-of x) (quote pair))))
+;; ->string: render any value as a string (the coercion `str`/interp build on).
+(define ->string (lambda (x)
+  (cond ((string? x) x)
+        ((number? x) (number->string x))
+        ((symbol? x) (symbol->string x))
+        (t x))))
+;; str: concatenate the string forms of all args.  (str "n=" (+ 1 2) "!") => "n=3!"
+;; This is the "form-hole" answer to interpolation — needs no reader/`read`,
+;; since each argument was already parsed and is evaluated normally before str
+;; runs. (For the string-embedded `"... (expr) ..."` style, see examples/interp.lisp;
+;; that one is a read+eval showcase, deliberately not shipped in the stdlib.)
+(define str (lambda args (foldl (lambda (a x) (string-append a (->string x))) "" args)))
