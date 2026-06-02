@@ -33,6 +33,7 @@ hp_cons() { eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; H
 hp_car()    { _i=${1#P:}; eval "R=\$H_${_i}_a"; }
 hp_cdr()    { _i=${1#P:}; eval "R=\$H_${_i}_d"; }
 hp_setcar() { _i=${1#P:}; eval "H_${_i}_a=\$2"; }
+hp_setcdr() { _i=${1#P:}; eval "H_${_i}_d=\$2"; }
 
 # ---- reader (token-based, pure POSIX — no per-char peek) ------------------
 # We never extract one character at a time: dispatch by matching the SRC prefix
@@ -129,13 +130,24 @@ env_define() {
 }
 
 env_lookup() {
-  local env=$1 sym=$2 binds pair k
+  local env=$1 sym=$2 binds pair k prev next head
   while [ "$env" != NIL ]; do
     hp_car "$env"; binds=$R
+    prev=NIL
     while [ "$binds" != NIL ]; do
       hp_car "$binds"; pair=$R
       hp_car "$pair"; k=$R
-      if [ "$k" = "$sym" ]; then hp_cdr "$pair"; return; fi
+      if [ "$k" = "$sym" ]; then
+        if [ "$prev" != NIL ]; then        # move-to-front: splice pair to head
+          hp_cdr "$binds"; next=$R
+          hp_setcdr "$prev" "$next"
+          hp_car "$env"; head=$R
+          hp_setcdr "$binds" "$head"
+          hp_setcar "$env" "$binds"
+        fi
+        hp_cdr "$pair"; return
+      fi
+      prev=$binds
       hp_cdr "$binds"; binds=$R
     done
     hp_cdr "$env"; env=$R
