@@ -75,10 +75,28 @@
         (list (append (car r) (car rest)) (cons (vref (cadr r)) (cadr rest)) (caddr rest)))))))
 (define uassign (lambda (vs i) (if (null? vs) nil (cons (str "set zu" (number->string i) "=" (car vs)) (uassign (cdr vs) (+ i 1))))))
 (define pupd (lambda (ps i) (if (null? ps) nil (cons (str "set " (symbol->string (car ps)) "=!zu" (number->string i) "!") (pupd (cdr ps) (+ i 1))))))
+;; test of an `if` -> lines ending in a `if ... goto TL`. Numeric (< =) compares
+;; raw numbers; eq?/null? compare tagged values as strings (quote-free, so
+;; space-free values only — symbols/NIL/numbers/pairs); pair? checks the P: tag.
 (define test-stmts (lambda (test tl pmap k)
-  (let ((ra (cexpr (cadr test) pmap k)))
-    (let ((rb (cexpr (caddr test) pmap (caddr ra))))
-      (cons (append (car ra) (append (car rb) (list (str "if " (iref (cadr ra)) " " (cmp->batch (car test)) " " (iref (cadr rb)) " goto " tl)))) (caddr rb))))))
+  (let ((op (car test)))
+    (cond
+      ((eq? op (quote null?))
+        (let ((rx (cexpr (cadr test) pmap k)))
+          (cons (append (car rx) (list (str "if " (vref (cadr rx)) "==NIL goto " tl))) (caddr rx))))
+      ((eq? op (quote pair?))
+        (let ((rx (cexpr (cadr test) pmap k)))
+          (cons (append (car rx)
+                  (list (str "set zp" k "=!" (cdr (cadr rx)) ":~0,1!")
+                        (str "if !zp" k "!==P goto " tl))) (caddr rx))))
+      ((eq? op (quote eq?))
+        (let ((ra (cexpr (cadr test) pmap k)))
+          (let ((rb (cexpr (caddr test) pmap (caddr ra))))
+            (cons (append (car ra) (append (car rb) (list (str "if " (vref (cadr ra)) "==" (vref (cadr rb)) " goto " tl)))) (caddr rb)))))
+      (t
+        (let ((ra (cexpr (cadr test) pmap k)))
+          (let ((rb (cexpr (caddr test) pmap (caddr ra))))
+            (cons (append (car ra) (append (car rb) (list (str "if " (iref (cadr ra)) " " (cmp->batch op) " " (iref (cadr rb)) " goto " tl)))) (caddr rb)))))))))
 ;; ctail: tail position. self-call -> args into zu temps, update params, goto top;
 ;; if -> goto-branch; else -> set R to the tagged value, return.
 (define ctail (lambda (f nm lbl ps pmap k)
@@ -133,10 +151,13 @@
     (if (if (def-lambda? (car forms)) (not (refs? (cadr (car forms)) (caddr (caddr (car forms))))) nil)
       (cons (list (cadr (car forms)) (cadr (caddr (car forms))) (caddr (caddr (car forms)))) (mk-tbl (cdr forms)))
       (mk-tbl (cdr forms))))))
+;; Inline ONLY inside compiled function bodies. Top-level (interpreted) forms are
+;; left alone — inlining a body that uses a stdlib fn (e.g. pair?) into the
+;; residual would reference something unbound there; as a compiled C: call it's fine.
 (define inline-form (lambda (f tbl)
   (if (def-lambda? f)
     (list (quote define) (cadr f) (list (quote lambda) (cadr (caddr f)) (inline-expr (caddr (caddr f)) tbl)))
-    (inline-expr f tbl))))
+    f)))
 (define inline-program (lambda (forms) (let ((tbl (mk-tbl forms))) (map (lambda (f) (inline-form f tbl)) forms))))
 
 (define cp (lambda (forms subs resid cmdpath lisppath)
