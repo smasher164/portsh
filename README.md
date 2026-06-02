@@ -154,7 +154,9 @@ shared userspace prelude. Verified on `dash`/`bash` and on real Windows
 | fexpr   | user-defined `vau` | 100    |
 | string  | string literal     | hello world |
 | strings | string primitives  | foobarbaz/5/world/… |
-| ioline  | write/read-lines + run-capture | alpha/beta/5/cap-line |
+| semistr | `;` inside a string literal | a;b / x;y;z / 3 / i;j;k |
+| slempty | empty-string length/append | 0 / "" / 2 |
+| ioline  | write/read-lines (blank line) + run-capture | alpha/0/beta/cap-line |
 
 Tests: `tests/kernel.sh` (sh kernel, local), `tests/weave.sh` (woven file as sh,
 local), `tests/kernel-cmd.sh` (batch kernel on the VM, `PORTSH_WIN_SSH=...`).
@@ -171,15 +173,17 @@ single line** and multi-line text is a *list of line-strings*; I/O is therefore
 line-oriented: `(read-lines "path")` → list of lines, `(write-lines "path"
 lines)` writes them, and `(run-capture cmd …)` runs a command and returns its
 stdout as a line list (vs. `run`, which streams to the console and returns the
-exit code). All verified identical on `sh` and real `cmd.exe`. (Batch caveats,
-both from `for /f`: a blank line and a line beginning with `;` are dropped by
-`read-lines`/`run-capture` — fine for typical line data, divergent for files
-that rely on either.)
+exit code). All verified **byte-identical** on `sh` and real `cmd.exe`,
+including the corners: blank lines and `;`-leading lines survive a
+`read-lines`/`run-capture` round-trip, and `string-length ""` is `0` on both.
 
 Syntax parity: the readers agree on both hosts — `'x` quote-shorthand, `;`
 line comments (inline and full-line), and `"..."` string literals all parse
-identically on `sh` and `cmd`. (The one batch corner: a `;` *inside* a string
-literal is treated as a comment; rare, and the only known reader divergence.)
+identically on `sh` and `cmd`, **including a `;` inside a string literal** (the
+batch reader strips comments string-aware, not by a blunt `delims=;` split).
+Strings are single-line on both hosts — a batch variable can't hold a newline,
+so a raw newline inside a `"..."` literal is a parse error on `sh` too (rather
+than silently working on one host); multi-line text is a list of line-strings.
 
 Performance: the batch kernel uses a variable-based heap (O(1) `cons`/`car`/
 `cdr`/`set-car`/`set-cdr`) and inlines the heap accessors in the hot paths
