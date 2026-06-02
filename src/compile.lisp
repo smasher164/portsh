@@ -69,3 +69,45 @@
 (define compile-fn (lambda (nm lbl fs body)
   (append (list (str ":" lbl) (str "set /a " (join "," (load-params fs 1))) (str ":" lbl "_top"))
           (car (ctail body nm lbl fs (pmap-local fs) 0)))))
+
+;;; -------------------------------------------------- the driver (compile a program)
+;; A Lisp printer: form -> re-readable text. The residual it emits uses no string
+;; literals (portsh has no string escape), so a compiled binding is written as
+;; (make-compiled (symbol->string (quote name))) rather than (make-compiled "name").
+(define show-list (lambda (f)
+  (if (null? (cdr f)) (show (car f))
+    (if (pair? (cdr f)) (str (show (car f)) " " (show-list (cdr f)))
+        (str (show (car f)) " . " (show (cdr f)))))))
+(define show (lambda (f)
+  (cond ((null? f) "()")
+        ((number? f) (number->string f))
+        ((symbol? f) (symbol->string f))
+        ((string? f) f)
+        (t (str "(" (show-list f) ")")))))
+
+;; The generated dispatcher header (quote-free): `call :<label>` then propagate R
+;; back across endlocal.  All compiled subs are appended after it.
+(define dispatch-header (list "@echo off" "setlocal enabledelayedexpansion"
+                              "call :%1 %2 %3 %4 %5" "endlocal & set R=%R%" "goto :eof"))
+(define def-lambda? (lambda (f)
+  (if (pair? f) (if (eq? (car f) (quote define))
+    (if (pair? (caddr f)) (eq? (car (caddr f)) (quote lambda)) nil) nil) nil)))
+;; residual binding: (define NAME (make-compiled (symbol->string (quote NAME))))
+(define resid-bind (lambda (nm)
+  (list (quote define) nm (list (quote make-compiled) (list (quote symbol->string) (list (quote quote) nm))))))
+
+;; compile-program: forms + the two output paths -> writes the batch subs to
+;; cmdpath and the residual program to lisppath. Each compilable (define f
+;; (lambda ...)) becomes a compiled sub + a make-compiled binding; everything
+;; else passes through to be interpreted.
+(define cp (lambda (forms subs resid cmdpath lisppath)
+  (if (null? forms)
+    (begin (write-lines cmdpath subs) (write-lines lisppath (map show (reverse resid))))
+    (if (def-lambda? (car forms))
+      (cp (cdr forms)
+          (append subs (compile-fn (cadr (car forms)) (symbol->string (cadr (car forms)))
+                                   (cadr (caddr (car forms))) (caddr (caddr (car forms)))))
+          (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath)
+      (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath)))))
+(define compile-program (lambda (forms cmdpath lisppath)
+  (cp forms dispatch-header nil cmdpath lisppath)))

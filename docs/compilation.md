@@ -91,7 +91,16 @@ bootstrapping tower, with as much as possible lifted into shared Lisp.
   interpreter — does **not** hit the recursion-stack crash at large N. (Absolute
   times are inflated by the battery/emulated test VM; relative win holds, and
   closes most of the gap to bash on real hardware.)
-- ▢ calls to *other* functions; cons/list/string via direct primitive calls.
-- ▢ kernel integration: temp dir, define-time compile trigger, `C:` dispatch,
-  caching.
+- ✅ **kernel integration**: `C:<label>` dispatch in `combine` (eval operands →
+  call the generated sub → `R` back), `make-compiled` to bind a name to its
+  label. A `(define f (make-compiled …))` + `(f …)` runs native compiled batch;
+  all fixtures still interpret correctly.
+- ✅ **the driver + full AOT flow**: `compile-program` (with a Lisp `show`
+  printer) rewrites a program — each compilable `(define f (lambda …))` becomes a
+  compiled sub in `compiled.cmd` plus a `make-compiled` binding in the residual;
+  everything else passes through. Verified end-to-end: **compiled on the fast sh
+  kernel, the residual runs on real cmd.exe** and returns the right answer by
+  executing compiled batch. This is "compile on sh, run on batch."
+- ▢ broaden codegen: calls to *other* functions; cons/list/string via direct
+  primitive calls (toward covering what `comp` itself needs).
 - ▢ self-hosting: compile `comp` with `comp` → `portshc.cmd`.
