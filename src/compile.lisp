@@ -252,8 +252,10 @@
     (cond
       ((eq? op (quote null?))
         (let ((rx (cexpr (cadr test) pmap k live)))
-          (let ((q (dq)))
-            (cons (append (car rx) (list (str "if " q (vref (cadr rx)) q "==" q "NIL" q " goto " tl))) (caddr rx)))))
+          ;; unquoted is operator-safe: !v! expands AFTER tokenization, so a & | < >
+          ;; in the value lands as data, not a separator. Tagged values are never
+          ;; empty (>=2-char tag or NIL), so `if ==..` can't arise. Keeps codegen "-free.
+          (cons (append (car rx) (list (str "if " (vref (cadr rx)) "==NIL goto " tl))) (caddr rx))))
       ((eq? op (quote pair?)) (ctag-test test tl pmap k "P" live))
       ((eq? op (quote number?)) (ctag-test test tl pmap k "I" live))
       ((eq? op (quote string?)) (ctag-test test tl pmap k "T" live))
@@ -261,8 +263,7 @@
       ((eq? op (quote eq?))
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
-            (let ((q (dq)))
-              (cons (append (car ra) (append (car rb) (list (str "if " q (vref (cadr ra)) q "==" q (vref (cadr rb)) q " goto " tl)))) (caddr rb))))))
+            (cons (append (car ra) (append (car rb) (list (str "if " (vref (cadr ra)) "==" (vref (cadr rb)) " goto " tl)))) (caddr rb)))))
       (t
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
