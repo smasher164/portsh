@@ -188,17 +188,29 @@
 ;; test of an `if` -> lines ending in a `if ... goto TL`. Numeric (< =) compares
 ;; raw numbers; eq?/null? compare tagged values as strings (quote-free, so
 ;; space-free values only — symbols/NIL/numbers/pairs); pair? checks the P: tag.
+;; tag-prefix predicate (pair?/number?/string?/symbol?): materialise the operand
+;; into a temp (works for a var or a literal), then branch to TL if its first char
+;; equals the tag letter (P/I/T/S).
+(define ctag-test (lambda (test tl pmap k ch live)
+  (let ((rx (cexpr (cadr test) pmap k live)))
+    (let ((zt (str "zp" (number->string (caddr rx)))))
+      ;; substring must be done in a `set` -- a `:~0,1` inside `if` breaks (the
+      ;; comma is a token delimiter there). Materialise the value, slice to its
+      ;; first char in place, then compare the whole short var.
+      (cons (append (car rx)
+              (list (str "set " zt "=" (vref (cadr rx)))
+                    (str "set " zt "=!" zt ":~0,1!")
+                    (str "if !" zt "!==" ch " goto " tl))) (+ (caddr rx) 1))))))
 (define test-stmts (lambda (test tl pmap k live)
   (let ((op (car test)))
     (cond
       ((eq? op (quote null?))
         (let ((rx (cexpr (cadr test) pmap k live)))
           (cons (append (car rx) (list (str "if " (vref (cadr rx)) "==NIL goto " tl))) (caddr rx))))
-      ((eq? op (quote pair?))
-        (let ((rx (cexpr (cadr test) pmap k live)))
-          (cons (append (car rx)
-                  (list (str "set zp" (number->string k) "=!" (cdr (cadr rx)) ":~0,1!")
-                        (str "if !zp" (number->string k) "!==P goto " tl))) (caddr rx))))
+      ((eq? op (quote pair?)) (ctag-test test tl pmap k "P" live))
+      ((eq? op (quote number?)) (ctag-test test tl pmap k "I" live))
+      ((eq? op (quote string?)) (ctag-test test tl pmap k "T" live))
+      ((eq? op (quote symbol?)) (ctag-test test tl pmap k "S" live))
       ((eq? op (quote eq?))
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
