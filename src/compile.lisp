@@ -131,6 +131,7 @@
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote string-length)) (cstrlen f pmap k live))
     ((eq? (car f) (quote substring)) (csubstr f pmap k live))
+    ((eq? (car f) (quote dq)) (let ((tmp (str "zt" (number->string k)))) (list (list (str "set " tmp "=T:!BANG8!")) (cons (quote val) tmp) (+ k 1))))
     ((tpred? (car f)) (cexpr (list (quote if) f (list (quote quote) (quote t)) (quote nil)) pmap k live))
     ((eq? (car f) (quote let))
        ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
@@ -251,7 +252,8 @@
     (cond
       ((eq? op (quote null?))
         (let ((rx (cexpr (cadr test) pmap k live)))
-          (cons (append (car rx) (list (str "if " (vref (cadr rx)) "==NIL goto " tl))) (caddr rx))))
+          (let ((q (dq)))
+            (cons (append (car rx) (list (str "if " q (vref (cadr rx)) q "==" q "NIL" q " goto " tl))) (caddr rx)))))
       ((eq? op (quote pair?)) (ctag-test test tl pmap k "P" live))
       ((eq? op (quote number?)) (ctag-test test tl pmap k "I" live))
       ((eq? op (quote string?)) (ctag-test test tl pmap k "T" live))
@@ -259,7 +261,8 @@
       ((eq? op (quote eq?))
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
-            (cons (append (car ra) (append (car rb) (list (str "if " (vref (cadr ra)) "==" (vref (cadr rb)) " goto " tl)))) (caddr rb)))))
+            (let ((q (dq)))
+              (cons (append (car ra) (append (car rb) (list (str "if " q (vref (cadr ra)) q "==" q (vref (cadr rb)) q " goto " tl)))) (caddr rb))))))
       (t
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
@@ -289,8 +292,13 @@
            (cons (append (car bs) (car tb)) (cdr tb)))))
     (t (let ((r (cexpr f pmap k nil))) (cons (append (car r) (list (str "set R=" (vref (cadr r))) "goto :eof")) (caddr r)))))))
 
-(define compile-fn (lambda (nm lbl fs body)
-  (append (cons (str ":" lbl) (load-params fs 1)) (cons (str ":" lbl "_top") (car (ctail body nm lbl fs (pmap-local fs) 0))))))
+;; k0 is the program-wide monotonic label/temp counter: cexpr-level labels (zT/zE
+;; value-if, zSL/zSK/zTK loops) are NOT function-prefixed, so `goto` would hit the
+;; first match in the file. Threading one k across all fns keeps every label unique.
+;; Returns (cons lines next-k).
+(define compile-fn (lambda (nm lbl fs body k0)
+  (let ((tb (ctail body nm lbl fs (pmap-local fs) k0)))
+    (cons (append (cons (str ":" lbl) (load-params fs 1)) (cons (str ":" lbl "_top") (car tb))) (cdr tb)))))
 
 ;;; -------------------------------------------------- the driver (compile a program)
 (define show-list (lambda (f)
@@ -368,18 +376,17 @@
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 
-(define cp (lambda (forms subs resid cmdpath lisppath)
+(define cp (lambda (forms subs resid cmdpath lisppath k)
   (if (null? forms)
     (begin (write-lines cmdpath subs) (write-lines lisppath (map-show (reverse resid))))
     (if (def-lambda? (car forms))
-      (cp (cdr forms)
-          (append subs (compile-fn (cadr (car forms)) (symbol->string (cadr (car forms))) (cadr (caddr (car forms))) (caddr (caddr (car forms)))))
-          (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath)
+      (let ((cf (compile-fn (cadr (car forms)) (symbol->string (cadr (car forms))) (cadr (caddr (car forms))) (caddr (caddr (car forms))) k)))
+        (cp (cdr forms) (append subs (car cf)) (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath (cdr cf)))
       ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
       ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
       (if (atom-const? (car forms))
-        (cp (cdr forms) subs resid cmdpath lisppath)
-        (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath))))))
+        (cp (cdr forms) subs resid cmdpath lisppath k)
+        (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath k))))))
 ;; a top-level (define X <atom>) -> a constant compiled fns read as G_X. (Only
 ;; atoms: a list-valued constant would rebuild itself on the heap every dispatch.)
 (define atom-const? (lambda (f)
@@ -392,4 +399,4 @@
       (const-inits (cdr forms))))))
 (define compile-program (lambda (forms cmdpath lisppath)
   (let ((ms (inline-program (mexpand-program forms))))
-    (cp ms (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))) nil cmdpath lisppath))))
+    (cp ms (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))) nil cmdpath lisppath 0))))

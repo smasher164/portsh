@@ -551,6 +551,7 @@ goto es_loop
 rem =========================== primitives (applicative) ===========================
 :prim_app
 set "paN=%~2"
+if "!paN!"=="dq" goto pa_dq
 if "!paN!"=="make-compiled" goto pa_mkcompiled
 if "!paN!"=="list" goto pa_list
 if "!paN!"=="cons" goto pa_cons
@@ -776,6 +777,12 @@ goto :eof
 call :hp_car "%~3"
 call :hp_cdr "!R!"
 goto :eof
+:pa_dq
+rem (dq) -> a '"'-valued string. 0x08 is our '"' sentinel; it decodes to a real
+rem '"' at output (write-lines), letting generated code quote an `if` comparison
+rem so operator chars (& | < >) in a value don't break the line.
+set "R=T:!BANG8!"
+goto :eof
 :pa_eq
 call :hp_car "%~3"
 set "paA1=!R!"
@@ -917,6 +924,7 @@ call :env_define "!GLOBAL!" "S:cons" "R:cons"
 call :env_define "!GLOBAL!" "S:car" "R:car"
 call :env_define "!GLOBAL!" "S:cdr" "R:cdr"
 call :env_define "!GLOBAL!" "S:eq?" "R:eq?"
+call :env_define "!GLOBAL!" "S:dq" "R:dq"
 call :env_define "!GLOBAL!" "S:null?" "R:null?"
 call :env_define "!GLOBAL!" "S:atom?" "R:atom?"
 call :env_define "!GLOBAL!" "S:+" "R:+"

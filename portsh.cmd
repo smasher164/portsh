@@ -294,6 +294,7 @@ prim_app() {
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
     car)     arg1 "$args"; hp_car "$ARG1" ;;
     cdr)     arg1 "$args"; hp_cdr "$ARG1" ;;
+    dq)      R='T:"' ;;                        # a '"'-valued string (0x08 sentinel on cmd)
     'eq?')   arg2 "$args"; [ "$ARG1" = "$ARG2" ] && R="S:t" || R=NIL ;;
     'null?') arg1 "$args"; [ "$ARG1" = NIL ] && R="S:t" || R=NIL ;;
     'atom?') arg1 "$args"; case $ARG1 in P:*) R=NIL ;; *) R="S:t" ;; esac ;;
@@ -378,7 +379,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' list wrap unwrap eval print; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -966,6 +967,7 @@ goto es_loop
 rem =========================== primitives (applicative) ===========================
 :prim_app
 set "paN=%~2"
+if "!paN!"=="dq" goto pa_dq
 if "!paN!"=="make-compiled" goto pa_mkcompiled
 if "!paN!"=="list" goto pa_list
 if "!paN!"=="cons" goto pa_cons
@@ -1191,6 +1193,12 @@ goto :eof
 call :hp_car "%~3"
 call :hp_cdr "!R!"
 goto :eof
+:pa_dq
+rem (dq) -> a '"'-valued string. 0x08 is our '"' sentinel; it decodes to a real
+rem '"' at output (write-lines), letting generated code quote an `if` comparison
+rem so operator chars (& | < >) in a value don't break the line.
+set "R=T:!BANG8!"
+goto :eof
 :pa_eq
 call :hp_car "%~3"
 set "paA1=!R!"
@@ -1332,6 +1340,7 @@ call :env_define "!GLOBAL!" "S:cons" "R:cons"
 call :env_define "!GLOBAL!" "S:car" "R:car"
 call :env_define "!GLOBAL!" "S:cdr" "R:cdr"
 call :env_define "!GLOBAL!" "S:eq?" "R:eq?"
+call :env_define "!GLOBAL!" "S:dq" "R:dq"
 call :env_define "!GLOBAL!" "S:null?" "R:null?"
 call :env_define "!GLOBAL!" "S:atom?" "R:atom?"
 call :env_define "!GLOBAL!" "S:+" "R:+"
