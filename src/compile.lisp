@@ -20,6 +20,10 @@
 (define op->batch  (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
 (define cmp->batch (lambda (o) (cond ((eq? o (quote <)) "LSS") ((eq? o (quote =)) "EQU") (t "?"))))
 (define arith? (lambda (o) (if (eq? o (quote +)) t (if (eq? o (quote -)) t (eq? o (quote *))))))
+;; predicates test-stmts can evaluate; in VALUE position we wrap them in an if so
+;; the result becomes S:t / NIL (e.g. comp's is? returns (eq? (car f) h)).
+(define tpred? (lambda (o) (cond ((eq? o (quote eq?)) t) ((eq? o (quote null?)) t) ((eq? o (quote pair?)) t)
+  ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote =)) t) (t nil))))
 (define is? (lambda (f h) (if (pair? f) (eq? (car f) h) nil)))
 
 ;; ref kinds: lit (literal int) | raw (var, raw int) | val (var, tagged value) |
@@ -124,6 +128,7 @@
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote string-length)) (cstrlen f pmap k live))
     ((eq? (car f) (quote substring)) (csubstr f pmap k live))
+    ((tpred? (car f)) (cexpr (list (quote if) f (list (quote quote) (quote t)) (quote nil)) pmap k live))
     ((eq? (car f) (quote let))
        ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
        ;; in pmap, compile body. clet-binds threads k and grows pmap.
