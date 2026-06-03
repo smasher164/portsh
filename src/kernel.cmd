@@ -232,11 +232,15 @@ set "R=P:%HN%"
 set /a HN+=1
 goto :eof
 :hp_car
-set "hcp=%~1" & set "hcp=!hcp:P:=!"
+set "hcp=%~1"
+if "!hcp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
+set "hcp=!hcp:P:=!"
 set "R=!CAR_%hcp%!"
 goto :eof
 :hp_cdr
-set "hdp=%~1" & set "hdp=!hdp:P:=!"
+set "hdp=%~1"
+if "!hdp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
+set "hdp=!hdp:P:=!"
 set "R=!CDR_%hdp%!"
 goto :eof
 :hp_setcar

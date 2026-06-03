@@ -30,8 +30,11 @@ die() { printf 'portsh: %s\n' "$1" >&2; exit 1; }
 # ---- heap (swappable for the append-only dd-file heap later) --------------
 HEAP_N=0
 hp_cons() { eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1)); }
-hp_car()    { _i=${1#P:}; eval "R=\$H_${_i}_a"; }
-hp_cdr()    { _i=${1#P:}; eval "R=\$H_${_i}_d"; }
+# car/cdr of a non-pair -> NIL (matches the cmd kernel, which reads an unset CAR_/CDR_).
+# Lisp-ish convention; keeps sh from dying under `set -u` where cmd silently continues,
+# so both hosts agree (consistency) and recursions terminate instead of hanging.
+hp_car()    { case $1 in P:*) _i=${1#P:}; eval "R=\$H_${_i}_a";; *) R=NIL;; esac; }
+hp_cdr()    { case $1 in P:*) _i=${1#P:}; eval "R=\$H_${_i}_d";; *) R=NIL;; esac; }
 hp_setcar() { _i=${1#P:}; eval "H_${_i}_a=\$2"; }
 hp_setcdr() { _i=${1#P:}; eval "H_${_i}_d=\$2"; }
 
@@ -648,11 +651,15 @@ set "R=P:%HN%"
 set /a HN+=1
 goto :eof
 :hp_car
-set "hcp=%~1" & set "hcp=!hcp:P:=!"
+set "hcp=%~1"
+if "!hcp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
+set "hcp=!hcp:P:=!"
 set "R=!CAR_%hcp%!"
 goto :eof
 :hp_cdr
-set "hdp=%~1" & set "hdp=!hdp:P:=!"
+set "hdp=%~1"
+if "!hdp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
+set "hdp=!hdp:P:=!"
 set "R=!CDR_%hdp%!"
 goto :eof
 :hp_setcar
