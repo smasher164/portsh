@@ -402,12 +402,17 @@
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 
+;; concat a list of line-lists into one (right-associated append -> O(total), vs
+;; cp's old `(append subs newfn)` per fn which was O(n^2) in the line count).
+(define concat (lambda (lol) (if (null? lol) nil (append (car lol) (concat (cdr lol))))))
+;; subs is a list of per-fn line-lists, PREPENDED (so reversed); the header is its
+;; last/first element. At the end reverse + concat once.
 (define cp (lambda (forms subs resid cmdpath lisppath k)
   (if (null? forms)
-    (begin (write-lines cmdpath subs) (write-lines lisppath (map-show (reverse resid))))
+    (begin (write-lines cmdpath (concat (reverse subs))) (write-lines lisppath (map-show (reverse resid))))
     (if (def-lambda? (car forms))
       (let ((cf (compile-fn (cadr (car forms)) (mangle (symbol->string (cadr (car forms)))) (cadr (caddr (car forms))) (caddr (caddr (car forms))) k)))
-        (cp (cdr forms) (append subs (car cf)) (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath (cdr cf)))
+        (cp (cdr forms) (cons (car cf) subs) (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath (cdr cf)))
       ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
       ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
       (if (atom-const? (car forms))
@@ -430,6 +435,11 @@
 ;; comp's compiled data and the link step would corrupt it. Keeping it a separate
 ;; file means comp's source/output never contains @B1@, so there's nothing to collide.
 ;; Compiled code just emits `call compiled.cmd write-lines` / `call :rdfield`.
+;; inline-program is an OPTIMIZATION (inline small non-recursive helpers into call
+;; sites). Skipped for now: on a big self-host input it inlines vref/aref/... into
+;; cexpr's ~15 call sites, bloating generation time and output. Without it comp's
+;; fns just `call` those helpers (correct, smaller, faster to generate). Re-enable
+;; once self-host is proven and compiled-comp runtime speed matters.
 (define compile-program (lambda (forms cmdpath lisppath)
-  (let ((ms (inline-program (mexpand-program forms))))
-    (cp ms (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))) nil cmdpath lisppath 0))))
+  (let ((ms (mexpand-program forms)))
+    (cp ms (list (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header)))) nil cmdpath lisppath 0))))
