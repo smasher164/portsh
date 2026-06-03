@@ -404,13 +404,15 @@
       (cons (str "set G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil))))
             (const-inits (cdr forms)))
       (const-inits (cdr forms))))))
-;; the compiled :write-lines sub, prepended to every output. Mirrors the kernel's
-;; pa_wrlines/wl_emit: truncate the file, then per line decode the sentinels and
-;; append. The decode needs the sentinel BYTES as search patterns; we can't bake
-;; literal 0x01/0x07 (write-lines would decode them), so route through ascii
-;; placeholders -- byte->@P@ under ENABLED expansion (byte search via %BANGx%),
-;; then @P@->char under DISABLED (literal placeholder search, char repl safe). The
-;; only " needed are this sub's own set/p prompt etc., built with dq (0x08 -> ").
+;; the compiled :write-lines sub, prepended to every output. Truncate the file,
+;; then per line decode sentinels and append. OUTPUT is the crux: a line can hold
+;; ! % ^ " and operators (& | < >). The robust writer is an UNQUOTED set/p whose
+;; prompt has operators CARET-escaped (^& etc) and " left bare -- verified that
+;; `<nul set /p =G^&H^"I^<J` writes G&H"I<J. So the decode (under quoted sets --
+;; safe for operators since quotes protect them; the value never holds a real "
+;; because " is the 0x08 sentinel until the end) caret-escapes operators and turns
+;; 0x07->^^, 0x02->%, 0x01->@P1@->!, 0x08->@PQ@; the final set/p substitutes
+;; @PQ@->" inline. The sub's own quotes come from dq.
 (define wl-sub (lambda ()
   (let ((Q (dq)))
     (append
@@ -420,31 +422,35 @@
             ":write-lines"
             "set wlf=!A1:~2!"
             "set wll=!A2!"
-            (str "break > " Q "!wlf!" Q)
+            "break > !wlf!"
             ":wl_loop_c"
             "if !wll!==NIL (set R=S:t & goto :eof)"
             "set wli=!wll:~2!"
             "call :rdfield CAR_ !wli!"
             "set wlline=!R:~2!"
-            (str "call :wl_emit_c " Q "!wlf!" Q)
+            "call :wl_emit_c !wlf!"
             "call :rdfield CDR_ !wli!"
             "set wll=!R!"
             "goto wl_loop_c"
             ":wl_emit_c"
             "if defined wlline goto wl_enc_c"
-            (str ">>" Q "%~1" Q " echo(")
+            ">>%~1 echo("
             "goto :eof"
             ":wl_enc_c"
             "setlocal enableDelayedExpansion")
-      (list (str "set " Q "w=!wlline:%BANG2%=%%!" Q)
+      (list (str "set " Q "w=!wlline:&=^&!" Q)
+            (str "set " Q "w=!w:|=^|!" Q)
+            (str "set " Q "w=!w:<=^<!" Q)
+            (str "set " Q "w=!w:>=^>!" Q)
+            (str "set " Q "w=!w:%BANG7%=^^!" Q)
+            (str "set " Q "w=!w:%BANG2%=%%!" Q)
             (str "set " Q "w=!w:%BANG%=@P1@!" Q)
-            (str "set " Q "w=!w:%BANG7%=@P7@!" Q)
+            (str "set " Q "w=!w:%BANG8%=@PQ@!" Q)
             (str "endlocal & set " Q "wcar=%w%" Q)
             "setlocal disableDelayedExpansion"
             (str "set " Q "wd=%wcar:@P1@=!%" Q)
-            (str "set " Q "wd=%wd:@P7@=^%" Q)
-            (str ">>" Q "%~1" Q " <nul set /p " Q "=%wd%" Q)
-            (str ">>" Q "%~1" Q " echo(")
+            (str ">>%~1 <nul set /p =%wd:@PQ@=" Q "%")
+            ">>%~1 echo("
             "endlocal"
             "goto :eof")))))
 (define compile-program (lambda (forms cmdpath lisppath)
