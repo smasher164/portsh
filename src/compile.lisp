@@ -112,6 +112,7 @@
   (cond
     ((number? f) (list nil (cons (quote lit) (number->string f)) k))
     ((eq? f (quote nil)) (list nil (cons (quote cst) "NIL") k))
+    ((eq? f (quote t)) (list nil (cons (quote cst) "S:t") k))
     ((string? f) (list nil (cons (quote cst) (str "T:" (enc-mc f))) k))
     ((symbol? f) (let ((e (assoc f pmap)))
                    ;; param/local -> its temp var; otherwise a top-level constant,
@@ -266,8 +267,13 @@
               (list (qset (str "" zt "=" (vref (cadr rx))))
                     (qset (str "" zt "=!" zt ":~0,1!"))
                     (str "if !" zt "!==" ch " goto " tl))) (+ (caddr rx) 1))))))
+;; test of an `if`. If it's a pair headed by a known predicate/comparison, emit the
+;; specialised compare; OTHERWISE (a variable, or any other call -- e.g.
+;; (if (def-lambda? f) ..), (if x ..)) it's a TRUTHINESS test: evaluate it and branch
+;; to TL when the value is not NIL.
 (define test-stmts (lambda (test tl pmap k live)
-  (let ((op (car test)))
+  (if (if (pair? test) (tpred? (car test)) nil)
+    (let ((op (car test)))
     (cond
       ((eq? op (quote null?))
         (let ((rx (cexpr (cadr test) pmap k live)))
@@ -288,7 +294,10 @@
       (t
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
-            (cons (append (car ra) (append (car rb) (list (str "if " (iref (cadr ra)) " " (cmp->batch op) " " (iref (cadr rb)) " goto " tl)))) (caddr rb)))))))))
+            (cons (append (car ra) (append (car rb) (list (str "if " (iref (cadr ra)) " " (cmp->batch op) " " (iref (cadr rb)) " goto " tl)))) (caddr rb)))))))
+    (let ((rx (cexpr test pmap k live)))
+      (let ((q (dq)))
+        (cons (append (car rx) (list (str "if not " q (vref (cadr rx)) q "==" q "NIL" q " goto " tl))) (caddr rx)))))))
 ;; ctail: tail position. self-call -> args into zu temps, update params, goto top;
 ;; if -> goto-branch; else -> set R to the tagged value, return.
 (define ctail-begin (lambda (es nm lbl ps pmap k)
