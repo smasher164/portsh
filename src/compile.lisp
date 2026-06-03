@@ -245,12 +245,18 @@
   (if (null? ps) body (subst* (cdr ps) (cdr as) (subst (car ps) (car as) body)))))
 (define refs? (lambda (s tree)
   (cond ((eq? tree s) t) ((pair? tree) (if (refs? s (car tree)) t (refs? s (cdr tree)))) (t nil))))
+;; First-order map specialisations (the compiler has no closures; each is a named
+;; recursive helper so comp itself stays compilable). One per call shape comp uses.
+(define map-inline-expr (lambda (xs tbl) (if (null? xs) nil (cons (inline-expr (car xs) tbl) (map-inline-expr (cdr xs) tbl)))))
+(define map-inline-form (lambda (xs tbl) (if (null? xs) nil (cons (inline-form (car xs) tbl) (map-inline-form (cdr xs) tbl)))))
+(define map-mexpand (lambda (xs) (if (null? xs) nil (cons (mexpand (car xs)) (map-mexpand (cdr xs))))))
+(define map-show (lambda (xs) (if (null? xs) nil (cons (show (car xs)) (map-show (cdr xs))))))
 (define inline-expr (lambda (e tbl)
   (if (pair? e)
     (let ((ent (assoc (car e) tbl)))
       (if (null? ent)
-        (cons (car e) (map (lambda (a) (inline-expr a tbl)) (cdr e)))
-        (inline-expr (subst* (cadr ent) (map (lambda (a) (inline-expr a tbl)) (cdr e)) (caddr ent)) tbl)))
+        (cons (car e) (map-inline-expr (cdr e) tbl))
+        (inline-expr (subst* (cadr ent) (map-inline-expr (cdr e) tbl) (caddr ent)) tbl)))
     e)))
 (define mk-tbl (lambda (forms)
   (if (null? forms) nil
@@ -264,7 +270,7 @@
   (if (def-lambda? f)
     (list (quote define) (cadr f) (list (quote lambda) (cadr (caddr f)) (inline-expr (caddr (caddr f)) tbl)))
     f)))
-(define inline-program (lambda (forms) (let ((tbl (mk-tbl forms))) (map (lambda (f) (inline-form f tbl)) forms))))
+(define inline-program (lambda (forms) (let ((tbl (mk-tbl forms))) (map-inline-form forms tbl))))
 
 ;; macro-expand: (cond (c1 e1)..(t en)) -> nested if. A source transform run before
 ;; compilation; cexpr/ctail then handle the resulting ifs. Skips `quote`d data so a
@@ -279,11 +285,11 @@
       (if (eq? (car f) (quote cond)) (mexpand (cond->if (cdr f)))
         (cons (mexpand (car f)) (mexpand (cdr f)))))
     f)))
-(define mexpand-program (lambda (forms) (map mexpand forms)))
+(define mexpand-program (lambda (forms) (map-mexpand forms)))
 
 (define cp (lambda (forms subs resid cmdpath lisppath)
   (if (null? forms)
-    (begin (write-lines cmdpath subs) (write-lines lisppath (map show (reverse resid))))
+    (begin (write-lines cmdpath subs) (write-lines lisppath (map-show (reverse resid))))
     (if (def-lambda? (car forms))
       (cp (cdr forms)
           (append subs (compile-fn (cadr (car forms)) (symbol->string (cadr (car forms))) (cadr (caddr (car forms))) (caddr (caddr (car forms)))))
