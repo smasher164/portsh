@@ -53,6 +53,15 @@
 (define mc-at (lambda (c) (cond ((eq? c B1) "!BANG!") ((eq? c B2) "!BANG2!") ((eq? c B7) "!BANG7!") ((eq? c BLT) "!LT!") ((eq? c BGT) "!GT!") ((eq? c BAMP) "!AMP!") ((eq? c BPIPE) "!PIPE!") (t c))))
 (define enc-mc-go (lambda (s i n acc) (if (= i n) acc (enc-mc-go s (+ i 1) n (string-append acc (mc-at (substring s i 1)))))))
 (define enc-mc (lambda (s) (enc-mc-go s 0 (string-length s) "")))
+;; mangle: a function name becomes a batch LABEL and a `call compiled.cmd <name>`,
+;; so operator chars (> < & | *) in it would tokenize as redirection/pipe/glob.
+;; Replace each with a safe code (zzG etc). Applied to every name->label/call site
+;; (compile-fn label, the general-call target, make-compiled in the residual) so
+;; they stay consistent. (- + = ? are fine in labels, left alone.)
+(define BST "*")
+(define mangle-at (lambda (c) (cond ((eq? c BGT) "zzG") ((eq? c BLT) "zzL") ((eq? c BAMP) "zzA") ((eq? c BPIPE) "zzP") ((eq? c BST) "zzS") (t c))))
+(define mangle-go (lambda (s i n acc) (if (= i n) acc (mangle-go s (+ i 1) n (string-append acc (mangle-at (substring s i 1)))))))
+(define mangle (lambda (s) (mangle-go s 0 (string-length s) "")))
 
 ;; --- caller-saves for general (non-tail) calls. Compiled fns have no setlocal
 ;; (so the shared heap survives across calls), which means a call clobbers the
@@ -61,7 +70,10 @@
 ;; enclosing temp vars threaded through cexpr; params are added at the call site.
 (define rev (lambda (xs acc) (if (null? xs) acc (rev (cdr xs) (cons (car xs) acc)))))
 (define pvars (lambda (pm) (if (null? pm) nil (cons (cdr (car pm)) (pvars (cdr pm))))))
-(define live-add (lambda (r live) (if (eq? (car r) (quote lit)) live (cons (cdr r) live))))
+;; add a ref's VAR to the live set (caller-saved across calls). Only val/raw are
+;; vars; lit and cst are literals (e.g. "S:if") -- saving them would emit bogus
+;; `set STK..=!S:if!` / restore and corrupt state.
+(define live-add (lambda (r live) (if (eq? (car r) (quote lit)) live (if (eq? (car r) (quote cst)) live (cons (cdr r) live)))))
 (define save-lines (lambda (vs)
   (if (null? vs) nil (cons (str "set STK!SP!=!" (car vs) "!") (cons "set /a SP+=1" (save-lines (cdr vs)))))))
 (define restore-lines (lambda (vs)
@@ -159,7 +171,7 @@
            (list (append (car ar)
                    (append (save-lines sv)
                      (append (aassign (cadr ar) 1)
-                       (cons (str "call compiled.cmd " (symbol->string (car f)))
+                       (cons (str "call compiled.cmd " (mangle (symbol->string (car f))))
                          (append (restore-lines (rev sv nil)) (list (str "set " tmp "=!R!")))))))
                  (cons (quote val) tmp) (+ (caddr ar) 1))))))))
 ;; string-length: count chars by stripping one at a time (no batch strlen). The
@@ -256,10 +268,11 @@
     (cond
       ((eq? op (quote null?))
         (let ((rx (cexpr (cadr test) pmap k live)))
-          ;; unquoted is operator-safe: !v! expands AFTER tokenization, so a & | < >
-          ;; in the value lands as data, not a separator. Tagged values are never
-          ;; empty (>=2-char tag or NIL), so `if ==..` can't arise. Keeps codegen "-free.
-          (cons (append (car rx) (list (str "if " (vref (cadr rx)) "==NIL goto " tl))) (caddr rx))))
+          ;; MUST quote: an unquoted `if !v!==NIL` with a < or > in the value triggers
+          ;; a redirection (< is not just a separator like &). The " come from dq;
+          ;; write-lines handles " in the generated code.
+          (let ((q (dq)))
+            (cons (append (car rx) (list (str "if " q (vref (cadr rx)) q "==" q "NIL" q " goto " tl))) (caddr rx)))))
       ((eq? op (quote pair?)) (ctag-test test tl pmap k "P" live))
       ((eq? op (quote number?)) (ctag-test test tl pmap k "I" live))
       ((eq? op (quote string?)) (ctag-test test tl pmap k "T" live))
@@ -267,7 +280,8 @@
       ((eq? op (quote eq?))
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
-            (cons (append (car ra) (append (car rb) (list (str "if " (vref (cadr ra)) "==" (vref (cadr rb)) " goto " tl)))) (caddr rb)))))
+            (let ((q (dq)))
+              (cons (append (car ra) (append (car rb) (list (str "if " q (vref (cadr ra)) q "==" q (vref (cadr rb)) q " goto " tl)))) (caddr rb))))))
       (t
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
@@ -321,8 +335,10 @@
 (define def-lambda? (lambda (f)
   (if (pair? f) (if (eq? (car f) (quote define))
     (if (pair? (caddr f)) (eq? (car (caddr f)) (quote lambda)) nil) nil) nil)))
+;; (define <nm> (make-compiled "<mangled>")) -- the residual binds the original symbol
+;; to a C: combiner naming the MANGLED label, so calls dispatch to the right sub.
 (define resid-bind (lambda (nm)
-  (list (quote define) nm (list (quote make-compiled) (list (quote symbol->string) (list (quote quote) nm))))))
+  (list (quote define) nm (list (quote make-compiled) (mangle (symbol->string nm))))))
 
 ;;; ------------------------------------------------ inlining (small non-recursive fns)
 (define subst (lambda (s v tree)
@@ -387,7 +403,7 @@
   (if (null? forms)
     (begin (write-lines cmdpath subs) (write-lines lisppath (map-show (reverse resid))))
     (if (def-lambda? (car forms))
-      (let ((cf (compile-fn (cadr (car forms)) (symbol->string (cadr (car forms))) (cadr (caddr (car forms))) (caddr (caddr (car forms))) k)))
+      (let ((cf (compile-fn (cadr (car forms)) (mangle (symbol->string (cadr (car forms)))) (cadr (caddr (car forms))) (caddr (caddr (car forms))) k)))
         (cp (cdr forms) (append subs (car cf)) (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath (cdr cf)))
       ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
       ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
