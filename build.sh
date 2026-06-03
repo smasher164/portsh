@@ -29,8 +29,9 @@ printf '__PORTSH_PAYLOAD__\n' >> "$tmp"   # marker as the final line; pack = app
 
 # @B1@/@B8@ -> literal 0x01/0x08: the kernel encodes '!'->0x01 and '"'->0x08 with
 # no-`call` replaces (a `call` re-parses and would DOUBLE any live '^' in the line),
-# so those sentinel bytes are baked in here at weave time.
-perl -pe 's/\@B1\@/\x01/g; s/\@B7\@/\x07/g; s/\@B8\@/\x08/g; s/\r?\n/\r\n/' "$tmp" > portsh.cmd
+# so those sentinel bytes are baked in here at weave time. @LT@/@GT@/@AMP@/@PIPE@ ->
+# the operators < > & | (baked inside quoted sets that protect them at parse time).
+perl -pe 's/\@B1\@/\x01/g; s/\@B7\@/\x07/g; s/\@B8\@/\x08/g; s/\@LT\@/\x3c/g; s/\@GT\@/\x3e/g; s/\@AMP\@/\x26/g; s/\@PIPE\@/\x7c/g; s/\r?\n/\r\n/' "$tmp" > portsh.cmd
 rm -f "$tmp"
 echo "built portsh.cmd ($(wc -c < portsh.cmd) bytes)"
 

@@ -40,7 +40,13 @@
 (define B1 "!")
 (define B2 "%")
 (define B7 "^")
-(define mc-at (lambda (c) (cond ((eq? c B1) "!BANG!") ((eq? c B2) "!BANG2!") ((eq? c B7) "!BANG7!") (t c))))
+;; the cmd operators < > & |: a bare one in a literal would tokenize as redirection/
+;; pipe, so emit each via its kernel var (!LT! etc.) -- inserted post-tokenization.
+(define BLT "<")
+(define BGT ">")
+(define BAMP "&")
+(define BPIPE "|")
+(define mc-at (lambda (c) (cond ((eq? c B1) "!BANG!") ((eq? c B2) "!BANG2!") ((eq? c B7) "!BANG7!") ((eq? c BLT) "!LT!") ((eq? c BGT) "!GT!") ((eq? c BAMP) "!AMP!") ((eq? c BPIPE) "!PIPE!") (t c))))
 (define enc-mc-go (lambda (s i n acc) (if (= i n) acc (enc-mc-go s (+ i 1) n (string-append acc (mc-at (substring s i 1)))))))
 (define enc-mc (lambda (s) (enc-mc-go s 0 (string-length s) "")))
 
@@ -66,12 +72,23 @@
 
 ;; cexpr: value-position expr -> (list lines ref next-k). arithmetic -> a raw
 ;; temp; a call -> compute args (tagged), call, take the tagged R into a val temp.
+;; cquote: compile (quote DATUM). Atoms become a cst of the tagged literal
+;; (symbol->S:, number->I:, nil->NIL, string->T:), metachars/operators in the
+;; name run through enc-mc. A pair is built at runtime by desugaring to cons of
+;; the quoted car and quoted cdr, reusing the cons codegen.
+(define cquote (lambda (d pmap k live)
+  (cond ((null? d) (list nil (cons (quote cst) "NIL") k))
+        ((pair? d) (cexpr (list (quote cons) (list (quote quote) (car d)) (list (quote quote) (cdr d))) pmap k live))
+        ((number? d) (list nil (cons (quote lit) (number->string d)) k))
+        ((string? d) (list nil (cons (quote cst) (str "T:" (enc-mc d))) k))
+        (t (list nil (cons (quote cst) (str "S:" (enc-mc (symbol->string d)))) k)))))
 (define cexpr (lambda (f pmap k live)
   (cond
     ((number? f) (list nil (cons (quote lit) (number->string f)) k))
     ((eq? f (quote nil)) (list nil (cons (quote cst) "NIL") k))
     ((string? f) (list nil (cons (quote cst) (str "T:" (enc-mc f))) k))
     ((symbol? f) (list nil (cons (quote val) (cdr (assoc f pmap))) k))
+    ((eq? (car f) (quote quote)) (cquote (cadr f) pmap k live))
     ((arith? (car f))
        (let ((ra (cexpr (cadr f) pmap k live)))
          (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live))))

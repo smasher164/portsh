@@ -26,6 +26,14 @@ rem !BANG!/!BANG2! to materialise a data '!'/'%' that would otherwise be eaten b
 rem delayed-expansion pass when the value reaches a `set`; they decode to '!'/'%' at I/O.
 set "BANG=@B1@"
 set "BANG7=@B7@"
+rem LT/GT/AMP/PIPE = the cmd operators < > & | as vars (baked literally inside
+rem QUOTES, which protect them from tokenization at parse time). Compiled subs
+rem reference !LT! etc. to place an operator into a value's text via delayed
+rem expansion (post-tokenization), the only way a bare operator survives a `set`.
+set "LT=@LT@"
+set "GT=@GT@"
+set "AMP=@AMP@"
+set "PIPE=@PIPE@"
 call :setup_global
 
 rem Boot order: minimal prelude -> baked-in payload (stdlib) after the marker ->
