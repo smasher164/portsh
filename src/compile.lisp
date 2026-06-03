@@ -312,7 +312,9 @@
         (str (show (car f)) " . " (show (cdr f)))))))
 (define show (lambda (f)
   (cond ((null? f) "()") ((number? f) (number->string f)) ((symbol? f) (symbol->string f))
-        ((string? f) f) (t (str "(" (show-list f) ")")))))
+        ;; re-quote strings (via dq) so the residual round-trips: a bare string
+        ;; would read back as a symbol -> "unbound symbol" at load.
+        ((string? f) (str (dq) f (dq))) (t (str "(" (show-list f) ")")))))
 ;; quote-free dispatcher: `call :<label>` (delayed expansion is inherited from the
 ;; kernel; R and the heap propagate since there's no setlocal).
 (define dispatch-header (list "@echo off" "call :%1 %2 %3 %4 %5 %6 %7 %8 %9" "goto :eof"))
