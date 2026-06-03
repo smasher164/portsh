@@ -27,6 +27,9 @@
 (define aref (lambda (r) (cond ((eq? (car r) (quote lit)) (cdr r)) ((eq? (car r) (quote raw)) (cdr r)) ((eq? (car r) (quote cst)) (cdr r)) (t (str "!" (cdr r) ":~2!")))))
 (define iref (lambda (r) (cond ((eq? (car r) (quote lit)) (cdr r)) ((eq? (car r) (quote raw)) (str "!" (cdr r) "!")) ((eq? (car r) (quote cst)) (cdr r)) (t (str "!" (cdr r) ":~2!")))))
 (define vref (lambda (r) (cond ((eq? (car r) (quote lit)) (str "I:" (cdr r))) ((eq? (car r) (quote raw)) (str "I:!" (cdr r) "!")) ((eq? (car r) (quote cst)) (cdr r)) (t (str "!" (cdr r) "!")))))
+;; cref: the CONTENT of a value (tag stripped) for string concat/retag. A cst
+;; (T:lit) is stripped at compile time; a var (val) strips its 2-char tag at runtime.
+(define cref (lambda (r) (if (eq? (car r) (quote cst)) (substring (cdr r) 2 (- (string-length (cdr r)) 2)) (str "!" (cdr r) ":~2!"))))
 
 ;; --- caller-saves for general (non-tail) calls. Compiled fns have no setlocal
 ;; (so the shared heap survives across calls), which means a call clobbers the
@@ -54,6 +57,7 @@
   (cond
     ((number? f) (list nil (cons (quote lit) (number->string f)) k))
     ((eq? f (quote nil)) (list nil (cons (quote cst) "NIL") k))
+    ((string? f) (list nil (cons (quote cst) (str "T:" f)) k))
     ((symbol? f) (list nil (cons (quote val) (cdr (assoc f pmap))) k))
     ((arith? (car f))
        (let ((ra (cexpr (cadr f) pmap k live)))
@@ -71,6 +75,15 @@
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote car)) (ccell f "CAR_" pmap k live))
     ((eq? (car f) (quote cdr)) (ccell f "CDR_" pmap k live))
+    ((eq? (car f) (quote symbol->string)) (cretag f pmap k live))
+    ((eq? (car f) (quote number->string)) (cretag f pmap k live))
+    ((eq? (car f) (quote string-append))
+       ;; (string-append a b) -> T:<content-a><content-b>
+       (let ((ra (cexpr (cadr f) pmap k live)))
+         (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live))))
+           (let ((tmp (str "zt" (number->string (caddr rb)))))
+             (list (append (car ra) (append (car rb) (list (str "set " tmp "=T:" (cref (cadr ra)) (cref (cadr rb))))))
+                   (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote let))
        ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
        ;; in pmap, compile body. clet-binds threads k and grows pmap.
@@ -100,6 +113,12 @@
                        (cons (str "call compiled.cmd " (symbol->string (car f)))
                          (append (restore-lines (rev sv nil)) (list (str "set " tmp "=!R!")))))))
                  (cons (quote val) tmp) (+ (caddr ar) 1))))))))
+;; cretag: symbol->string / number->string -- the content is unchanged, only the
+;; 2-char tag becomes T:. set zt=T:<content of arg>.
+(define cretag (lambda (f pmap k live)
+  (let ((rx (cexpr (cadr f) pmap k live)))
+    (let ((tmp (str "zt" (number->string (caddr rx)))))
+      (list (append (car rx) (list (str "set " tmp "=T:" (cref (cadr rx))))) (cons (quote val) tmp) (+ (caddr rx) 1))))))
 ;; car/cdr: strip P: from the (val) operand to an index, then read CAR_/CDR_<idx>.
 (define ccell (lambda (f field pmap k live)
   (let ((rx (cexpr (cadr f) pmap k live)))
