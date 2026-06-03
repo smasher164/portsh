@@ -424,77 +424,76 @@ rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
 set "HN=0" & set "FID=0" & set "SP=0"
-rem BANG = a single 0x01 (SOH) byte, our in-band stand-in for '!'. Delayed
-rem expansion EATS a literal '!' in any value (a!b -> ab), but leaves 0x01 alone,
-rem so strings carry '!' as 0x01 internally and decode back to '!' only at I/O
-rem (print/write-lines). forfiles translates the 0xHH token to the raw byte.
-for /F "delims=" %%a in ('forfiles /p "%~dp0." /m "%~nx0" /c "cmd /c echo 0x01"') do set "BANG=%%a"
+rem Four sentinel bytes stand in for the chars cmd's expansion phases eat or mangle
+rem inside string VALUES: 0x01='!' (delayed expansion eats it), 0x02='%' (percent
+rem phase), 0x07='^' (caret/escape), 0x08='"' (the string delimiter -- encoded first
+rem so it can't break the later replaces). Operators & | < > need NO sentinel: the
+rem source is read RAW via `set /p` (:readall), which doesn't parse content, so all
+rem of !,%,^,",&,|,<,> survive together; we then encode in dependency order. They
+rem decode back to real chars only at I/O; the '"' delimiters are consumed by the
+rem reader and never reach output (portsh strings have no '"' escape). 0x01/0x07/0x08
+rem are baked in as literal bytes (build.sh //) where a `call`-based
+rem inject would double a live '^'; 0x02 is fetched here for the delayed %-replaces.
+for /F "delims=" %%a in ('forfiles /p "%~dp0." /m "%~nx0" /c "cmd /c echo 0x02"') do set "BANG2=%%a"
+for /F "delims=" %%a in ('forfiles /p "%~dp0." /m "%~nx0" /c "cmd /c echo 0x08"') do set "BANG8=%%a"
 call :setup_global
 
-rem Boot order: minimal prelude -> embedded Lisp after the marker (stdlib and/or
-rem program) -> file-arg program. MK is built from fragments so the literal
-rem never appears here (the self-scan would match the kernel, not the baked-in
-rem final-line marker).
-rem Feed source ONE LINE AT A TIME through :addsrc (strip + drain). The reader
-rem keeps only the current line in SRC, so the char-at-a-time advance stays
-rem O(line) and parsing is O(n) — not the O(n^2) of walking one giant SRC. The
-rem parse stack (ST_/SP/DEPTH) persists across calls, so multi-line forms work.
+rem Boot order: minimal prelude -> baked-in payload (stdlib) after the marker ->
+rem file-arg program. MK is built from fragments so the literal never appears here
+rem (the self-scan would match the kernel, not the baked-in final-line marker).
+rem Both payload and program go through :feedfile, which reads each line RAW with
+rem `set /p` and encodes ! % ^ " to sentinels -- the only way to keep all of
+rem !, operators, and " in one line (no for-var read mode does). Source then drains
+rem through :addsrc; the reader keeps only the current line in SRC so parsing is
+rem O(n), and the parse stack (ST_/SP/DEPTH) persists across lines for multi-line
+rem forms.
 set "SP=0" & set "DEPTH=0"
-rem quote/list/lambda are kernel primitives now (no prelude to parse each boot).
 set "MK=__PORTSH"
 set "MK=!MK!_PAYLOAD__"
-set "MLINE="
-findstr /c:"!MK!" "%~f0" >nul 2>&1 && for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do if not defined MLINE set "MLINE=%%n"
-rem Payload (the baked-in stdlib) is our own '!'-free code, so read it directly --
-rem encoding it would double boot time (stdlib gets re-read just to encode).
-if defined MLINE for /f "usebackq skip=%MLINE% delims=" %%L in ("%~f0") do (set "ln=%%L" & call :addsrc)
-if "%~1"=="" goto done_boot
-rem The file-arg program may contain '!' in strings. Delayed expansion eats a
-rem literal '!' (a!b -> ab); 0x01 survives and decodes back to '!' only at I/O. So
-rem encode the program to a temp ('!'->0x01), then read the temp with the normal
-rem (enabled) reader -- which now meets no literal '!'. Per line: a line with '&'
-rem keeps the legacy enabled read (& survives; any '!' is lost -- the rare &-plus-!
-rem corner); other lines are read under disabled expansion and their '!'s encoded.
-rem The encoded value can't cross a setlocal via %var% inside a for-body (stale, and
-rem endlocal in a called sub hangs the for), so each line is carried out via a FILE.
-set "ENCSRC=%TEMP%\portsh_src.txt"
-break > "%ENCSRC%"
-for /f "usebackq delims=" %%L in ("%~1") do (
-  set "e=%%L" & call :hasamp
-  if "!AMP!"=="1" (call :writeE) else (setlocal disableDelayedExpansion & set "lr=%%L" & call :encwrite & endlocal)
-)
-for /f "usebackq delims=" %%L in ("%ENCSRC%") do (set "ln=%%L" & call :addsrc)
+set "MLINE=0"
+findstr /c:"!MK!" "%~f0" >nul 2>&1 && for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do if "!MLINE!"=="0" set "MLINE=%%n"
+if not "%MLINE%"=="0" call :feedfile "%~f0" %MLINE%
+if not "%~1"=="" call :feedfile "%~1" 0
 :done_boot
 exit /b 0
 
-rem writeE: append the line (in `e`, read under enabled expansion) to ENCSRC. Used
-rem for '&'-bearing lines; redirect-first + set/p's quoted prompt keep '&' < > and
-rem '"' literal. encwrite: encode the disabled-read line in `lr` ('!'->0x01) and
-rem append it. Both run with %le%/!e! fresh (a sub call re-parses), and the file is
-rem the carry medium so nothing has to survive an endlocal as a variable.
-:writeE
->>"%ENCSRC%" <nul set /p "=!e!"
->>"%ENCSRC%" echo(
-goto :eof
-:encwrite
-call set "le=%%lr:!=%BANG%%%"
->>"%ENCSRC%" <nul set /p "=%le%"
->>"%ENCSRC%" echo(
+rem feedfile (%1=file %2=#lines-to-skip): prefix every line with [N] via
+rem `find /v /n ""` (so set/p never meets a blank line, which it can't tell from
+rem EOF), then read each line RAW with set/p, discard the first %2 (to skip the
+rem kernel's own text ahead of the baked-in payload), and encode+drain the rest.
+:feedfile
+type "%~1" | find /v /n "" > "%TEMP%\portsh_in.txt"
+call :readall %2 < "%TEMP%\portsh_in.txt"
 goto :eof
 
-rem hasamp: set AMP=1 if the line in `e` contains '&', else 0. `e` was read under
-rem enabled expansion so it has no literal '!' left; we compare its length with the
-rem &-stripped length (length-compare, not string-compare, so an embedded '"' --
-rem which would break `if a==b` -- is harmless).
-:hasamp
-set "haS=!e!" & set "haA=0"
-:ha_a
-if not "!haS:~%haA%,1!"=="" set /a haA+=1 & goto ha_a
-set "haS=!e:&=!" & set "haB=0"
-:ha_b
-if not "!haS:~%haB%,1!"=="" set /a haB+=1 & goto ha_b
-if !haA!==!haB! (set "AMP=0") else (set "AMP=1")
-goto :eof
+rem readall: set/p reads a raw line (all of ! % ^ " & | < > survive). NO `call` is
+rem used (a `call` re-parses and DOUBLES any live '^'): " and ! are encoded with
+rem literal sentinel bytes (=0x08, =0x01, baked by build.sh), and % and ^
+rem with parse-time-injected forfiles bytes under delayed expansion. Order: " -> 0x08
+rem FIRST (so the next quoted-set replaces aren't broken by an inner " exposing a &);
+rem strip the [N] prefix; ! -> 0x01; then (delayed) % -> 0x02 and ^ -> 0x07. Operators
+rem stay REAL, so the reader/eval see them as Lisp tokens (e.g. the '<' in `(< n 2)`).
+:readall
+set "rdskip=%1"
+:rd_skip
+if %rdskip% gtr 0 set /p "rddiscard=" & set /a rdskip-=1 & goto rd_skip
+:rd_loop
+set "line="
+set /p "line=" || goto :eof
+setlocal disableDelayedExpansion
+set "line=%line:"=%"
+set "line=%line:^=%"
+set "line=%line:*]=%"
+rem a blank source line is just "[N]" -> empty after the strip; skip it, else the
+rem next replace runs on an undefined var and leaks the literal "=!" (a stray '=').
+if not defined line (endlocal & goto rd_loop)
+set "line=%line:!=%"
+endlocal & set "ln=%line%"
+setlocal enableDelayedExpansion
+set "ln=!ln:%%=%BANG2%!"
+endlocal & set "ln=%ln%"
+call :addsrc
+goto rd_loop
 
 rem ============================ reader (iterative) ============================
 :run_forms
@@ -505,22 +504,20 @@ set "ch=!SRC:~0,1!"
 if "!ch!"=="(" goto rf_open
 if "!ch!"==")" goto rf_close
 if "!ch!"=="'" goto rf_quote
-set "chq=!ch:"=!"
-if "!chq!"=="" goto rf_string
+if "!ch!"=="!BANG8!" goto rf_string
 goto rf_atom
 :rf_quote
 rem 'x -> (quote x): push a quote-marker; apply_quotes wraps the next datum
 set "ST_!SP!=QM" & set /a SP+=1 & set "SRC=!SRC:~1!"
 goto rf_loop
 :rf_string
-rem string literal "..." -> T:...  (quote detected by removing " and testing empty)
+rem string literal "..." -> T:...  ('"' is the 0x08 sentinel by now; BANG8 ends it)
 set "SRC=!SRC:~1!"
 set "rfs="
 :rfs_loop
 if "!SRC!"=="" goto rfs_done
 set "sc=!SRC:~0,1!"
-set "scq=!sc:"=!"
-if "!scq!"=="" set "SRC=!SRC:~1!" & goto rfs_done
+if "!sc!"=="!BANG8!" set "SRC=!SRC:~1!" & goto rfs_done
 set "rfs=!rfs!!sc!" & set "SRC=!SRC:~1!"
 goto rfs_loop
 :rfs_done
@@ -615,8 +612,7 @@ set "asKept=" & set "asIn=0"
 if "!asLn!"=="" goto as_done
 set "asC=!asLn:~0,1!"
 set "asLn=!asLn:~1!"
-set "asCq=!asC:"=!"
-if "!asCq!"=="" goto as_quote
+if "!asC!"=="!BANG8!" goto as_quote
 if "!asIn!"=="1" goto as_keep
 if "!asC!"==";" goto as_done
 :as_keep
@@ -1093,8 +1089,12 @@ if defined wlLine goto wl_enc
 >>"%~1" echo(
 goto :eof
 :wl_enc
+setlocal enableDelayedExpansion
+set "wdec=!wlLine:%BANG2%=%%!"
+endlocal & set "wcar=%wdec%"
 setlocal disableDelayedExpansion
-call set "wlD=%%wlLine:%BANG%=!%%"
+set "wlD=%wcar:=^%"
+set "wlD=%wlD:=!%"
 >>"%~1" <nul set /p "=%wlD%"
 >>"%~1" echo(
 endlocal
@@ -1251,13 +1251,19 @@ goto :eof
 :pa_print
 call :hp_car "%~3"
 set /a ND=%1+1 & call :lisp_write !ND! "!R!"
-rem decode 0x01 -> '!' and emit. Under disabled expansion a literal '!' is safe;
-rem set /p's quoted prompt shields '&' < > so the byte goes out verbatim.
+rem decode 0x02 -> '%' (enabled; '%%' is the replacement), carry out (percent
+rem expansion is single-pass so the real '%' survives), then 0x01 -> '!' (disabled,
+rem where a literal '!' is safe). set/p then emits; the content has no '"' so its
+rem quoted prompt holds, and '& | < > ^ ( )' pass through verbatim.
 rem an empty string leaves R undefined; %R:..=..% on an undefined var leaks the
 rem literal "=!", so skip the decode and just emit the newline for empty output.
 if not defined R goto pr_nl
+setlocal enableDelayedExpansion
+set "pdec=!R:%BANG2%=%%!"
+endlocal & set "pcar=%pdec%"
 setlocal disableDelayedExpansion
-call set "pout=%%R:%BANG%=!%%"
+set "pout=%pcar:=^%"
+set "pout=%pout:=!%"
 <nul set /p "=%pout%"
 endlocal
 :pr_nl

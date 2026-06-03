@@ -27,7 +27,10 @@ printf 'exit $?\n:CMDSTART\n' >> "$tmp"   # sh exits here; cmd's goto lands here
 cat src/kernel.cmd >> "$tmp"              # batch kernel
 printf '__PORTSH_PAYLOAD__\n' >> "$tmp"   # marker as the final line; pack = append Lisp after it
 
-perl -pe 's/\r?\n/\r\n/' "$tmp" > portsh.cmd   # normalise everything to CRLF (bare interpreter)
+# @B1@/@B8@ -> literal 0x01/0x08: the kernel encodes '!'->0x01 and '"'->0x08 with
+# no-`call` replaces (a `call` re-parses and would DOUBLE any live '^' in the line),
+# so those sentinel bytes are baked in here at weave time.
+perl -pe 's/\@B1\@/\x01/g; s/\@B7\@/\x07/g; s/\@B8\@/\x08/g; s/\r?\n/\r\n/' "$tmp" > portsh.cmd
 rm -f "$tmp"
 echo "built portsh.cmd ($(wc -c < portsh.cmd) bytes)"
 
