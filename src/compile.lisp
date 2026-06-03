@@ -30,6 +30,19 @@
 ;; cref: the CONTENT of a value (tag stripped) for string concat/retag. A cst
 ;; (T:lit) is stripped at compile time; a var (val) strips its 2-char tag at runtime.
 (define cref (lambda (r) (if (eq? (car r) (quote cst)) (substring (cdr r) 2 (- (string-length (cdr r)) 2)) (str "!" (cdr r) ":~2!"))))
+;; enc-mc: rewrite the data metachars in a string LITERAL's content so they survive
+;; into compiled.cmd. At runtime a value reaches `set zt=T:...`; there a bare 0x01('!')
+;; is eaten by delayed expansion, 0x02('%') by percent-expansion, and 0x07('^') acts as
+;; an escape. Emit each instead as !BANG!/!BANG2!/!BANG7! -- a runtime ref to the kernel's
+;; 0x01/0x02/0x07 vars, which write-lines passes through verbatim and the dispatcher
+;; re-expands back to the sentinel byte (decoded to the real char only at I/O).
+;; The B1/B2/B7 keys ARE the sentinel bytes (the reader already encoded our "!"/"%"/"^").
+(define B1 "!")
+(define B2 "%")
+(define B7 "^")
+(define mc-at (lambda (c) (cond ((eq? c B1) "!BANG!") ((eq? c B2) "!BANG2!") ((eq? c B7) "!BANG7!") (t c))))
+(define enc-mc-go (lambda (s i n acc) (if (= i n) acc (enc-mc-go s (+ i 1) n (string-append acc (mc-at (substring s i 1)))))))
+(define enc-mc (lambda (s) (enc-mc-go s 0 (string-length s) "")))
 
 ;; --- caller-saves for general (non-tail) calls. Compiled fns have no setlocal
 ;; (so the shared heap survives across calls), which means a call clobbers the
@@ -57,7 +70,7 @@
   (cond
     ((number? f) (list nil (cons (quote lit) (number->string f)) k))
     ((eq? f (quote nil)) (list nil (cons (quote cst) "NIL") k))
-    ((string? f) (list nil (cons (quote cst) (str "T:" f)) k))
+    ((string? f) (list nil (cons (quote cst) (str "T:" (enc-mc f))) k))
     ((symbol? f) (list nil (cons (quote val) (cdr (assoc f pmap))) k))
     ((arith? (car f))
        (let ((ra (cexpr (cadr f) pmap k live)))

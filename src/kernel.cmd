@@ -21,6 +21,11 @@ rem are baked in as literal bytes (build.sh @B1@/@B7@/@B8@) where a `call`-based
 rem inject would double a live '^'; 0x02 is fetched here for the delayed %-replaces.
 for /F "delims=" %%a in ('forfiles /p "%~dp0." /m "%~nx0" /c "cmd /c echo 0x02"') do set "BANG2=%%a"
 for /F "delims=" %%a in ('forfiles /p "%~dp0." /m "%~nx0" /c "cmd /c echo 0x08"') do set "BANG8=%%a"
+rem BANG/BANG7 = literal 0x01/0x07 vars (baked by build.sh). Compiled subs reference
+rem !BANG!/!BANG2! to materialise a data '!'/'%' that would otherwise be eaten by the
+rem delayed-expansion pass when the value reaches a `set`; they decode to '!'/'%' at I/O.
+set "BANG=@B1@"
+set "BANG7=@B7@"
 call :setup_global
 
 rem Boot order: minimal prelude -> baked-in payload (stdlib) after the marker ->
