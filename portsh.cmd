@@ -1061,6 +1061,10 @@ for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl.txt") do (
   call :hp_cons "T:!rlLn!" "!rlAcc!"
   set "rlAcc=!R!"
 )
+rem NOTE: this for/f read eats a literal '!' in file content (delayed expansion), so
+rem read-lines of a '!'-bearing data file loses the '!' -- a known consistency gap.
+rem The set/p raw reader used for source/programs can't be reused here: read-lines is
+rem called DEEP in the eval chain, where `call :sub < file` (stdin redirect) fails.
 call :list_reverse "!rlAcc!"
 goto :eof
 :pa_wrlines
