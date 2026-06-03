@@ -207,8 +207,12 @@
 (define ccell (lambda (f field pmap k live)
   (let ((rx (cexpr (cadr f) pmap k live)))
     (let ((zi (str "zi" (number->string (caddr rx)))) (tmp (str "zt" (number->string (+ (caddr rx) 1)))))
+      ;; read CAR_/CDR_<idx> via :rdfield (set R=!FIELD<idx>!, delayed -> operator-safe);
+      ;; `call set tmp=%%FIELD!zi!%%` would re-parse the value unquoted and a & | < >
+      ;; in it would split the line.
       (list (append (car rx) (list (str "set " zi "=!" (cdr (cadr rx)) ":~2!")
-                                   (str "call set " tmp "=%%" field "!" zi "!%%")))
+                                   (str "call :rdfield " field " !" zi "!")
+                                   (str "set " tmp "=!R!")))
             (cons (quote val) tmp) (+ (caddr rx) 2))))))
 ;; cargs*: evaluate call args left-to-right -> (list lines (vref1 vref2 ...) k).
 ;; Each arg is evaluated with the earlier args' temps added to `live`, so a call
@@ -398,6 +402,49 @@
       (cons (str "set G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil))))
             (const-inits (cdr forms)))
       (const-inits (cdr forms))))))
+;; the compiled :write-lines sub, prepended to every output. Mirrors the kernel's
+;; pa_wrlines/wl_emit: truncate the file, then per line decode the sentinels and
+;; append. The decode needs the sentinel BYTES as search patterns; we can't bake
+;; literal 0x01/0x07 (write-lines would decode them), so route through ascii
+;; placeholders -- byte->@P@ under ENABLED expansion (byte search via %BANGx%),
+;; then @P@->char under DISABLED (literal placeholder search, char repl safe). The
+;; only " needed are this sub's own set/p prompt etc., built with dq (0x08 -> ").
+(define wl-sub (lambda ()
+  (let ((Q (dq)))
+    (append
+      (list ":rdfield"
+            "set R=!%1%2!"
+            "goto :eof"
+            ":write-lines"
+            "set wlf=!A1:~2!"
+            "set wll=!A2!"
+            (str "break > " Q "!wlf!" Q)
+            ":wl_loop_c"
+            "if !wll!==NIL (set R=S:t & goto :eof)"
+            "set wli=!wll:~2!"
+            "call :rdfield CAR_ !wli!"
+            "set wlline=!R:~2!"
+            (str "call :wl_emit_c " Q "!wlf!" Q)
+            "call :rdfield CDR_ !wli!"
+            "set wll=!R!"
+            "goto wl_loop_c"
+            ":wl_emit_c"
+            "if defined wlline goto wl_enc_c"
+            (str ">>" Q "%~1" Q " echo(")
+            "goto :eof"
+            ":wl_enc_c"
+            "setlocal enableDelayedExpansion")
+      (list (str "set " Q "w=!wlline:%BANG2%=%%!" Q)
+            (str "set " Q "w=!w:%BANG%=@P1@!" Q)
+            (str "set " Q "w=!w:%BANG7%=@P7@!" Q)
+            (str "endlocal & set " Q "wcar=%w%" Q)
+            "setlocal disableDelayedExpansion"
+            (str "set " Q "wd=%wcar:@P1@=!%" Q)
+            (str "set " Q "wd=%wd:@P7@=^%" Q)
+            (str ">>" Q "%~1" Q " <nul set /p " Q "=%wd%" Q)
+            (str ">>" Q "%~1" Q " echo(")
+            "endlocal"
+            "goto :eof")))))
 (define compile-program (lambda (forms cmdpath lisppath)
   (let ((ms (inline-program (mexpand-program forms))))
-    (cp ms (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))) nil cmdpath lisppath 0))))
+    (cp ms (append (list "@echo off") (append (const-inits ms) (append (cdr dispatch-header) (wl-sub)))) nil cmdpath lisppath 0))))
