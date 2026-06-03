@@ -74,17 +74,20 @@
 ;; vars; lit and cst are literals (e.g. "S:if") -- saving them would emit bogus
 ;; `set STK..=!S:if!` / restore and corrupt state.
 (define live-add (lambda (r live) (if (eq? (car r) (quote lit)) live (if (eq? (car r) (quote cst)) live (cons (cdr r) live)))))
+;; qset: a QUOTED `set "VAR=VAL"`. Required for any value that may carry an operator
+;; (S:< etc): an unquoted `set X=!v!` lets the < / > redirect (the kernel quotes too).
+(define qset (lambda (body) (str "set " (dq) body (dq))))
 (define save-lines (lambda (vs)
-  (if (null? vs) nil (cons (str "set STK!SP!=!" (car vs) "!") (cons "set /a SP+=1" (save-lines (cdr vs)))))))
+  (if (null? vs) nil (cons (qset (str "STK!SP!=!" (car vs) "!")) (cons "set /a SP+=1" (save-lines (cdr vs)))))))
 (define restore-lines (lambda (vs)
-  (if (null? vs) nil (cons "set /a SP-=1" (cons (str "call set " (car vs) "=%%STK!SP!%%") (restore-lines (cdr vs)))))))
+  (if (null? vs) nil (cons "set /a SP-=1" (cons (str "call set " (dq) (car vs) "=%%STK!SP!%%" (dq)) (restore-lines (cdr vs)))))))
 
 (define pmap-local  (lambda (fs)   (if (null? fs) nil (cons (cons (car fs) (symbol->string (car fs))) (pmap-local (cdr fs))))))
 ;; params arrive in the global A1.. vars (space/special-char safe via delayed
 ;; expansion; positional `call` args split on spaces). Read them in immediately,
 ;; before any nested call overwrites A1...
-(define load-params (lambda (fs i) (if (null? fs) nil (cons (str "set " (symbol->string (car fs)) "=!A" (number->string i) "!") (load-params (cdr fs) (+ i 1))))))
-(define aassign (lambda (vs i) (if (null? vs) nil (cons (str "set A" (number->string i) "=" (car vs)) (aassign (cdr vs) (+ i 1))))))
+(define load-params (lambda (fs i) (if (null? fs) nil (cons (qset (str (symbol->string (car fs)) "=!A" (number->string i) "!")) (load-params (cdr fs) (+ i 1))))))
+(define aassign (lambda (vs i) (if (null? vs) nil (cons (qset (str "A" (number->string i) "=" (car vs))) (aassign (cdr vs) (+ i 1))))))
 
 ;; cexpr: value-position expr -> (list lines ref next-k). arithmetic -> a raw
 ;; temp; a call -> compute args (tagged), call, take the tagged R into a val temp.
@@ -127,8 +130,8 @@
          (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live))))
            (let ((tmp (str "zt" (number->string (caddr rb)))))
              (list (append (car ra) (append (car rb)
-                     (list (str "set CAR_!HN!=" (vref (cadr ra))) (str "set CDR_!HN!=" (vref (cadr rb)))
-                           (str "set " tmp "=P:!HN!") "set /a HN+=1")))
+                     (list (qset (str "CAR_!HN!=" (vref (cadr ra)))) (qset (str "CDR_!HN!=" (vref (cadr rb))))
+                           (qset (str "" tmp "=P:!HN!")) "set /a HN+=1")))
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote car)) (ccell f "CAR_" pmap k live))
     ((eq? (car f) (quote cdr)) (ccell f "CDR_" pmap k live))
@@ -139,11 +142,11 @@
        (let ((ra (cexpr (cadr f) pmap k live)))
          (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live))))
            (let ((tmp (str "zt" (number->string (caddr rb)))))
-             (list (append (car ra) (append (car rb) (list (str "set " tmp "=T:" (cref (cadr ra)) (cref (cadr rb))))))
+             (list (append (car ra) (append (car rb) (list (qset (str "" tmp "=T:" (cref (cadr ra)) (cref (cadr rb)))))))
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote string-length)) (cstrlen f pmap k live))
     ((eq? (car f) (quote substring)) (csubstr f pmap k live))
-    ((eq? (car f) (quote dq)) (let ((tmp (str "zt" (number->string k)))) (list (list (str "set " tmp "=T:!BANG8!")) (cons (quote val) tmp) (+ k 1))))
+    ((eq? (car f) (quote dq)) (let ((tmp (str "zt" (number->string k)))) (list (list (qset (str "" tmp "=T:!BANG8!"))) (cons (quote val) tmp) (+ k 1))))
     ((tpred? (car f)) (cexpr (list (quote if) f (list (quote quote) (quote t)) (quote nil)) pmap k live))
     ((eq? (car f) (quote let))
        ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
@@ -162,9 +165,9 @@
                (let ((rt (str "zt" (number->string (caddr ra)))))
                  (list (append (car tr)
                          (append (car rb)
-                           (append (list (str "set " rt "=" (vref (cadr rb))) (str "goto " dl) (str ":" tl))
+                           (append (list (qset (str "" rt "=" (vref (cadr rb)))) (str "goto " dl) (str ":" tl))
                              (append (car ra)
-                               (list (str "set " rt "=" (vref (cadr ra))) (str ":" dl))))))
+                               (list (qset (str "" rt "=" (vref (cadr ra)))) (str ":" dl))))))
                        (cons (quote val) rt) (+ (caddr ra) 1))))))))
     (t (let ((ar (cargs* (cdr f) pmap k live)))
          (let ((tmp (str "zt" (number->string (caddr ar)))) (sv (append (pvars pmap) live)))
@@ -172,7 +175,7 @@
                    (append (save-lines sv)
                      (append (aassign (cadr ar) 1)
                        (cons (str "call compiled.cmd " (mangle (symbol->string (car f))))
-                         (append (restore-lines (rev sv nil)) (list (str "set " tmp "=!R!")))))))
+                         (append (restore-lines (rev sv nil)) (list (qset (str "" tmp "=!R!"))))))))
                  (cons (quote val) tmp) (+ (caddr ar) 1))))))))
 ;; string-length: count chars by stripping one at a time (no batch strlen). The
 ;; content goes in via cref (delayed expansion, operator-safe); `if defined` ends
@@ -182,7 +185,7 @@
     (let ((j (number->string (caddr rx))))
       (let ((zc (str "zc" j)) (zn (str "zt" (number->string (+ (caddr rx) 1)))) (lp (str "zSL" j)))
         (list (append (car rx)
-                (list (str "set " zc "=" (cref (cadr rx)))
+                (list (qset (str "" zc "=" (cref (cadr rx))))
                       (str "set /a " zn "=0")
                       (str ":" lp)
                       (str "if defined " zc " (set " zc "=!" zc ":~1!& set /a " zn "+=1& goto " lp ")")))
@@ -199,22 +202,22 @@
           (let ((zc (str "zc" j)) (zsk (str "zsk" j)) (ztk (str "ztk" j)) (zr (str "zr" j))
                 (ztmp (str "zt" (number->string (+ (caddr rl) 1)))) (sk (str "zSK" j)) (tk (str "zTK" j)))
             (list (append (car rs) (append (car rb) (append (car rl)
-                    (list (str "set " zc "=" (cref (cadr rs)))
+                    (list (qset (str "" zc "=" (cref (cadr rs))))
                           (str "set /a " zsk "=" (aref (cadr rb)))
                           (str ":" sk)
                           (str "if defined " zc " if !" zsk "! gtr 0 (set " zc "=!" zc ":~1!& set /a " zsk "-=1& goto " sk ")")
-                          (str "set " zr "=")
+                          (qset (str "" zr "="))
                           (str "set /a " ztk "=" (aref (cadr rl)))
                           (str ":" tk)
                           (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")")
-                          (str "set " ztmp "=T:!" zr "!")))))
+                          (qset (str "" ztmp "=T:!" zr "!"))))))
                   (cons (quote val) ztmp) (+ (caddr rl) 2)))))))))
 ;; cretag: symbol->string / number->string -- the content is unchanged, only the
 ;; 2-char tag becomes T:. set zt=T:<content of arg>.
 (define cretag (lambda (f pmap k live)
   (let ((rx (cexpr (cadr f) pmap k live)))
     (let ((tmp (str "zt" (number->string (caddr rx)))))
-      (list (append (car rx) (list (str "set " tmp "=T:" (cref (cadr rx))))) (cons (quote val) tmp) (+ (caddr rx) 1))))))
+      (list (append (car rx) (list (qset (str "" tmp "=T:" (cref (cadr rx)))))) (cons (quote val) tmp) (+ (caddr rx) 1))))))
 ;; car/cdr: strip P: from the (val) operand to an index, then read CAR_/CDR_<idx>.
 (define ccell (lambda (f field pmap k live)
   (let ((rx (cexpr (cadr f) pmap k live)))
@@ -222,9 +225,9 @@
       ;; read CAR_/CDR_<idx> via :rdfield (set R=!FIELD<idx>!, delayed -> operator-safe);
       ;; `call set tmp=%%FIELD!zi!%%` would re-parse the value unquoted and a & | < >
       ;; in it would split the line.
-      (list (append (car rx) (list (str "set " zi "=!" (cdr (cadr rx)) ":~2!")
+      (list (append (car rx) (list (qset (str "" zi "=!" (cdr (cadr rx)) ":~2!"))
                                    (str "call :rdfield " field " !" zi "!")
-                                   (str "set " tmp "=!R!")))
+                                   (qset (str "" tmp "=!R!"))))
             (cons (quote val) tmp) (+ (caddr rx) 2))))))
 ;; cargs*: evaluate call args left-to-right -> (list lines (vref1 vref2 ...) k).
 ;; Each arg is evaluated with the earlier args' temps added to `live`, so a call
@@ -243,10 +246,10 @@
       (let ((rv (cexpr (cadr b) pmap k live)))
         (let ((tmp (str "zt" (number->string (caddr rv)))))
           (let ((rest (clet-binds (cdr binds) (cons (cons (car b) tmp) pmap) (+ (caddr rv) 1) (cons tmp live))))
-            (list (append (car rv) (cons (str "set " tmp "=" (vref (cadr rv))) (car rest)))
+            (list (append (car rv) (cons (qset (str "" tmp "=" (vref (cadr rv)))) (car rest)))
                   (cadr rest) (caddr rest)))))))))
-(define uassign (lambda (vs i) (if (null? vs) nil (cons (str "set zu" (number->string i) "=" (car vs)) (uassign (cdr vs) (+ i 1))))))
-(define pupd (lambda (ps i) (if (null? ps) nil (cons (str "set " (symbol->string (car ps)) "=!zu" (number->string i) "!") (pupd (cdr ps) (+ i 1))))))
+(define uassign (lambda (vs i) (if (null? vs) nil (cons (qset (str "zu" (number->string i) "=" (car vs))) (uassign (cdr vs) (+ i 1))))))
+(define pupd (lambda (ps i) (if (null? ps) nil (cons (qset (str "" (symbol->string (car ps)) "=!zu" (number->string i) "!")) (pupd (cdr ps) (+ i 1))))))
 ;; test of an `if` -> lines ending in a `if ... goto TL`. Numeric (< =) compares
 ;; raw numbers; eq?/null? compare tagged values as strings (quote-free, so
 ;; space-free values only — symbols/NIL/numbers/pairs); pair? checks the P: tag.
@@ -260,8 +263,8 @@
       ;; comma is a token delimiter there). Materialise the value, slice to its
       ;; first char in place, then compare the whole short var.
       (cons (append (car rx)
-              (list (str "set " zt "=" (vref (cadr rx)))
-                    (str "set " zt "=!" zt ":~0,1!")
+              (list (qset (str "" zt "=" (vref (cadr rx))))
+                    (qset (str "" zt "=!" zt ":~0,1!"))
                     (str "if !" zt "!==" ch " goto " tl))) (+ (caddr rx) 1))))))
 (define test-stmts (lambda (test tl pmap k live)
   (let ((op (car test)))
@@ -309,7 +312,7 @@
        (let ((bs (clet-binds (cadr f) pmap k nil)))
          (let ((tb (ctail (caddr f) nm lbl ps (cadr bs) (caddr bs))))
            (cons (append (car bs) (car tb)) (cdr tb)))))
-    (t (let ((r (cexpr f pmap k nil))) (cons (append (car r) (list (str "set R=" (vref (cadr r))) "goto :eof")) (caddr r)))))))
+    (t (let ((r (cexpr f pmap k nil))) (cons (append (car r) (list (qset (str "R=" (vref (cadr r)))) "goto :eof")) (caddr r)))))))
 
 ;; k0 is the program-wide monotonic label/temp counter: cexpr-level labels (zT/zE
 ;; value-if, zSL/zSK/zTK loops) are NOT function-prefixed, so `goto` would hit the
@@ -417,7 +420,7 @@
 (define const-inits (lambda (forms)
   (if (null? forms) nil
     (if (atom-const? (car forms))
-      (cons (str "set G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil))))
+      (cons (qset (str "G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil)))))
             (const-inits (cdr forms)))
       (const-inits (cdr forms))))))
 ;; The I/O runtime (:write-lines + :rdfield) is NOT emitted here -- it lives in a
