@@ -82,6 +82,13 @@
         ((number? d) (list nil (cons (quote lit) (number->string d)) k))
         ((string? d) (list nil (cons (quote cst) (str "T:" (enc-mc d))) k))
         (t (list nil (cons (quote cst) (str "S:" (enc-mc (symbol->string d)))) k)))))
+;; cbegin: (begin e1..en) -> run each in order (discarding all but the last's
+;; value); the last expr supplies the result ref.
+(define cbegin (lambda (es pmap k live)
+  (if (null? (cdr es)) (cexpr (car es) pmap k live)
+    (let ((r1 (cexpr (car es) pmap k live)))
+      (let ((rr (cbegin (cdr es) pmap (caddr r1) live)))
+        (list (append (car r1) (car rr)) (cadr rr) (caddr rr)))))))
 (define cexpr (lambda (f pmap k live)
   (cond
     ((number? f) (list nil (cons (quote lit) (number->string f)) k))
@@ -89,6 +96,7 @@
     ((string? f) (list nil (cons (quote cst) (str "T:" (enc-mc f))) k))
     ((symbol? f) (list nil (cons (quote val) (cdr (assoc f pmap))) k))
     ((eq? (car f) (quote quote)) (cquote (cadr f) pmap k live))
+    ((eq? (car f) (quote begin)) (cbegin (cdr f) pmap k live))
     ((arith? (car f))
        (let ((ra (cexpr (cadr f) pmap k live)))
          (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live))))
@@ -189,8 +197,8 @@
       ((eq? op (quote pair?))
         (let ((rx (cexpr (cadr test) pmap k live)))
           (cons (append (car rx)
-                  (list (str "set zp" k "=!" (cdr (cadr rx)) ":~0,1!")
-                        (str "if !zp" k "!==P goto " tl))) (caddr rx))))
+                  (list (str "set zp" (number->string k) "=!" (cdr (cadr rx)) ":~0,1!")
+                        (str "if !zp" (number->string k) "!==P goto " tl))) (caddr rx))))
       ((eq? op (quote eq?))
         (let ((ra (cexpr (cadr test) pmap k live)))
           (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live))))
@@ -201,8 +209,14 @@
             (cons (append (car ra) (append (car rb) (list (str "if " (iref (cadr ra)) " " (cmp->batch op) " " (iref (cadr rb)) " goto " tl)))) (caddr rb)))))))))
 ;; ctail: tail position. self-call -> args into zu temps, update params, goto top;
 ;; if -> goto-branch; else -> set R to the tagged value, return.
+(define ctail-begin (lambda (es nm lbl ps pmap k)
+  (if (null? (cdr es)) (ctail (car es) nm lbl ps pmap k)
+    (let ((r1 (cexpr (car es) pmap k nil)))
+      (let ((rr (ctail-begin (cdr es) nm lbl ps pmap (caddr r1))))
+        (cons (append (car r1) (car rr)) (cdr rr)))))))
 (define ctail (lambda (f nm lbl ps pmap k)
   (cond
+    ((is? f (quote begin)) (ctail-begin (cdr f) nm lbl ps pmap k))
     ((is? f nm)
        (let ((ar (cargs* (cdr f) pmap k nil)))
          (cons (append (car ar) (append (uassign (cadr ar) 1) (append (pupd ps 1) (list (str "goto " lbl "_top"))))) (caddr ar))))
@@ -279,11 +293,21 @@
   (if (null? cls) (quote nil)
     (if (eq? (car (car cls)) (quote t)) (cadr (car cls))
       (list (quote if) (car (car cls)) (cadr (car cls)) (cond->if (cdr cls)))))))
+;; str/list are variadic; the compiler is fixed-arity. comp only ever calls them
+;; with a syntactically fixed arg count, so desugar to right-nested binary ops.
+;; (str a b c)->(string-append a (string-append b c)); all comp's str args are
+;; already strings (no ->string coercion needed). (list a b)->(cons a (cons b nil)).
+(define str->app (lambda (as)
+  (if (null? as) "" (if (null? (cdr as)) (car as) (list (quote string-append) (car as) (str->app (cdr as)))))))
+(define list->cons (lambda (as)
+  (if (null? as) (quote nil) (list (quote cons) (car as) (list->cons (cdr as))))))
 (define mexpand (lambda (f)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) f
       (if (eq? (car f) (quote cond)) (mexpand (cond->if (cdr f)))
-        (cons (mexpand (car f)) (mexpand (cdr f)))))
+        (if (eq? (car f) (quote str)) (str->app (map-mexpand (cdr f)))
+          (if (eq? (car f) (quote list)) (list->cons (map-mexpand (cdr f)))
+            (cons (mexpand (car f)) (mexpand (cdr f)))))))
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 
