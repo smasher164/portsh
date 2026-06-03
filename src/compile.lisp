@@ -122,6 +122,8 @@
            (let ((tmp (str "zt" (number->string (caddr rb)))))
              (list (append (car ra) (append (car rb) (list (str "set " tmp "=T:" (cref (cadr ra)) (cref (cadr rb))))))
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
+    ((eq? (car f) (quote string-length)) (cstrlen f pmap k live))
+    ((eq? (car f) (quote substring)) (csubstr f pmap k live))
     ((eq? (car f) (quote let))
        ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
        ;; in pmap, compile body. clet-binds threads k and grows pmap.
@@ -151,6 +153,41 @@
                        (cons (str "call compiled.cmd " (symbol->string (car f)))
                          (append (restore-lines (rev sv nil)) (list (str "set " tmp "=!R!")))))))
                  (cons (quote val) tmp) (+ (caddr ar) 1))))))))
+;; string-length: count chars by stripping one at a time (no batch strlen). The
+;; content goes in via cref (delayed expansion, operator-safe); `if defined` ends
+;; the loop when empty (avoids comparing content, which could hold operators/"").
+(define cstrlen (lambda (f pmap k live)
+  (let ((rx (cexpr (cadr f) pmap k live)))
+    (let ((j (number->string (caddr rx))))
+      (let ((zc (str "zc" j)) (zn (str "zt" (number->string (+ (caddr rx) 1)))) (lp (str "zSL" j)))
+        (list (append (car rx)
+                (list (str "set " zc "=" (cref (cadr rx)))
+                      (str "set /a " zn "=0")
+                      (str ":" lp)
+                      (str "if defined " zc " (set " zc "=!" zc ":~1!& set /a " zn "+=1& goto " lp ")")))
+              (cons (quote raw) zn) (+ (caddr rx) 2)))))))
+;; substring: (substring s start len). Dynamic offsets can't use !v:~i,n! (i/n must
+;; be literal) and the `call set %%v:~%i%,%n%%%` form would put an operator char into
+;; command text. So walk char by char: skip `start`, then append `len` chars built
+;; from !zc:~0,1! -- every char moves through delayed expansion, so operators survive.
+(define csubstr (lambda (f pmap k live)
+  (let ((rs (cexpr (cadr f) pmap k live)))
+    (let ((rb (cexpr (caddr f) pmap (caddr rs) (live-add (cadr rs) live))))
+      (let ((rl (cexpr (cadddr f) pmap (caddr rb) (live-add (cadr rb) (live-add (cadr rs) live)))))
+        (let ((j (number->string (caddr rl))))
+          (let ((zc (str "zc" j)) (zsk (str "zsk" j)) (ztk (str "ztk" j)) (zr (str "zr" j))
+                (ztmp (str "zt" (number->string (+ (caddr rl) 1)))) (sk (str "zSK" j)) (tk (str "zTK" j)))
+            (list (append (car rs) (append (car rb) (append (car rl)
+                    (list (str "set " zc "=" (cref (cadr rs)))
+                          (str "set /a " zsk "=" (aref (cadr rb)))
+                          (str ":" sk)
+                          (str "if defined " zc " if !" zsk "! gtr 0 (set " zc "=!" zc ":~1!& set /a " zsk "-=1& goto " sk ")")
+                          (str "set " zr "=")
+                          (str "set /a " ztk "=" (aref (cadr rl)))
+                          (str ":" tk)
+                          (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")")
+                          (str "set " ztmp "=T:!" zr "!")))))
+                  (cons (quote val) ztmp) (+ (caddr rl) 2)))))))))
 ;; cretag: symbol->string / number->string -- the content is unchanged, only the
 ;; 2-char tag becomes T:. set zt=T:<content of arg>.
 (define cretag (lambda (f pmap k live)
