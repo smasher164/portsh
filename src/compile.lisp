@@ -404,55 +404,13 @@
       (cons (str "set G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil))))
             (const-inits (cdr forms)))
       (const-inits (cdr forms))))))
-;; the compiled :write-lines sub, prepended to every output. Truncate the file,
-;; then per line decode sentinels and append. OUTPUT is the crux: a line can hold
-;; ! % ^ " and operators (& | < >). The robust writer is an UNQUOTED set/p whose
-;; prompt has operators CARET-escaped (^& etc) and " left bare -- verified that
-;; `<nul set /p =G^&H^"I^<J` writes G&H"I<J. So the decode (under quoted sets --
-;; safe for operators since quotes protect them; the value never holds a real "
-;; because " is the 0x08 sentinel until the end) caret-escapes operators and turns
-;; 0x07->^^, 0x02->%, 0x01->@P1@->!, 0x08->@PQ@; the final set/p substitutes
-;; @PQ@->" inline. The sub's own quotes come from dq.
-(define wl-sub (lambda ()
-  (let ((Q (dq)))
-    (append
-      (list ":rdfield"
-            "set R=!%1%2!"
-            "goto :eof"
-            ":write-lines"
-            "set wlf=!A1:~2!"
-            "set wll=!A2!"
-            "break > !wlf!"
-            ":wl_loop_c"
-            "if !wll!==NIL (set R=S:t & goto :eof)"
-            "set wli=!wll:~2!"
-            "call :rdfield CAR_ !wli!"
-            "set wlline=!R:~2!"
-            "call :wl_emit_c !wlf!"
-            "call :rdfield CDR_ !wli!"
-            "set wll=!R!"
-            "goto wl_loop_c"
-            ":wl_emit_c"
-            "if defined wlline goto wl_enc_c"
-            ">>%~1 echo("
-            "goto :eof"
-            ":wl_enc_c"
-            "setlocal enableDelayedExpansion")
-      (list (str "set " Q "w=!wlline:&=^&!" Q)
-            (str "set " Q "w=!w:|=^|!" Q)
-            (str "set " Q "w=!w:<=^<!" Q)
-            (str "set " Q "w=!w:>=^>!" Q)
-            (str "set " Q "w=!w:%BANG7%=^^!" Q)
-            (str "set " Q "w=!w:%BANG2%=%%!" Q)
-            (str "set " Q "w=!w:%BANG%=@P1@!" Q)
-            (str "set " Q "w=!w:%BANG8%=@PQ@!" Q)
-            (str "endlocal & set " Q "wcar=%w%" Q)
-            "setlocal disableDelayedExpansion"
-            (str "set " Q "wd=%wcar:@P1@=!%" Q)
-            (str ">>%~1 <nul set /p =%wd:@PQ@=" Q "%")
-            ">>%~1 echo("
-            "endlocal"
-            "goto :eof")))))
+;; The I/O runtime (:write-lines + :rdfield) is NOT emitted here -- it lives in a
+;; hand-written, build-baked file (src/runtime.cmd) appended to every compiled.cmd.
+;; It must reproduce its own decode patterns when comp compiles comp; a lossy decoder
+;; can't, and if its placeholder (@B1@ etc) lived in comp's SOURCE it would land in
+;; comp's compiled data and the link step would corrupt it. Keeping it a separate
+;; file means comp's source/output never contains @B1@, so there's nothing to collide.
+;; Compiled code just emits `call compiled.cmd write-lines` / `call :rdfield`.
 (define compile-program (lambda (forms cmdpath lisppath)
   (let ((ms (inline-program (mexpand-program forms))))
-    (cp ms (append (list "@echo off") (append (const-inits ms) (append (cdr dispatch-header) (wl-sub)))) nil cmdpath lisppath 0))))
+    (cp ms (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))) nil cmdpath lisppath 0))))

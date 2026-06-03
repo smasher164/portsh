@@ -41,3 +41,11 @@ if [ -f src/stdlib.lisp ]; then
   { cat portsh.cmd; cat src/stdlib.lisp; } | perl -pe 's/\r?\n/\r\n/' > portsh-full.cmd
   echo "built portsh-full.cmd ($(wc -c < portsh-full.cmd) bytes)"
 fi
+
+# Compiled-program runtime (I/O helpers), appended to every compiled.cmd. Baked here
+# (@B*@ -> sentinel bytes) just like the kernel, so its decode patterns are real bytes;
+# kept separate from comp so comp's source/output never contains @B*@ to collide with.
+if [ -f src/runtime.cmd ]; then
+  perl -pe 's/\@B1\@/\x01/g; s/\@B2\@/\x02/g; s/\@B7\@/\x07/g; s/\@B8\@/\x08/g; s/\r?\n/\r\n/' src/runtime.cmd > portsh-runtime.cmd
+  echo "built portsh-runtime.cmd ($(wc -c < portsh-runtime.cmd) bytes)"
+fi

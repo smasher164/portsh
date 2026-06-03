@@ -692,13 +692,24 @@ if defined wlLine goto wl_enc
 >>"%~1" echo(
 goto :eof
 :wl_enc
+rem Robust line writer (handles ! % ^ " AND operators & | < >). The decode runs in
+rem QUOTED sets (safe for operators -- quotes protect them; the value never holds a
+rem real '"' since '"' is the 0x08 sentinel until the end). Operators are CARET-escaped
+rem and 0x07->^^ so an UNQUOTED set/p can emit them; 0x01->!, 0x02->%, 0x08->@PQ@ then
+rem ->'"' inline at the set/p (an unquoted prompt takes a bare '"', verified). No quoted
+rem prompt, so a '"' in the line writes fine.
 setlocal enableDelayedExpansion
-set "wdec=!wlLine:%BANG2%=%%!"
-endlocal & set "wcar=%wdec%"
+set "w=!wlLine:&=^&!"
+set "w=!w:|=^|!"
+set "w=!w:<=^<!"
+set "w=!w:>=^>!"
+set "w=!w:@B7@=^^!"
+set "w=!w:%BANG2%=%%!"
+endlocal & set "wcar=%w%"
 setlocal disableDelayedExpansion
-set "wlD=%wcar:@B7@=^%"
-set "wlD=%wlD:@B1@=!%"
->>"%~1" <nul set /p "=%wlD%"
+set "wlD=%wcar:@B1@=!%"
+set "wlD=%wlD:@B8@=@PQ@%"
+>>"%~1" <nul set /p =%wlD:@PQ@="%
 >>"%~1" echo(
 endlocal
 goto :eof
