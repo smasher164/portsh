@@ -98,7 +98,10 @@
     ((number? f) (list nil (cons (quote lit) (number->string f)) k))
     ((eq? f (quote nil)) (list nil (cons (quote cst) "NIL") k))
     ((string? f) (list nil (cons (quote cst) (str "T:" (enc-mc f))) k))
-    ((symbol? f) (list nil (cons (quote val) (cdr (assoc f pmap))) k))
+    ((symbol? f) (let ((e (assoc f pmap)))
+                   ;; param/local -> its temp var; otherwise a top-level constant,
+                   ;; held in a G_<name> cmd var seeded by the dispatch header.
+                   (list nil (cons (quote val) (if (null? e) (str "G_" (symbol->string f)) (cdr e))) k)))
     ((eq? (car f) (quote quote)) (cquote (cadr f) pmap k live))
     ((eq? (car f) (quote begin)) (cbegin (cdr f) pmap k live))
     ((arith? (car f))
@@ -372,6 +375,21 @@
       (cp (cdr forms)
           (append subs (compile-fn (cadr (car forms)) (symbol->string (cadr (car forms))) (cadr (caddr (car forms))) (caddr (caddr (car forms)))))
           (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath)
-      (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath)))))
+      ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
+      ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
+      (if (atom-const? (car forms))
+        (cp (cdr forms) subs resid cmdpath lisppath)
+        (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath))))))
+;; a top-level (define X <atom>) -> a constant compiled fns read as G_X. (Only
+;; atoms: a list-valued constant would rebuild itself on the heap every dispatch.)
+(define atom-const? (lambda (f)
+  (if (def-lambda? f) nil (if (pair? f) (if (eq? (car f) (quote define)) (not (pair? (caddr f))) nil) nil))))
+(define const-inits (lambda (forms)
+  (if (null? forms) nil
+    (if (atom-const? (car forms))
+      (cons (str "set G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil))))
+            (const-inits (cdr forms)))
+      (const-inits (cdr forms))))))
 (define compile-program (lambda (forms cmdpath lisppath)
-  (cp (inline-program (mexpand-program forms)) dispatch-header nil cmdpath lisppath)))
+  (let ((ms (inline-program (mexpand-program forms))))
+    (cp ms (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))) nil cmdpath lisppath))))
