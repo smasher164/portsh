@@ -71,6 +71,12 @@
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote car)) (ccell f "CAR_" pmap k live))
     ((eq? (car f) (quote cdr)) (ccell f "CDR_" pmap k live))
+    ((eq? (car f) (quote let))
+       ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
+       ;; in pmap, compile body. clet-binds threads k and grows pmap.
+       (let ((bs (clet-binds (cadr f) pmap k live)))
+         (let ((rb (cexpr (caddr f) (cadr bs) (caddr bs) live)))
+           (list (append (car bs) (car rb)) (cadr rb) (caddr rb)))))
     ((eq? (car f) (quote if))
        ;; value-position if: test branches to the then-label; both arms set the
        ;; same result temp; fall-through is the else arm. Labels keyed on the
@@ -109,6 +115,17 @@
     (let ((r (cexpr (car as) pmap k live)))
       (let ((rest (cargs* (cdr as) pmap (caddr r) (live-add (cadr r) live))))
         (list (append (car r) (car rest)) (cons (vref (cadr r)) (cadr rest)) (caddr rest)))))))
+;; clet-binds: compile each (name value) binding -> materialise value into a temp,
+;; extend pmap with name->temp. Returns (list lines extended-pmap nextk). Each later
+;; binding's value sees the earlier bindings (sequential let, like let*).
+(define clet-binds (lambda (binds pmap k live)
+  (if (null? binds) (list nil pmap k)
+    (let ((b (car binds)))
+      (let ((rv (cexpr (cadr b) pmap k live)))
+        (let ((tmp (str "zt" (number->string (caddr rv)))))
+          (let ((rest (clet-binds (cdr binds) (cons (cons (car b) tmp) pmap) (+ (caddr rv) 1) (cons tmp live))))
+            (list (append (car rv) (cons (str "set " tmp "=" (vref (cadr rv))) (car rest)))
+                  (cadr rest) (caddr rest)))))))))
 (define uassign (lambda (vs i) (if (null? vs) nil (cons (str "set zu" (number->string i) "=" (car vs)) (uassign (cdr vs) (+ i 1))))))
 (define pupd (lambda (ps i) (if (null? ps) nil (cons (str "set " (symbol->string (car ps)) "=!zu" (number->string i) "!") (pupd (cdr ps) (+ i 1))))))
 ;; test of an `if` -> lines ending in a `if ... goto TL`. Numeric (< =) compares
@@ -146,6 +163,10 @@
            (let ((er (ctail (cadddr f) nm lbl ps pmap (cdr tr))))
              (let ((th (ctail (caddr f) nm lbl ps pmap (cdr er))))
                (cons (append (car tr) (append (car er) (cons (str ":" tl) (car th)))) (cdr th)))))))
+    ((is? f (quote let))
+       (let ((bs (clet-binds (cadr f) pmap k nil)))
+         (let ((tb (ctail (caddr f) nm lbl ps (cadr bs) (caddr bs))))
+           (cons (append (car bs) (car tb)) (cdr tb)))))
     (t (let ((r (cexpr f pmap k nil))) (cons (append (car r) (list (str "set R=" (vref (cadr r))) "goto :eof")) (caddr r)))))))
 
 (define compile-fn (lambda (nm lbl fs body)
@@ -196,6 +217,21 @@
     f)))
 (define inline-program (lambda (forms) (let ((tbl (mk-tbl forms))) (map (lambda (f) (inline-form f tbl)) forms))))
 
+;; macro-expand: (cond (c1 e1)..(t en)) -> nested if. A source transform run before
+;; compilation; cexpr/ctail then handle the resulting ifs. Skips `quote`d data so a
+;; (cond ...) inside quoted data is left intact.
+(define cond->if (lambda (cls)
+  (if (null? cls) (quote nil)
+    (if (eq? (car (car cls)) (quote t)) (cadr (car cls))
+      (list (quote if) (car (car cls)) (cadr (car cls)) (cond->if (cdr cls)))))))
+(define mexpand (lambda (f)
+  (if (pair? f)
+    (if (eq? (car f) (quote quote)) f
+      (if (eq? (car f) (quote cond)) (mexpand (cond->if (cdr f)))
+        (cons (mexpand (car f)) (mexpand (cdr f)))))
+    f)))
+(define mexpand-program (lambda (forms) (map mexpand forms)))
+
 (define cp (lambda (forms subs resid cmdpath lisppath)
   (if (null? forms)
     (begin (write-lines cmdpath subs) (write-lines lisppath (map show (reverse resid))))
@@ -205,4 +241,4 @@
           (cons (resid-bind (cadr (car forms))) resid) cmdpath lisppath)
       (cp (cdr forms) subs (cons (car forms) resid) cmdpath lisppath)))))
 (define compile-program (lambda (forms cmdpath lisppath)
-  (cp (inline-program forms) dispatch-header nil cmdpath lisppath)))
+  (cp (inline-program (mexpand-program forms)) dispatch-header nil cmdpath lisppath)))
