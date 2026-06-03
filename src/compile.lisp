@@ -71,6 +71,21 @@
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote car)) (ccell f "CAR_" pmap k live))
     ((eq? (car f) (quote cdr)) (ccell f "CDR_" pmap k live))
+    ((eq? (car f) (quote if))
+       ;; value-position if: test branches to the then-label; both arms set the
+       ;; same result temp; fall-through is the else arm. Labels keyed on the
+       ;; entry k (monotonic, so unique even when ifs nest).
+       (let ((tl (str "zT" (number->string k))) (dl (str "zE" (number->string k))))
+         (let ((tr (test-stmts (cadr f) tl pmap (+ k 1) live)))
+           (let ((rb (cexpr (cadddr f) pmap (cdr tr) live)))
+             (let ((ra (cexpr (caddr f) pmap (caddr rb) live)))
+               (let ((rt (str "zt" (number->string (caddr ra)))))
+                 (list (append (car tr)
+                         (append (car rb)
+                           (append (list (str "set " rt "=" (vref (cadr rb))) (str "goto " dl) (str ":" tl))
+                             (append (car ra)
+                               (list (str "set " rt "=" (vref (cadr ra))) (str ":" dl))))))
+                       (cons (quote val) rt) (+ (caddr ra) 1))))))))
     (t (let ((ar (cargs* (cdr f) pmap k live)))
          (let ((tmp (str "zt" (number->string (caddr ar)))) (sv (append (pvars pmap) live)))
            (list (append (car ar)
