@@ -136,14 +136,17 @@
              (list (cons (str "set /a " tmp "=" (aref (cadr ra)) (op->batch (car f)) (aref (cadr rb))) (car rb))
                    (cons (quote raw) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote cons))
+       ;; file-backed heap: cell HN = files %HD%\car<HN>/cdr<HN>. Redirect PATH uses
+       ;; %HN% (immediate; re-expands per line execution, incl goto-loops); the value
+       ;; is delayed content of `echo(` so operators/parens in it never re-tokenize.
        (let ((ra (cexpr (cadr f) pmap k live acc)))
          (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
            (let ((tmp (str "zt" (number->string (caddr rb)))))
-             (list (rev (list (qset (str "CAR_!HN!=" (vref (cadr ra)))) (qset (str "CDR_!HN!=" (vref (cadr rb))))
+             (list (rev (list (str ">%HD%\car%HN% echo(" (vref (cadr ra))) (str ">%HD%\cdr%HN% echo(" (vref (cadr rb)))
                               (qset (str "" tmp "=P:!HN!")) "set /a HN+=1") (car rb))
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
-    ((eq? (car f) (quote car)) (ccell f "CAR_" pmap k live acc))
-    ((eq? (car f) (quote cdr)) (ccell f "CDR_" pmap k live acc))
+    ((eq? (car f) (quote car)) (ccell f "car" pmap k live acc))
+    ((eq? (car f) (quote cdr)) (ccell f "cdr" pmap k live acc))
     ((eq? (car f) (quote symbol->string)) (cretag f pmap k live acc))
     ((eq? (car f) (quote number->string)) (cretag f pmap k live acc))
     ((eq? (car f) (quote string-append))

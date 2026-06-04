@@ -503,6 +503,10 @@ rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
 set "HN=0" & set "FID=0" & set "SP=0" & set "FREE_HEAD=NIL" & set "MARKGEN=0"
+rem file-backed heap dir (cells = %HD%\car<i>/cdr<i>). %RANDOM%-unique so concurrent
+rem runs don't collide; inherited in-process by any compiled subs that touch the heap.
+set "HD=ph_%RANDOM%%RANDOM%"
+mkdir "!HD!" 2>nul
 if not defined GC_THRESH set "GC_THRESH=150000"
 rem Four sentinel bytes stand in for the chars cmd's expansion phases eat or mangle
 rem inside string VALUES: 0x01='!' (delayed expansion eats it), 0x02='%' (percent
@@ -719,19 +723,17 @@ goto as_loop
 set "SRC=!asKept! "
 goto rf_loop
 
-rem ===================== heap (variables: CAR_i / CDR_i) =====================
+rem ===================== heap (FILES: %HD%\car<i> / %HD%\cdr<i>) =====================
+rem cmd var ops are O(env-size), so an env-var heap makes cons O(N^2) to build and
+rem every car/cdr O(heap). The filesystem is O(1) by name, so each cell is two files
+rem car<i>/cdr<i> in %HD%. KEY: redirect targets are parsed BEFORE delayed expansion,
+rem so the PATH uses %HD%/%HN%/%idx% (immediate); the value uses !..! (delayed,
+rem post-parse) so operators (& | < >) and parens in a value never re-tokenize.
+rem Files don't degrade with heap size, so GC is non-critical here (po_gc neutralised).
 :hp_cons
-rem reuse a GC'd cell from the free-list if any, else bump HN (matches kernel.sh).
-if "!FREE_HEAD!"=="NIL" goto hp_cons_bump
-set "hcf=!FREE_HEAD!"
-set "FREE_HEAD=!CDR_%hcf%!"
-set "CAR_%hcf%=%~1"
-set "CDR_%hcf%=%~2"
-set "R=P:%hcf%"
-goto :eof
-:hp_cons_bump
-set "CAR_%HN%=%~1"
-set "CDR_%HN%=%~2"
+set "hca=%~1" & set "hcd=%~2"
+>%HD%\car%HN% echo(!hca!
+>%HD%\cdr%HN% echo(!hcd!
 set "R=P:%HN%"
 set /a HN+=1
 goto :eof
@@ -739,21 +741,21 @@ goto :eof
 set "hcp=%~1"
 if "!hcp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
 set "hcp=!hcp:P:=!"
-set "R=!CAR_%hcp%!"
+set /p R=<%HD%\car%hcp%
 goto :eof
 :hp_cdr
 set "hdp=%~1"
 if "!hdp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
 set "hdp=!hdp:P:=!"
-set "R=!CDR_%hdp%!"
+set /p R=<%HD%\cdr%hdp%
 goto :eof
 :hp_setcar
-set "scp=%~1" & set "scp=!scp:P:=!"
-set "CAR_%scp%=%~2"
+set "scp=%~1" & set "scp=!scp:P:=!" & set "sca=%~2"
+>%HD%\car%scp% echo(!sca!
 goto :eof
 :hp_setcdr
-set "sdp=%~1" & set "sdp=!sdp:P:=!"
-set "CDR_%sdp%=%~2"
+set "sdp=%~1" & set "sdp=!sdp:P:=!" & set "sda=%~2"
+>%HD%\cdr%sdp% echo(!sda!
 goto :eof
 :list_reverse
 rem reverse a list (flat helper; never re-enters :ev, so plain temps are safe)
@@ -789,29 +791,30 @@ set "elkEnv=%~1" & set "elkSym=%~2"
 :elk_env
 if "!elkEnv!"=="NIL" goto elk_unbound
 set "ei=!elkEnv:P:=!"
-set "elkB=!CAR_%ei%!"
+set /p elkB=<%HD%\car%ei%
 set "elkPrev="
 :elk_b
 if "!elkB!"=="NIL" goto elk_next
 set "bi=!elkB:P:=!"
-set "elkP=!CAR_%bi%!"
+set /p elkP=<%HD%\car%bi%
 set "pi=!elkP:P:=!"
-if "!CAR_%pi%!"=="!elkSym!" goto elk_found
+set /p _pk=<%HD%\car%pi%
+if "!_pk!"=="!elkSym!" goto elk_found
 set "elkPrev=!elkB!"
-set "elkB=!CDR_%bi%!"
+set /p elkB=<%HD%\cdr%bi%
 goto elk_b
 :elk_next
-set "elkEnv=!CDR_%ei%!"
+set /p elkEnv=<%HD%\cdr%ei%
 goto elk_env
 :elk_found
 if "!elkPrev!"=="" goto elk_val
-set "elkNext=!CDR_%bi%!"
+set /p elkNext=<%HD%\cdr%bi%
 call :hp_setcdr "!elkPrev!" "!elkNext!"
-set "elkHead=!CAR_%ei%!"
+set /p elkHead=<%HD%\car%ei%
 call :hp_setcdr "!elkB!" "!elkHead!"
 call :hp_setcar "!elkEnv!" "!elkB!"
 :elk_val
-set "R=!CDR_%pi%!"
+set /p R=<%HD%\cdr%pi%
 goto :eof
 :elk_unbound
 set "elkU=!elkSym:S:=!"
@@ -834,10 +837,12 @@ if "!evPre!"=="P:" goto ev_comb
 set "R=!evX!" & goto :eof
 :ev_comb
 set "eci=%~2" & set "eci=!eci:P:=!"
-set /a ND=%1+1 & call :ev !ND! "!CAR_%eci%!" "%~3"
+set /p _eca=<%HD%\car%eci%
+set /a ND=%1+1 & call :ev !ND! "!_eca!" "%~3"
 set "_%1_c=!R!"
 set "eci=%~2" & set "eci=!eci:P:=!"
-set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!CDR_%eci%!" "%~3"
+set /p _ecd=<%HD%\cdr%eci%
+set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!_ecd!" "%~3"
 goto :eof
 
 :combine
@@ -889,11 +894,13 @@ goto :eof
 :eval_list
 if "%~2"=="NIL" set "R=NIL" & goto :eof
 set "eli=%~2" & set "eli=!eli:P:=!"
-set /a ND=%1+1 & call :ev !ND! "!CAR_%eli%!" "%~3"
+set /p _ele=<%HD%\car%eli%
+set /a ND=%1+1 & call :ev !ND! "!_ele!" "%~3"
 set "_%1_e=!R!"
 set "eli=%~2" & set "eli=!eli:P:=!"
-set /a ND=%1+1 & call :eval_list !ND! "!CDR_%eli%!" "%~3"
-set "CAR_%HN%=!_%1_e!" & set "CDR_%HN%=!R!" & set "R=P:%HN%" & set /a HN+=1
+set /p _eld=<%HD%\cdr%eli%
+set /a ND=%1+1 & call :eval_list !ND! "!_eld!" "%~3"
+call :hp_cons "!_%1_e!" "!R!"
 goto :eof
 
 :prim_oper
@@ -908,45 +915,9 @@ if "!poN!"=="run-capture" goto po_runcap
 if "!poN!"=="gc" goto po_gc
 set "R=NIL" & goto :eof
 :po_gc
-rem mark-sweep GC (mirrors kernel.sh). roots = GLOBAL + denv (%~4); threshold-gated
-rem on HN. cmd has no locals/safe recursion, so mark uses an explicit stack (MSTK/MSP):
-rem loop cdr, push car; generation marks (MARK_i==MARKGEN). sweep links dead cells into
-rem the free-list via their CDR slot. GC reclaims, never changes values -> output identical.
-if !HN! GEQ !GC_THRESH! goto po_gc_go
-set "R=NIL"
-goto :eof
-:po_gc_go
-set /a MARKGEN+=1
-set "MSTK_0=!GLOBAL!"
-set "MSTK_1=%~4"
-set "MSP=2"
-:po_gc_drain
-if !MSP! LEQ 0 goto po_gc_sweep
-set /a MSP-=1
-set "gmv=!MSTK_%MSP%!"
-:po_gc_mark
-set "gmh=!gmv:~0,2!"
-if "!gmh!" NEQ "P:" if "!gmh!" NEQ "A:" if "!gmh!" NEQ "O:" goto po_gc_drain
-set "gmi=!gmv:~2!"
-if "!MARK_%gmi%!"=="!MARKGEN!" goto po_gc_drain
-set "MARK_%gmi%=!MARKGEN!"
-set "gmc=!CAR_%gmi%!"
-set "MSTK_!MSP!=!gmc!"
-set /a MSP+=1
-set "gmv=!CDR_%gmi%!"
-goto po_gc_mark
-:po_gc_sweep
-set "FREE_HEAD=NIL"
-set "gsi=0"
-:po_gc_sweep_loop
-if !gsi! GEQ !HN! goto po_gc_done
-if "!MARK_%gsi%!"=="!MARKGEN!" goto po_gc_sweep_next
-set "CDR_%gsi%=!FREE_HEAD!"
-set "FREE_HEAD=!gsi!"
-:po_gc_sweep_next
-set /a gsi+=1
-goto po_gc_sweep_loop
-:po_gc_done
+rem file-backed heap (cells are files in %HD%) does NOT degrade with heap size, so GC
+rem is a no-op for now -- the heap just grows as files; reclamation would only matter
+rem for disk/inode limits on very large runs. (Was a mark-sweep over CAR_/CDR_ vars.)
 set "R=S:t"
 goto :eof
 :po_runcap
@@ -1052,12 +1023,14 @@ goto :eof
 
 :combine_oper
 set "ci=%~2" & set "ci=!ci:O:=!"
-set "_%1_f=!CAR_%ci%!"
-set "cr1=!CDR_%ci%!" & set "cr1=!cr1:P:=!"
-set "_%1_ef=!CAR_%cr1%!"
-set "cr2=!CDR_%cr1%!" & set "cr2=!cr2:P:=!"
-set "_%1_body=!CAR_%cr2%!"
-set "_%1_senv=!CDR_%cr2%!"
+set /p _%1_f=<%HD%\car%ci%
+set /p cr1=<%HD%\cdr%ci%
+set "cr1=!cr1:P:=!"
+set /p _%1_ef=<%HD%\car%cr1%
+set /p cr2=<%HD%\cdr%cr1%
+set "cr2=!cr2:P:=!"
+set /p _%1_body=<%HD%\car%cr2%
+set /p _%1_senv=<%HD%\cdr%cr2%
 set /a ND=%1+1 & call :build_alist !ND! "!_%1_f!" "%~3" "NIL"
 set "_%1_al=!R!"
 if "!_%1_ef!"=="S:#ignore" goto co_noenv

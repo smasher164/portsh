@@ -5,10 +5,11 @@ rem bytes 0x01/0x02/0x07/0x08, like the kernel) so it can use literal bytes and 
 rem Kept OUT of comp's source/output so its patterns never collide with program data:
 rem write-lines can therefore reproduce this runtime verbatim (the comp(comp) case).
 rem
-rem :rdfield -- operator-safe heap read: set R = !<prefix><idx>! (delayed expansion,
-rem so a & | < > in the value lands as data, not a separator). Used for car/cdr.
+rem :rdfield -- file-backed heap read: %1=car|cdr, %2=index -> R = first line of
+rem %HD%\<%1><%2>. set /p reads raw (operators &|<> in the value survive). Redirect
+rem path uses %1/%2/%HD% (immediate; parsed before delayed expansion). Used for car/cdr.
 :rdfield
-set R=!%1%2!
+set /p R=<%HD%\%1%2
 goto :eof
 rem :gc -- compiled-program GC. For now a no-op: returns without collecting, which is
 rem CORRECT (gc only reclaims, never changes values) and fine for small inputs. A real
