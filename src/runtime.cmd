@@ -10,6 +10,28 @@ rem so a & | < > in the value lands as data, not a separator). Used for car/cdr.
 :rdfield
 set R=!%1%2!
 goto :eof
+rem :gc -- compiled-program GC. For now a no-op: returns without collecting, which is
+rem CORRECT (gc only reclaims, never changes values) and fine for small inputs. A real
+rem collector for compiled programs is TODO -- the interpreter's gc roots from the env
+rem chain, which compiled code lacks; a compiled-runtime gc would root from the STK
+rem save-stack + the current frame's live vars instead.
+:gc
+set R=NIL
+goto :eof
+rem :append-lines -- A1=path, A2=list. Like write-lines but does NOT truncate
+rem (incremental output: comp's cp appends each fn's lines as it compiles them).
+:append-lines
+set wlf=!A1:~2!
+set wll=!A2!
+:al_loop_c
+if !wll!==NIL (set R=S:t & goto :eof)
+set wli=!wll:~2!
+call :rdfield CAR_ !wli!
+set wlline=!R:~2!
+call :wl_emit_c !wlf!
+call :rdfield CDR_ !wli!
+set wll=!R!
+goto al_loop_c
 rem :write-lines -- A1=path (T:..), A2=list. Truncate, then per line decode+append.
 :write-lines
 set wlf=!A1:~2!

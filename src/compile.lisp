@@ -345,7 +345,6 @@
         ((string? f) (str (dq) f (dq))) (t (str "(" (show-list f) ")")))))
 ;; quote-free dispatcher: `call :<label>` (delayed expansion is inherited from the
 ;; kernel; R and the heap propagate since there's no setlocal).
-(define dispatch-header (list "@echo off" "call :%1 %2 %3 %4 %5 %6 %7 %8 %9" "goto :eof"))
 (define def-lambda? (lambda (f)
   (if (pair? f) (if (eq? (car f) (quote define))
     (if (pair? (caddr f)) (eq? (car (caddr f)) (quote lambda)) nil) nil) nil)))
@@ -517,6 +516,9 @@
           ;; write the header (truncates cmdpath) + empty the residual file, THEN take
           ;; the heap baseline -- so the mexpanded source, elide-set, and header all
           ;; persist below the mark and survive every per-function hreset in cp.
-          (write-lines cmdpath (append (list "@echo off") (append (const-inits ms) (cdr dispatch-header))))
+          ;; header lines inlined (not a top-level list constant): compiled code can
+          ;; only read ATOM top-level constants as G_<name>; a list-valued one is never
+          ;; initialised, so the self-hosted compiler must build these inline.
+          (write-lines cmdpath (append (list "@echo off") (append (const-inits ms) (list "call :%1 %2 %3 %4 %5 %6 %7 %8 %9" "goto :eof"))))
           (write-lines lisppath nil)
           (cp ms cmdpath lisppath 0 elide)))))))
