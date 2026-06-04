@@ -356,7 +356,9 @@ if "!cmbPre!"=="C:" goto cmb_compiled
 set "R=NIL" & goto :eof
 :cmb_compiled
 rem C:<label> — a JIT-compiled applicative. Eval operands, strip tags to raw
-rem args, and call the generated batch sub (in CFILE), which sets R back to us.
+rem args (A1..An), and call the generated batch sub. Multi-file: each compiled fn
+rem is its own <label>.cmd (cmd's label scan is O(file-position), so one fn per file
+rem keeps every entry at the top -> ~1ms calls regardless of program size).
 set /a ND=%1+1 & call :eval_list !ND! "%~3" "%~4"
 set "ccL=%~2" & set "ccL=!ccL:~2!"
 set "ccN=0" & set "ccLst=!R!"
@@ -368,7 +370,7 @@ call :hp_cdr "!ccLst!"
 set "ccLst=!R!"
 goto cc_loop
 :cc_call
-call "!CFILE!" !ccL!
+call "!ccL!.cmd"
 goto :eof
 :cmb_oper
 set "cmbN=%~2" & set "cmbN=!cmbN:~2!"

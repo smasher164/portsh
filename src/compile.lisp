@@ -180,7 +180,11 @@
          (let ((tmp (str "zt" (number->string (caddr ar)))) (sv (if (mem? (car f) (elide-of pmap)) nil (append (pvars pmap) live))))
            (list (rev (append (save-lines sv)
                         (append (aassign (cadr ar) 1)
-                          (cons (str "call compiled.cmd " (mangle (symbol->string (car f))))
+                          ;; multi-file: each compiled fn is its own <label>.cmd, so a
+                          ;; call is `call <label>.cmd` (cwd-relative). cmd's label scan is
+                          ;; O(file-position), so one-fn-per-file keeps every entry at the
+                          ;; top -> ~1ms flat, vs ~30-59ms in a single 8900-line file.
+                          (cons (str "call " (mangle (symbol->string (car f))) ".cmd")
                             (append (restore-lines (rev sv nil)) (list (qset (str "" tmp "=!R!")))))))
                       (car ar))
                  (cons (quote val) tmp) (+ (caddr ar) 1))))))))
@@ -231,7 +235,7 @@
       ;; `call set tmp=%%FIELD!zi!%%` would re-parse the value unquoted and a & | < >
       ;; in it would split the line.
       (list (rev (list (qset (str "" zi "=!" (cdr (cadr rx)) ":~2!"))
-                       (str "call :rdfield " field " !" zi "!")
+                       (str "call rdfield.cmd " field " !" zi "!")
                        (qset (str "" tmp "=!R!"))) (car rx))
             (cons (quote val) tmp) (+ (caddr rx) 2))))))
 ;; cargs*: evaluate call args left-to-right -> (list lines (vref1 vref2 ...) k).
@@ -436,12 +440,15 @@
       ;; sweeps the dead intermediate cells. Bounds the heap to ~one function.
       (gc)
       (if (def-lambda? (car forms))
-        (let ((cf (compile-fn (cadr (car forms)) (mangle (symbol->string (cadr (car forms)))) (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide)))
-          (let ((nextk (cdr cf)))
-            (begin
-              (append-lines cmdpath (car cf))
-              (append-lines lisppath (cons (show (resid-bind (cadr (car forms)))) nil))
-              (cp (cdr forms) cmdpath lisppath nextk elide))))
+        (let ((lbl (mangle (symbol->string (cadr (car forms))))))
+          (let ((cf (compile-fn (cadr (car forms)) lbl (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide)))
+            (let ((nextk (cdr cf)))
+              (begin
+                ;; multi-file: write THIS fn to its own <cmddir>/<label>.cmd (write-lines
+                ;; truncates -> one file per fn). cmdpath is the output DIRECTORY now.
+                (write-lines (str cmdpath "/" lbl ".cmd") (car cf))
+                (append-lines lisppath (cons (show (resid-bind (cadr (car forms)))) nil))
+                (cp (cdr forms) cmdpath lisppath nextk elide)))))
         ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
         ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
         (if (atom-const? (car forms))
@@ -513,12 +520,10 @@
     (let ((defs (defnames ms)))
       (let ((elide (clean-fix (build-adj ms defs) nil)))
         (begin
-          ;; write the header (truncates cmdpath) + empty the residual file, THEN take
-          ;; the heap baseline -- so the mexpanded source, elide-set, and header all
-          ;; persist below the mark and survive every per-function hreset in cp.
-          ;; header lines inlined (not a top-level list constant): compiled code can
-          ;; only read ATOM top-level constants as G_<name>; a list-valued one is never
-          ;; initialised, so the self-hosted compiler must build these inline.
-          (write-lines cmdpath (append (list "@echo off") (append (const-inits ms) (list "call :%1 %2 %3 %4 %5 %6 %7 %8 %9" "goto :eof"))))
+          ;; multi-file: cmdpath is an output DIRECTORY (must exist). Each compiled fn is
+          ;; written there as <label>.cmd by cp. The top-level atom constants (G_<name>),
+          ;; which used to live in the single file's header, go in _consts.cmd -- `call`ed
+          ;; ONCE at startup to seed the G_ env vars (inherited by every fn file in-process).
+          (write-lines (str cmdpath "/_consts.cmd") (const-inits ms))
           (write-lines lisppath nil)
           (cp ms cmdpath lisppath 0 elide)))))))
