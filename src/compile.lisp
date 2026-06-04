@@ -53,13 +53,14 @@
 (define mc-at (lambda (c) (cond ((eq? c B1) "!BANG!") ((eq? c B2) "!BANG2!") ((eq? c B7) "!BANG7!") ((eq? c BLT) "!LT!") ((eq? c BGT) "!GT!") ((eq? c BAMP) "!AMP!") ((eq? c BPIPE) "!PIPE!") (t c))))
 (define enc-mc-go (lambda (s i n acc) (if (= i n) acc (enc-mc-go s (+ i 1) n (string-append acc (mc-at (substring s i 1)))))))
 (define enc-mc (lambda (s) (enc-mc-go s 0 (string-length s) "")))
-;; mangle: a function name becomes a batch LABEL and a `call compiled.cmd <name>`,
-;; so operator chars (> < & | *) in it would tokenize as redirection/pipe/glob.
-;; Replace each with a safe code (zzG etc). Applied to every name->label/call site
-;; (compile-fn label, the general-call target, make-compiled in the residual) so
-;; they stay consistent. (- + = ? are fine in labels, left alone.)
+;; mangle: a function name becomes a batch LABEL, a `call <name>.cmd`, AND a FILENAME
+;; <name>.cmd (multi-file codegen). So operator chars (> < & | *) would tokenize as
+;; redirection/pipe/glob, and `?` (legal in a label) is ILLEGAL in a Windows filename.
+;; Replace each with a safe code (zzG etc). Applied to every name->label/file/call site
+;; (compile-fn label, the general-call target, make-compiled in the residual) so they
+;; stay consistent. (- + = are fine in labels AND filenames, left alone.)
 (define BST "*")
-(define mangle-at (lambda (c) (cond ((eq? c BGT) "zzG") ((eq? c BLT) "zzL") ((eq? c BAMP) "zzA") ((eq? c BPIPE) "zzP") ((eq? c BST) "zzS") (t c))))
+(define mangle-at (lambda (c) (cond ((eq? c BGT) "zzG") ((eq? c BLT) "zzL") ((eq? c BAMP) "zzA") ((eq? c BPIPE) "zzP") ((eq? c BST) "zzS") ((eq? c "?") "zzQ") (t c))))
 (define mangle-go (lambda (s i n acc) (if (= i n) acc (mangle-go s (+ i 1) n (string-append acc (mangle-at (substring s i 1)))))))
 (define mangle (lambda (s) (mangle-go s 0 (string-length s) "")))
 
