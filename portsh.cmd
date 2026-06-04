@@ -28,14 +28,26 @@ set -u
 die() { printf 'portsh: %s\n' "$1" >&2; exit 1; }
 
 # ---- heap (swappable for the append-only dd-file heap later) --------------
-HEAP_N=0; FREE_HEAD=NIL; MARKGEN=0; GC_THRESH=${GC_THRESH:-150000}
-# allocate a pair: reuse a GC'd cell from the free-list if any, else bump HEAP_N.
+HEAP_N=0; FREE_HEAD=NIL; MARKGEN=0; LAST_GC=0; NURSERY=${NURSERY:-50000}; GC_RUNNING=
+# allocate a pair: reuse a GC'd cell from the free-list if any, else grow the heap.
+# The gc trigger lives ONLY in the grow branch -- the common (free-list reuse) path
+# has zero extra cost. gc fires when the high-water HEAP_N has grown by NURSERY since
+# the last collection, i.e. exactly when we are about to make the heap bigger; if gc
+# reclaims enough that the free-list covers the churn, HEAP_N stops growing and gc
+# stops firing (memory stays bounded). The cons args ($1/$2) are passed as extra
+# roots so the cell about to be built survives the collection.
 hp_cons() {
   if [ "$FREE_HEAD" != NIL ]; then
     _fi=$FREE_HEAD; eval "FREE_HEAD=\$H_${_fi}_d"
     eval "H_${_fi}_a=\$1"; eval "H_${_fi}_d=\$2"; R="P:$_fi"
   else
-    eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1))
+    if [ -z "$GC_RUNNING" ] && [ $((HEAP_N - LAST_GC)) -ge "$NURSERY" ]; then gc_run "$1" "$2"; fi
+    if [ "$FREE_HEAD" != NIL ]; then
+      _fi=$FREE_HEAD; eval "FREE_HEAD=\$H_${_fi}_d"
+      eval "H_${_fi}_a=\$1"; eval "H_${_fi}_d=\$2"; R="P:$_fi"
+    else
+      eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1))
+    fi
   fi
 }
 # ---- mark-sweep GC (region reclamation with explicit roots) ---------------
@@ -63,6 +75,27 @@ gc_sweep() {
     [ "$_mk" = "$MARKGEN" ] || { eval "H_${_i}_d=\$FREE_HEAD"; FREE_HEAD=$_i; }
     _i=$((_i + 1))
   done
+}
+# gc_run: a CONSERVATIVE mark-sweep. Roots are GLOBAL, R, any extra args (the cons
+# being built), AND every heap ref (P:/A:/O:<n>) held in a shell variable, found by
+# scanning `set`. In a dynamically-scoped shell `set` exposes the locals of every
+# ancestor frame, so this captures the whole live eval stack without instrumenting
+# ev — no missed roots. Heap vars (H_<n>_*) are filtered out so the scan sees only
+# the interpreter's pointers INTO the heap, not the heap's internal links (marking
+# those would retain everything). Cheap because auto-gc keeps the var table small.
+gc_run() {
+  [ -n "$GC_RUNNING" ] && return
+  GC_RUNNING=1
+  local _v
+  MARKGEN=$((MARKGEN + 1))
+  gc_mark "$GLOBAL"; gc_mark "$R"
+  for _v in "$@"; do gc_mark "$_v"; done
+  for _v in $(set 2>/dev/null | grep -vE '^H_[0-9]' | grep -oE '[POA]:[0-9][0-9]*' | sort -u); do
+    gc_mark "$_v"
+  done
+  gc_sweep
+  LAST_GC=$HEAP_N
+  GC_RUNNING=
 }
 # car/cdr of a non-pair -> NIL (matches the cmd kernel, which reads an unset CAR_/CDR_).
 # Lisp-ish convention; keeps sh from dying under `set -u` where cmd silently continues,
@@ -268,9 +301,9 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 prim_oper() {
   local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out
   case $name in
-    gc)  # roots = GLOBAL + the dynamic env at the call site. Threshold-gated.
-      if [ "$HEAP_N" -lt "$GC_THRESH" ]; then R=NIL
-      else MARKGEN=$((MARKGEN + 1)); gc_mark "$GLOBAL"; gc_mark "$denv"; gc_sweep; R="S:t"; fi ;;
+    gc)  # explicit collection; auto-gc from hp_cons already fires every NURSERY allocs,
+         # so this is now mostly redundant. Conservative roots (incl. denv) via gc_run.
+      gc_run "$denv"; R="S:t" ;;
     run)
       _cmd=; _lst=$ops
       while [ "$_lst" != NIL ]; do
@@ -817,7 +850,9 @@ if "!cmbPre!"=="C:" goto cmb_compiled
 set "R=NIL" & goto :eof
 :cmb_compiled
 rem C:<label> — a JIT-compiled applicative. Eval operands, strip tags to raw
-rem args, and call the generated batch sub (in CFILE), which sets R back to us.
+rem args (A1..An), and call the generated batch sub. Multi-file: each compiled fn
+rem is its own <label>.cmd (cmd's label scan is O(file-position), so one fn per file
+rem keeps every entry at the top -> ~1ms calls regardless of program size).
 set /a ND=%1+1 & call :eval_list !ND! "%~3" "%~4"
 set "ccL=%~2" & set "ccL=!ccL:~2!"
 set "ccN=0" & set "ccLst=!R!"
@@ -829,7 +864,7 @@ call :hp_cdr "!ccLst!"
 set "ccLst=!R!"
 goto cc_loop
 :cc_call
-call "!CFILE!" !ccL!
+call "!ccL!.cmd"
 goto :eof
 :cmb_oper
 set "cmbN=%~2" & set "cmbN=!cmbN:~2!"

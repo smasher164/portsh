@@ -22,6 +22,7 @@ rem :append-lines -- A1=path, A2=list. Like write-lines but does NOT truncate
 rem (incremental output: comp's cp appends each fn's lines as it compiles them).
 :append-lines
 set wlf=!A1:~2!
+set "wlf=!wlf:/=\!"
 set wll=!A2!
 :al_loop_c
 if !wll!==NIL (set R=S:t & goto :eof)
@@ -35,6 +36,9 @@ goto al_loop_c
 rem :write-lines -- A1=path (T:..), A2=list. Truncate, then per line decode+append.
 :write-lines
 set wlf=!A1:~2!
+rem cmd redirection needs backslashes; the codegen builds paths with '/' (sh-native),
+rem so normalise here. The line write (wl_emit_c) gets the already-normalised wlf.
+set "wlf=!wlf:/=\!"
 set wll=!A2!
 break > !wlf!
 :wl_loop_c
