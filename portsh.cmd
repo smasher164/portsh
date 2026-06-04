@@ -28,8 +28,42 @@ set -u
 die() { printf 'portsh: %s\n' "$1" >&2; exit 1; }
 
 # ---- heap (swappable for the append-only dd-file heap later) --------------
-HEAP_N=0
-hp_cons() { eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1)); }
+HEAP_N=0; FREE_HEAD=NIL; MARKGEN=0; GC_THRESH=${GC_THRESH:-150000}
+# allocate a pair: reuse a GC'd cell from the free-list if any, else bump HEAP_N.
+hp_cons() {
+  if [ "$FREE_HEAD" != NIL ]; then
+    _fi=$FREE_HEAD; eval "FREE_HEAD=\$H_${_fi}_d"
+    eval "H_${_fi}_a=\$1"; eval "H_${_fi}_d=\$2"; R="P:$_fi"
+  else
+    eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1))
+  fi
+}
+# ---- mark-sweep GC (region reclamation with explicit roots) ---------------
+# mark: DFS from a root -- recurse on car (depth = data NESTING, shallow), loop on
+# cdr (long list spines stay iterative, no host-stack growth). Generation marks
+# (H_i_m == MARKGEN) avoid an O(heap) clear per cycle. A:/O: carry a heap index too.
+gc_mark() {
+  local _v=$1 _i _mk _ca
+  while :; do
+    case $_v in P:*|A:*|O:*) _i=${_v#?:} ;; *) return ;; esac
+    eval "_mk=\${H_${_i}_m:-}"
+    [ "$_mk" = "$MARKGEN" ] && return
+    eval "H_${_i}_m=$MARKGEN"
+    eval "_ca=\$H_${_i}_a"; gc_mark "$_ca"
+    eval "_v=\$H_${_i}_d"
+  done
+}
+# sweep: link every unmarked cell into the free-list via its own _d slot (no extra
+# storage, no rename). Reused by hp_cons. Cells keep their var slots (names reused).
+gc_sweep() {
+  local _i=0 _mk
+  FREE_HEAD=NIL
+  while [ "$_i" -lt "$HEAP_N" ]; do
+    eval "_mk=\${H_${_i}_m:-}"
+    [ "$_mk" = "$MARKGEN" ] || { eval "H_${_i}_d=\$FREE_HEAD"; FREE_HEAD=$_i; }
+    _i=$((_i + 1))
+  done
+}
 # car/cdr of a non-pair -> NIL (matches the cmd kernel, which reads an unset CAR_/CDR_).
 # Lisp-ish convention; keeps sh from dying under `set -u` where cmd silently continues,
 # so both hosts agree (consistency) and recursions terminate instead of hanging.
@@ -234,6 +268,9 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 prim_oper() {
   local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out
   case $name in
+    gc)  # roots = GLOBAL + the dynamic env at the call site. Threshold-gated.
+      if [ "$HEAP_N" -lt "$GC_THRESH" ]; then R=NIL
+      else MARKGEN=$((MARKGEN + 1)); gc_mark "$GLOBAL"; gc_mark "$denv"; gc_sweep; R="S:t"; fi ;;
     run)
       _cmd=; _lst=$ops
       while [ "$_lst" != NIL ]; do
@@ -339,6 +376,11 @@ prim_app() {
     'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
              R="S:t" ;;
+    'append-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2
+             while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
+             R="S:t" ;;
+    hmark)   R="I:$HEAP_N" ;;          # current heap bump pointer (region reclamation)
+    hreset)  arg1 "$args"; HEAP_N=${ARG1#I:}; R="S:t" ;;   # reset bump pointer -> reuse slots
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
@@ -381,8 +423,8 @@ PRELUDE=""
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if run 'run-capture' quote lambda; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' list wrap unwrap eval print dq; do
+  for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -427,7 +469,8 @@ rem %2.. (stable across sub-calls), and any value held ACROSS a sub-call is
 rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
-set "HN=0" & set "FID=0" & set "SP=0"
+set "HN=0" & set "FID=0" & set "SP=0" & set "FREE_HEAD=NIL" & set "MARKGEN=0"
+if not defined GC_THRESH set "GC_THRESH=150000"
 rem Four sentinel bytes stand in for the chars cmd's expansion phases eat or mangle
 rem inside string VALUES: 0x01='!' (delayed expansion eats it), 0x02='%' (percent
 rem phase), 0x07='^' (caret/escape), 0x08='"' (the string delimiter -- encoded first
@@ -645,6 +688,15 @@ goto rf_loop
 
 rem ===================== heap (variables: CAR_i / CDR_i) =====================
 :hp_cons
+rem reuse a GC'd cell from the free-list if any, else bump HN (matches kernel.sh).
+if "!FREE_HEAD!"=="NIL" goto hp_cons_bump
+set "hcf=!FREE_HEAD!"
+set "FREE_HEAD=!CDR_%hcf%!"
+set "CAR_%hcf%=%~1"
+set "CDR_%hcf%=%~2"
+set "R=P:%hcf%"
+goto :eof
+:hp_cons_bump
 set "CAR_%HN%=%~1"
 set "CDR_%HN%=%~2"
 set "R=P:%HN%"
@@ -818,7 +870,50 @@ if "!poN!"=="define" goto po_define
 if "!poN!"=="if" goto po_if
 if "!poN!"=="run" goto po_run
 if "!poN!"=="run-capture" goto po_runcap
+if "!poN!"=="gc" goto po_gc
 set "R=NIL" & goto :eof
+:po_gc
+rem mark-sweep GC (mirrors kernel.sh). roots = GLOBAL + denv (%~4); threshold-gated
+rem on HN. cmd has no locals/safe recursion, so mark uses an explicit stack (MSTK/MSP):
+rem loop cdr, push car; generation marks (MARK_i==MARKGEN). sweep links dead cells into
+rem the free-list via their CDR slot. GC reclaims, never changes values -> output identical.
+if !HN! GEQ !GC_THRESH! goto po_gc_go
+set "R=NIL"
+goto :eof
+:po_gc_go
+set /a MARKGEN+=1
+set "MSTK_0=!GLOBAL!"
+set "MSTK_1=%~4"
+set "MSP=2"
+:po_gc_drain
+if !MSP! LEQ 0 goto po_gc_sweep
+set /a MSP-=1
+set "gmv=!MSTK_%MSP%!"
+:po_gc_mark
+set "gmh=!gmv:~0,2!"
+if "!gmh!" NEQ "P:" if "!gmh!" NEQ "A:" if "!gmh!" NEQ "O:" goto po_gc_drain
+set "gmi=!gmv:~2!"
+if "!MARK_%gmi%!"=="!MARKGEN!" goto po_gc_drain
+set "MARK_%gmi%=!MARKGEN!"
+set "gmc=!CAR_%gmi%!"
+set "MSTK_!MSP!=!gmc!"
+set /a MSP+=1
+set "gmv=!CDR_%gmi%!"
+goto po_gc_mark
+:po_gc_sweep
+set "FREE_HEAD=NIL"
+set "gsi=0"
+:po_gc_sweep_loop
+if !gsi! GEQ !HN! goto po_gc_done
+if "!MARK_%gsi%!"=="!MARKGEN!" goto po_gc_sweep_next
+set "CDR_%gsi%=!FREE_HEAD!"
+set "FREE_HEAD=!gsi!"
+:po_gc_sweep_next
+set /a gsi+=1
+goto po_gc_sweep_loop
+:po_gc_done
+set "R=S:t"
+goto :eof
 :po_runcap
 rem render operands into a command line, run it, capture stdout as a line list
 set "rcCmd=" & set "rcLst=%~3"
@@ -1002,6 +1097,9 @@ if "!paN!"=="number->string" goto pa_num2str
 if "!paN!"=="string->number" goto pa_str2num
 if "!paN!"=="read-lines" goto pa_rdlines
 if "!paN!"=="write-lines" goto pa_wrlines
+if "!paN!"=="append-lines" goto pa_aplines
+if "!paN!"=="hmark" goto pa_hmark
+if "!paN!"=="hreset" goto pa_hreset
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
 if "!paN!"=="split" goto pa_split
@@ -1088,6 +1186,23 @@ rem read-lines of a '!'-bearing data file loses the '!' -- a known consistency g
 rem The set/p raw reader used for source/programs can't be reused here: read-lines is
 rem called DEEP in the eval chain, where `call :sub < file` (stdin redirect) fails.
 call :list_reverse "!rlAcc!"
+goto :eof
+:pa_aplines
+rem append-lines: like write-lines but does NOT truncate (region reclamation: cp
+rem appends each fn's output, then resets the heap). Shares the wl loop + wl_emit.
+call :hp_car "%~3"
+set "wlF=!R:~2!"
+call :hp_cdr "%~3"
+call :hp_car "!R!"
+set "wlL=!R!"
+goto pa_wl_loop
+:pa_hmark
+set "R=I:!HN!"
+goto :eof
+:pa_hreset
+call :hp_car "%~3"
+set "HN=!R:~2!"
+set "R=S:t"
 goto :eof
 :pa_wrlines
 call :hp_car "%~3"
@@ -1354,6 +1469,7 @@ call :env_define "!GLOBAL!" "S:lambda" "F:lambda"
 call :env_define "!GLOBAL!" "S:list" "R:list"
 call :env_define "!GLOBAL!" "S:define" "F:define"
 call :env_define "!GLOBAL!" "S:if" "F:if"
+call :env_define "!GLOBAL!" "S:gc" "F:gc"
 call :env_define "!GLOBAL!" "S:cons" "R:cons"
 call :env_define "!GLOBAL!" "S:car" "R:car"
 call :env_define "!GLOBAL!" "S:cdr" "R:cdr"
@@ -1380,6 +1496,9 @@ call :env_define "!GLOBAL!" "S:number->string" "R:number->string"
 call :env_define "!GLOBAL!" "S:string->number" "R:string->number"
 call :env_define "!GLOBAL!" "S:read-lines" "R:read-lines"
 call :env_define "!GLOBAL!" "S:write-lines" "R:write-lines"
+call :env_define "!GLOBAL!" "S:append-lines" "R:append-lines"
+call :env_define "!GLOBAL!" "S:hmark" "R:hmark"
+call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 call :env_define "!GLOBAL!" "S:split" "R:split"

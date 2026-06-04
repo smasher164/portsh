@@ -8,7 +8,8 @@ rem %2.. (stable across sub-calls), and any value held ACROSS a sub-call is
 rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
-set "HN=0" & set "FID=0" & set "SP=0"
+set "HN=0" & set "FID=0" & set "SP=0" & set "FREE_HEAD=NIL" & set "MARKGEN=0"
+if not defined GC_THRESH set "GC_THRESH=150000"
 rem Four sentinel bytes stand in for the chars cmd's expansion phases eat or mangle
 rem inside string VALUES: 0x01='!' (delayed expansion eats it), 0x02='%' (percent
 rem phase), 0x07='^' (caret/escape), 0x08='"' (the string delimiter -- encoded first
@@ -226,6 +227,15 @@ goto rf_loop
 
 rem ===================== heap (variables: CAR_i / CDR_i) =====================
 :hp_cons
+rem reuse a GC'd cell from the free-list if any, else bump HN (matches kernel.sh).
+if "!FREE_HEAD!"=="NIL" goto hp_cons_bump
+set "hcf=!FREE_HEAD!"
+set "FREE_HEAD=!CDR_%hcf%!"
+set "CAR_%hcf%=%~1"
+set "CDR_%hcf%=%~2"
+set "R=P:%hcf%"
+goto :eof
+:hp_cons_bump
 set "CAR_%HN%=%~1"
 set "CDR_%HN%=%~2"
 set "R=P:%HN%"
@@ -399,7 +409,50 @@ if "!poN!"=="define" goto po_define
 if "!poN!"=="if" goto po_if
 if "!poN!"=="run" goto po_run
 if "!poN!"=="run-capture" goto po_runcap
+if "!poN!"=="gc" goto po_gc
 set "R=NIL" & goto :eof
+:po_gc
+rem mark-sweep GC (mirrors kernel.sh). roots = GLOBAL + denv (%~4); threshold-gated
+rem on HN. cmd has no locals/safe recursion, so mark uses an explicit stack (MSTK/MSP):
+rem loop cdr, push car; generation marks (MARK_i==MARKGEN). sweep links dead cells into
+rem the free-list via their CDR slot. GC reclaims, never changes values -> output identical.
+if !HN! GEQ !GC_THRESH! goto po_gc_go
+set "R=NIL"
+goto :eof
+:po_gc_go
+set /a MARKGEN+=1
+set "MSTK_0=!GLOBAL!"
+set "MSTK_1=%~4"
+set "MSP=2"
+:po_gc_drain
+if !MSP! LEQ 0 goto po_gc_sweep
+set /a MSP-=1
+set "gmv=!MSTK_%MSP%!"
+:po_gc_mark
+set "gmh=!gmv:~0,2!"
+if "!gmh!" NEQ "P:" if "!gmh!" NEQ "A:" if "!gmh!" NEQ "O:" goto po_gc_drain
+set "gmi=!gmv:~2!"
+if "!MARK_%gmi%!"=="!MARKGEN!" goto po_gc_drain
+set "MARK_%gmi%=!MARKGEN!"
+set "gmc=!CAR_%gmi%!"
+set "MSTK_!MSP!=!gmc!"
+set /a MSP+=1
+set "gmv=!CDR_%gmi%!"
+goto po_gc_mark
+:po_gc_sweep
+set "FREE_HEAD=NIL"
+set "gsi=0"
+:po_gc_sweep_loop
+if !gsi! GEQ !HN! goto po_gc_done
+if "!MARK_%gsi%!"=="!MARKGEN!" goto po_gc_sweep_next
+set "CDR_%gsi%=!FREE_HEAD!"
+set "FREE_HEAD=!gsi!"
+:po_gc_sweep_next
+set /a gsi+=1
+goto po_gc_sweep_loop
+:po_gc_done
+set "R=S:t"
+goto :eof
 :po_runcap
 rem render operands into a command line, run it, capture stdout as a line list
 set "rcCmd=" & set "rcLst=%~3"
@@ -955,6 +1008,7 @@ call :env_define "!GLOBAL!" "S:lambda" "F:lambda"
 call :env_define "!GLOBAL!" "S:list" "R:list"
 call :env_define "!GLOBAL!" "S:define" "F:define"
 call :env_define "!GLOBAL!" "S:if" "F:if"
+call :env_define "!GLOBAL!" "S:gc" "F:gc"
 call :env_define "!GLOBAL!" "S:cons" "R:cons"
 call :env_define "!GLOBAL!" "S:car" "R:car"
 call :env_define "!GLOBAL!" "S:cdr" "R:cdr"
