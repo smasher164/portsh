@@ -583,6 +583,9 @@ if "!paN!"=="number->string" goto pa_num2str
 if "!paN!"=="string->number" goto pa_str2num
 if "!paN!"=="read-lines" goto pa_rdlines
 if "!paN!"=="write-lines" goto pa_wrlines
+if "!paN!"=="append-lines" goto pa_aplines
+if "!paN!"=="hmark" goto pa_hmark
+if "!paN!"=="hreset" goto pa_hreset
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
 if "!paN!"=="split" goto pa_split
@@ -669,6 +672,23 @@ rem read-lines of a '!'-bearing data file loses the '!' -- a known consistency g
 rem The set/p raw reader used for source/programs can't be reused here: read-lines is
 rem called DEEP in the eval chain, where `call :sub < file` (stdin redirect) fails.
 call :list_reverse "!rlAcc!"
+goto :eof
+:pa_aplines
+rem append-lines: like write-lines but does NOT truncate (region reclamation: cp
+rem appends each fn's output, then resets the heap). Shares the wl loop + wl_emit.
+call :hp_car "%~3"
+set "wlF=!R:~2!"
+call :hp_cdr "%~3"
+call :hp_car "!R!"
+set "wlL=!R!"
+goto pa_wl_loop
+:pa_hmark
+set "R=I:!HN!"
+goto :eof
+:pa_hreset
+call :hp_car "%~3"
+set "HN=!R:~2!"
+set "R=S:t"
 goto :eof
 :pa_wrlines
 call :hp_car "%~3"
@@ -961,6 +981,9 @@ call :env_define "!GLOBAL!" "S:number->string" "R:number->string"
 call :env_define "!GLOBAL!" "S:string->number" "R:string->number"
 call :env_define "!GLOBAL!" "S:read-lines" "R:read-lines"
 call :env_define "!GLOBAL!" "S:write-lines" "R:write-lines"
+call :env_define "!GLOBAL!" "S:append-lines" "R:append-lines"
+call :env_define "!GLOBAL!" "S:hmark" "R:hmark"
+call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 call :env_define "!GLOBAL!" "S:split" "R:split"

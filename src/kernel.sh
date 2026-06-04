@@ -24,8 +24,42 @@ set -u
 die() { printf 'portsh: %s\n' "$1" >&2; exit 1; }
 
 # ---- heap (swappable for the append-only dd-file heap later) --------------
-HEAP_N=0
-hp_cons() { eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1)); }
+HEAP_N=0; FREE_HEAD=NIL; MARKGEN=0; GC_THRESH=${GC_THRESH:-150000}
+# allocate a pair: reuse a GC'd cell from the free-list if any, else bump HEAP_N.
+hp_cons() {
+  if [ "$FREE_HEAD" != NIL ]; then
+    _fi=$FREE_HEAD; eval "FREE_HEAD=\$H_${_fi}_d"
+    eval "H_${_fi}_a=\$1"; eval "H_${_fi}_d=\$2"; R="P:$_fi"
+  else
+    eval "H_${HEAP_N}_a=\$1"; eval "H_${HEAP_N}_d=\$2"; R="P:$HEAP_N"; HEAP_N=$((HEAP_N + 1))
+  fi
+}
+# ---- mark-sweep GC (region reclamation with explicit roots) ---------------
+# mark: DFS from a root -- recurse on car (depth = data NESTING, shallow), loop on
+# cdr (long list spines stay iterative, no host-stack growth). Generation marks
+# (H_i_m == MARKGEN) avoid an O(heap) clear per cycle. A:/O: carry a heap index too.
+gc_mark() {
+  local _v=$1 _i _mk _ca
+  while :; do
+    case $_v in P:*|A:*|O:*) _i=${_v#?:} ;; *) return ;; esac
+    eval "_mk=\${H_${_i}_m:-}"
+    [ "$_mk" = "$MARKGEN" ] && return
+    eval "H_${_i}_m=$MARKGEN"
+    eval "_ca=\$H_${_i}_a"; gc_mark "$_ca"
+    eval "_v=\$H_${_i}_d"
+  done
+}
+# sweep: link every unmarked cell into the free-list via its own _d slot (no extra
+# storage, no rename). Reused by hp_cons. Cells keep their var slots (names reused).
+gc_sweep() {
+  local _i=0 _mk
+  FREE_HEAD=NIL
+  while [ "$_i" -lt "$HEAP_N" ]; do
+    eval "_mk=\${H_${_i}_m:-}"
+    [ "$_mk" = "$MARKGEN" ] || { eval "H_${_i}_d=\$FREE_HEAD"; FREE_HEAD=$_i; }
+    _i=$((_i + 1))
+  done
+}
 # car/cdr of a non-pair -> NIL (matches the cmd kernel, which reads an unset CAR_/CDR_).
 # Lisp-ish convention; keeps sh from dying under `set -u` where cmd silently continues,
 # so both hosts agree (consistency) and recursions terminate instead of hanging.
@@ -230,6 +264,9 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
 prim_oper() {
   local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out
   case $name in
+    gc)  # roots = GLOBAL + the dynamic env at the call site. Threshold-gated.
+      if [ "$HEAP_N" -lt "$GC_THRESH" ]; then R=NIL
+      else MARKGEN=$((MARKGEN + 1)); gc_mark "$GLOBAL"; gc_mark "$denv"; gc_sweep; R="S:t"; fi ;;
     run)
       _cmd=; _lst=$ops
       while [ "$_lst" != NIL ]; do
@@ -335,6 +372,11 @@ prim_app() {
     'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
              R="S:t" ;;
+    'append-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2
+             while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
+             R="S:t" ;;
+    hmark)   R="I:$HEAP_N" ;;          # current heap bump pointer (region reclamation)
+    hreset)  arg1 "$args"; HEAP_N=${ARG1#I:}; R="S:t" ;;   # reset bump pointer -> reuse slots
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
@@ -377,8 +419,8 @@ PRELUDE=""
 
 setup_global() {
   env_new NIL; GLOBAL=$R
-  for p in vau define if run 'run-capture' quote lambda; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' list wrap unwrap eval print dq; do
+  for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
