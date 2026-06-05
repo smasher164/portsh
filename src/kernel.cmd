@@ -329,27 +329,122 @@ set "R=NIL"
 goto :eof
 
 rem =============================== evaluator ===============================
+rem TCO evaluator: a goto-loop (mirrors kernel.sh's ev). Tail positions (if-branch,
+rem lambda body's last form, applicative unwrap) update _%1_x/_%1_env and `goto ev_top`
+rem instead of recursing, so deep tail recursion does NOT grow cmd's call stack (was
+rem the ~319 limit). Non-tail evals (combiner, operands, if-test, non-last body forms)
+rem still `call :ev` with a fresh frame. LOOP STATE IS FRAME-SCOPED (_%1_x etc.): a
+rem recursive call enters :ev at %1+1 and would clobber a global, so per-frame vars.
+rem The combine/combine_oper/ev_seq/po_if functions below are now folded in here.
 :ev
-set "evX=%~2"
-if "!evX!"=="NIL" set "R=NIL" & goto :eof
-set "evPre=!evX:~0,2!"
-if "!evPre!"=="I:" set "R=!evX!" & goto :eof
-if "!evPre!"=="F:" set "R=!evX!" & goto :eof
-if "!evPre!"=="R:" set "R=!evX!" & goto :eof
-if "!evPre!"=="O:" set "R=!evX!" & goto :eof
-if "!evPre!"=="A:" set "R=!evX!" & goto :eof
-if "!evPre!"=="S:" call :env_lookup "%~3" "!evX!" & goto :eof
-if "!evPre!"=="P:" goto ev_comb
-set "R=!evX!" & goto :eof
-:ev_comb
-set "eci=%~2" & set "eci=!eci:P:=!"
+set "_%1_x=%~2" & set "_%1_env=%~3"
+:ev_top
+if "!_%1_x!"=="NIL" set "R=NIL" & goto :eof
+set "evPre=!_%1_x:~0,2!"
+if "!evPre!"=="I:" set "R=!_%1_x!" & goto :eof
+if "!evPre!"=="F:" set "R=!_%1_x!" & goto :eof
+if "!evPre!"=="R:" set "R=!_%1_x!" & goto :eof
+if "!evPre!"=="O:" set "R=!_%1_x!" & goto :eof
+if "!evPre!"=="A:" set "R=!_%1_x!" & goto :eof
+if "!evPre!"=="S:" call :env_lookup "!_%1_env!" "!_%1_x!" & goto :eof
+if not "!evPre!"=="P:" set "R=!_%1_x!" & goto :eof
+rem combination: eval combiner (non-tail), read operands, dispatch on combiner type
+set "eci=!_%1_x:P:=!"
 set /p _eca=<%HD%\car%eci%
-set /a ND=%1+1 & call :ev !ND! "!_eca!" "%~3"
+set /a ND=%1+1 & call :ev !ND! "!_eca!" "!_%1_env!"
 set "_%1_c=!R!"
-set "eci=%~2" & set "eci=!eci:P:=!"
-set /p _ecd=<%HD%\cdr%eci%
-set /a ND=%1+1 & call :combine !ND! "!_%1_c!" "!_ecd!" "%~3"
+set "eci=!_%1_x:P:=!"
+set /p _%1_ops=<%HD%\cdr%eci%
+:ev_apply
+set "cPre=!_%1_c:~0,2!"
+if "!cPre!"=="A:" goto ev_appl
+if "!cPre!"=="R:" goto ev_primapp
+if "!cPre!"=="F:" goto ev_oper
+if "!cPre!"=="O:" goto ev_compound
+if "!cPre!"=="C:" goto ev_compiled
+set "R=NIL" & goto :eof
+:ev_appl
+rem applicative A:<i> = wrap(combiner): unwrap, eval operands, loop on the unwrapped
+call :hp_car "P:!_%1_c:~2!"
+set "_%1_w=!R!"
+set /a ND=%1+1 & call :eval_list !ND! "!_%1_ops!" "!_%1_env!"
+set "_%1_ops=!R!" & set "_%1_c=!_%1_w!"
+goto ev_apply
+:ev_primapp
+set /a ND=%1+1 & call :eval_list !ND! "!_%1_ops!" "!_%1_env!"
+set "pn=!_%1_c:~2!"
+set /a ND=%1+1 & call :prim_app !ND! "!pn!" "!R!"
 goto :eof
+:ev_oper
+if "!_%1_c!"=="F:if" goto ev_if
+set "pn=!_%1_c:~2!"
+set /a ND=%1+1 & call :prim_oper !ND! "!pn!" "!_%1_ops!" "!_%1_env!"
+goto :eof
+:ev_compiled
+rem C:<label> compiled applicative: eval operands -> A1.., call <label>.cmd
+set /a ND=%1+1 & call :eval_list !ND! "!_%1_ops!" "!_%1_env!"
+set "ccL=!_%1_c:~2!"
+set "ccN=0" & set "ccLst=!R!"
+:ev_cc_loop
+if "!ccLst!"=="NIL" goto ev_cc_call
+call :hp_car "!ccLst!"
+set /a ccN+=1 & set "A!ccN!=!R!"
+call :hp_cdr "!ccLst!"
+set "ccLst=!R!"
+goto ev_cc_loop
+:ev_cc_call
+call "!ccL!.cmd"
+goto :eof
+:ev_if
+rem (if test then else): eval test (non-tail); chosen branch is TAIL -> loop
+call :hp_car "!_%1_ops!"
+set /a ND=%1+1 & call :ev !ND! "!R!" "!_%1_env!"
+set "_%1_t=!R!"
+call :hp_cdr "!_%1_ops!"
+set "_%1_r=!R!"
+if "!_%1_t!"=="NIL" goto ev_if_else
+call :hp_car "!_%1_r!"
+set "_%1_x=!R!"
+goto ev_top
+:ev_if_else
+call :hp_cdr "!_%1_r!"
+call :hp_car "!R!"
+set "_%1_x=!R!"
+goto ev_top
+:ev_compound
+rem compound operative O:<i> = (formals eformal body senv): bind, eval body; last
+rem body form is TAIL -> loop. operands are as-passed (pre-evaluated if reached via A:).
+set "ci=!_%1_c:O:=!"
+set /p _%1_f=<%HD%\car%ci%
+set /p cr1=<%HD%\cdr%ci%
+set "cr1=!cr1:P:=!"
+set /p _%1_ef=<%HD%\car%cr1%
+set /p cr2=<%HD%\cdr%cr1%
+set "cr2=!cr2:P:=!"
+set /p _%1_body=<%HD%\car%cr2%
+set /p _%1_senv=<%HD%\cdr%cr2%
+set /a ND=%1+1 & call :build_alist !ND! "!_%1_f!" "!_%1_ops!" "NIL"
+set "_%1_al=!R!"
+if "!_%1_ef!"=="S:#ignore" goto ev_co_noenv
+call :hp_cons "!_%1_ef!" "!_%1_env!"
+call :hp_cons "!R!" "!_%1_al!"
+set "_%1_al=!R!"
+:ev_co_noenv
+call :hp_cons "!_%1_al!" "!_%1_senv!"
+set "_%1_env=!R!"
+:ev_co_bodyloop
+if "!_%1_body!"=="NIL" set "R=NIL" & goto :eof
+call :hp_cdr "!_%1_body!"
+set "_%1_brest=!R!"
+if "!_%1_brest!"=="NIL" goto ev_co_tail
+call :hp_car "!_%1_body!"
+set /a ND=%1+1 & call :ev !ND! "!R!" "!_%1_env!"
+set "_%1_body=!_%1_brest!"
+goto ev_co_bodyloop
+:ev_co_tail
+call :hp_car "!_%1_body!"
+set "_%1_x=!R!"
+goto ev_top
 
 :combine
 set "cmbC=%~2" & set "cmbPre=!cmbC:~0,2!"
