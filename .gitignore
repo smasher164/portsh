@@ -4,3 +4,4 @@
 *.tmp
 tests/.work/
 portsh_io_fixture.txt
+tests/.work-xshell/

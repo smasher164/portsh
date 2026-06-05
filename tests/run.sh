@@ -104,6 +104,18 @@ for f in "$fixtures"/*.cmd; do
   run_one "$f"
 done
 
+# --- cross-shell consistency guard ------------------------------------------
+# The polyglot fixtures above re-exec into /bin/sh, so they don't actually test
+# multiple shells. cross-shell.sh runs the kernel GENUINELY under every shell
+# (cook + PORTSH_COOKED=1) and asserts byte-identical behavior + gc correctness +
+# byte-identical compile. This is the regression guard for the no-local /
+# explicit-root / FUNCNEST work. Skip with PORTSH_SKIP_XSHELL=1 (it's slower).
+if [ -z "${PORTSH_SKIP_XSHELL:-}" ] && [ -f "$here/cross-shell.sh" ]; then
+  echo; echo "=== cross-shell consistency guard ==="
+  if sh "$here/cross-shell.sh"; then grn "PASS  cross-shell guard"; pass=$((pass+1))
+  else red "FAIL  cross-shell guard"; fail=$((fail+1)); fi
+fi
+
 echo
 printf 'pass=%d fail=%d skip=%d\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]
