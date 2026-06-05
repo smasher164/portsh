@@ -60,6 +60,29 @@
         ((string? d) (list acc (cons (quote cst) (str "T:" d)) k))
         (t (list acc (cons (quote cst) (str "S:" (symbol->string d))) k)))))
 
+;; cond -> nested if (source rewrite). (t e) is the default arm; no clause -> nil.
+(define cond->if (lambda (clauses)
+  (if (null? clauses) (quote nil)
+    (let ((c (car clauses)))
+      (if (eq? (car c) (quote t)) (car (cdr c))
+        (list (quote if) (car c) (car (cdr c)) (cond->if (cdr clauses))))))))
+;; let bindings: each value -> a temp; extend pmap name->temp; temp is live for the rest.
+;; Sequential (let*-like). -> (list acc pmap' k live').
+(define clet-binds-sh (lambda (binds pmap k live acc)
+  (if (null? binds) (list acc pmap k live)
+    (let ((rv (cexpr-sh (car (cdr (car binds))) pmap k live acc)))
+      (let ((tmp (str "sht" (number->string (caddr rv)))))
+        (clet-binds-sh (cdr binds) (cons (cons (car (car binds)) tmp) pmap) (+ (caddr rv) 1)
+                       (cons tmp live) (cons (setq tmp (shval (cadr rv))) (car rv))))))))
+;; begin in value position: run all but last (discard), value = last.
+(define cbegin-sh (lambda (es pmap k live acc)
+  (if (null? (cdr es)) (cexpr-sh (car es) pmap k live acc)
+    (let ((r1 (cexpr-sh (car es) pmap k live acc))) (cbegin-sh (cdr es) pmap (caddr r1) live (car r1))))))
+;; begin in tail position: run all but last (value), tail-compile the last.
+(define ctbegin-sh (lambda (es pmap fname k live acc)
+  (if (null? (cdr es)) (ctail-sh (car es) pmap fname k live acc)
+    (let ((r1 (cexpr-sh (car es) pmap k live acc))) (ctbegin-sh (cdr es) pmap fname (caddr r1) live (car r1))))))
+
 ;; cargs-sh: compile arg exprs -> (list acc shval-list k), threading live so a later
 ;; arg's call saves an earlier arg's temp.
 (define cargs-sh (lambda (es pmap k live acc)
@@ -99,6 +122,11 @@
     ((pair? f)
       (cond
         ((eq? (car f) (quote quote)) (cquote-sh (car (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote cond)) (cexpr-sh (cond->if (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote begin)) (cbegin-sh (cdr f) pmap k live acc))
+        ((eq? (car f) (quote let))
+          (let ((b (clet-binds-sh (car (cdr f)) pmap k live acc)))
+            (cexpr-sh (car (cdr (cdr f))) (car (cdr b)) (car (cdr (cdr b))) (cadddr b) (car b))))
         ((arith? (car f))
           (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc)))
             (let ((rb (cexpr-sh (car (cdr (cdr f))) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
@@ -161,6 +189,11 @@
           (let ((at (ctail-sh (car (cdr (cdr f))) pmap fname (caddr rt) live a1)))
             (let ((ae (ctail-sh (cadddr f) pmap fname (cadr at) live (cons "else" (car at)))))
               (list (cons "fi" (car ae)) (cadr ae)))))))
+    ((and (pair? f) (eq? (car f) (quote cond))) (ctail-sh (cond->if (cdr f)) pmap fname k live acc))
+    ((and (pair? f) (eq? (car f) (quote begin))) (ctbegin-sh (cdr f) pmap fname k live acc))
+    ((and (pair? f) (eq? (car f) (quote let)))
+      (let ((b (clet-binds-sh (car (cdr f)) pmap k live acc)))
+        (ctail-sh (car (cdr (cdr f))) (car (cdr b)) fname (car (cdr (cdr b))) (cadddr b) (car b))))
     ((and (pair? f) (eq? (car f) fname))  ;; tail self-call -> set -- (loop); no temp lives past it
       (let ((ca (cargs-sh (cdr f) pmap k live acc)))
         (list (cons (str "set --" (argstr (cadr ca))) (car ca)) (caddr ca))))
