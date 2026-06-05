@@ -67,6 +67,12 @@
         ((string? d) (list acc (cons (quote cst) (str "T:" d)) k))
         (t (list acc (cons (quote cst) (str "S:" (symbol->string d))) k)))))
 
+;; variadic / boolean source rewrites (what comp's mexpand does): str->string-append,
+;; list->cons, and/or->if.
+(define dsg-str  (lambda (es) (if (null? es) "" (if (null? (cdr es)) (car es) (list (quote string-append) (car es) (dsg-str (cdr es)))))))
+(define dsg-list (lambda (es) (if (null? es) (quote nil) (list (quote cons) (car es) (dsg-list (cdr es))))))
+(define dsg-and  (lambda (es) (if (null? es) (quote t)   (if (null? (cdr es)) (car es) (list (quote if) (car es) (dsg-and (cdr es)) (quote nil))))))
+(define dsg-or   (lambda (es) (if (null? es) (quote nil) (if (null? (cdr es)) (car es) (list (quote if) (car es) (car es) (dsg-or (cdr es)))))))
 ;; cond -> nested if (source rewrite). (t e) is the default arm; no clause -> nil.
 (define cond->if (lambda (clauses)
   (if (null? clauses) (quote nil)
@@ -132,6 +138,10 @@
     ((pair? f)
       (cond
         ((eq? (car f) (quote quote)) (cquote-sh (car (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote str))  (cexpr-sh (dsg-str (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote list)) (cexpr-sh (dsg-list (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote and))  (cexpr-sh (dsg-and (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote or))   (cexpr-sh (dsg-or (cdr f)) pmap k live acc))
         ((eq? (car f) (quote cond)) (cexpr-sh (cond->if (cdr f)) pmap k live acc))
         ((eq? (car f) (quote begin)) (cbegin-sh (cdr f) pmap k live acc))
         ((eq? (car f) (quote let))
@@ -206,6 +216,10 @@
           (let ((at (ctail-sh (car (cdr (cdr f))) pmap fname (caddr rt) live a1)))
             (let ((ae (ctail-sh (cadddr f) pmap fname (cadr at) live (cons "else" (car at)))))
               (list (cons "fi" (car ae)) (cadr ae)))))))
+    ((and (pair? f) (eq? (car f) (quote str)))  (ctail-sh (dsg-str (cdr f)) pmap fname k live acc))
+    ((and (pair? f) (eq? (car f) (quote list))) (ctail-sh (dsg-list (cdr f)) pmap fname k live acc))
+    ((and (pair? f) (eq? (car f) (quote and)))  (ctail-sh (dsg-and (cdr f)) pmap fname k live acc))
+    ((and (pair? f) (eq? (car f) (quote or)))   (ctail-sh (dsg-or (cdr f)) pmap fname k live acc))
     ((and (pair? f) (eq? (car f) (quote cond))) (ctail-sh (cond->if (cdr f)) pmap fname k live acc))
     ((and (pair? f) (eq? (car f) (quote begin))) (ctbegin-sh (cdr f) pmap fname k live acc))
     ((and (pair? f) (eq? (car f) (quote let)))
