@@ -15,6 +15,13 @@
 (define cadddr (lambda (x) (car (cdr (cdr (cdr x))))))
 (define rev (lambda (xs acc) (if (null? xs) acc (rev (cdr xs) (cons (car xs) acc)))))
 (define lookup (lambda (k al) (if (null? al) nil (if (eq? (car (car al)) k) (cdr (car al)) (lookup k (cdr al))))))
+;; sh function names must be POSIX identifiers ([A-Za-z_][A-Za-z0-9_]*): dash/ksh93
+;; reject `mangle-at`, `cargs*`, `all-in?`, etc. Map the non-id chars to safe codes
+;; (- -> _, operators/? -> zz-codes). comp's names use - not _, so - -> _ is collision-free.
+(define sh-mangle-at (lambda (c) (cond ((eq? c "-") "_") ((eq? c ">") "zzG") ((eq? c "<") "zzL")
+  ((eq? c "*") "zzS") ((eq? c "?") "zzQ") ((eq? c "!") "zzB") ((eq? c "=") "zzE") ((eq? c "+") "zzP") (t c))))
+(define sh-mangle-go (lambda (s i n acc) (if (= i n) acc (sh-mangle-go s (+ i 1) n (string-append acc (sh-mangle-at (substring s i 1)))))))
+(define sh-mangle (lambda (s) (sh-mangle-go s 0 (string-length s) "")))
 
 ;; refs: (lit . "n") | (val . "VAR") tagged value in an sh name/position | (cst . "TAGGED").
 (define shval (lambda (r)
@@ -118,7 +125,10 @@
     ((symbol? f)
       (cond ((eq? f (quote nil)) (list acc (cons (quote cst) "NIL") k))
             ((eq? f (quote t))   (list acc (cons (quote cst) "S:t") k))
-            (t (list acc (cons (quote val) (lookup f pmap)) k))))
+            (t (let ((p (lookup f pmap)))
+                 (if (null? p)
+                   (list acc (cons (quote val) (str "G_" (symbol->string f))) k)   ; a global constant (G_<name>)
+                   (list acc (cons (quote val) p) k))))))
     ((pair? f)
       (cond
         ((eq? (car f) (quote quote)) (cquote-sh (car (cdr f)) pmap k live acc))
@@ -158,6 +168,13 @@
           (let ((rx (cexpr-sh (car (cdr f)) pmap k live acc)))
             (let ((tmp (str "sht" (number->string (caddr rx)))))
               (list (cons (setq tmp (str "I:$(( ${#" (cdr (cadr rx)) "} - 2 ))")) (car rx)) (cons (quote val) tmp) (+ (caddr rx) 1)))))
+        ((eq? (car f) (quote substring))   ;; (substring s off len) via cut (portable; forks)
+          (let ((rs (cexpr-sh (car (cdr f)) pmap k live acc)))
+            (let ((ro (cexpr-sh (car (cdr (cdr f))) pmap (caddr rs) (live-add (cadr rs) live) (car rs))))
+              (let ((rn (cexpr-sh (cadddr f) pmap (caddr ro) (live-add (cadr ro) (live-add (cadr rs) live)) (car ro))))
+                (let ((tmp (str "sht" (number->string (caddr rn)))))
+                  (list (cons (setq tmp (str "T:$(printf '%s' " (dq) (shdet (cadr rs)) (dq) " | cut -c$(( " (shdet (cadr ro)) " + 1 ))-$(( " (shdet (cadr ro)) " + " (shdet (cadr rn)) " )))")) (car rn))
+                        (cons (quote val) tmp) (+ (caddr rn) 1)))))))
         ((pred? (car f))
           (let ((rt (ctest-sh f pmap k live acc)))
             (let ((tmp (str "sht" (number->string (caddr rt)))))
@@ -174,7 +191,7 @@
             (let ((tmp (str "sht" (number->string (caddr ca)))))
               (list (rev (sh-restore (rev live nil))
                       (cons (setq tmp "${R}")
-                        (cons (str (symbol->string (car f)) (argstr (cadr ca)))
+                        (cons (str (sh-mangle (symbol->string (car f))) (argstr (cadr ca)))
                           (rev (sh-save live) (car ca)))))
                     (cons (quote val) tmp) (+ (caddr ca) 1)))))))
     (t (list acc (cons (quote cst) "NIL") k)))))
@@ -203,7 +220,7 @@
 
 (define compile-fn-sh (lambda (name params body)
   (let ((pm (pmap-pos params 1)))
-    (let ((a0 (cons "while :; do" (cons (str (symbol->string name) "() {") nil))))
+    (let ((a0 (cons "while :; do" (cons (str (sh-mangle (symbol->string name)) "() {") nil))))
       (let ((r (ctail-sh body pm name 0 nil a0)))
         (rev (cons "}" (cons "done" (car r))) nil))))))
 
