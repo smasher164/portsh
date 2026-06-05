@@ -8,8 +8,12 @@ rem
 rem :rdfield -- file-backed heap read: %1=car|cdr, %2=index -> R = first line of
 rem %HD%\<%1><%2>. set /p reads raw (operators &|<> in the value survive). Redirect
 rem path uses %1/%2/%HD% (immediate; parsed before delayed expansion). Used for car/cdr.
+rem Cells are written with a trailing GUARD byte (#) because set /p STRIPS trailing
+rem control bytes (0x01=! 0x08=") -- the guard takes that hit, then we drop it here so
+rem values ending in !/" survive intact. Writers must append the same guard.
 :rdfield
 set /p R=<%HD%\%1%2
+set "R=!R:~0,-1!"
 goto :eof
 rem :gc -- compiled-program GC. For now a no-op: returns without collecting, which is
 rem CORRECT (gc only reclaims, never changes values) and fine for small inputs. A real

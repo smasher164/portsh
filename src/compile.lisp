@@ -139,10 +139,12 @@
        ;; file-backed heap: cell HN = files %HD%\car<HN>/cdr<HN>. Redirect PATH uses
        ;; %HN% (immediate; re-expands per line execution, incl goto-loops); the value
        ;; is delayed content of `echo(` so operators/parens in it never re-tokenize.
+       ;; Trailing GUARD byte (#): set /p (rdfield) strips trailing control bytes
+       ;; (0x01=! 0x08="); the guard absorbs that strip so values ending in !/" survive.
        (let ((ra (cexpr (cadr f) pmap k live acc)))
          (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
            (let ((tmp (str "zt" (number->string (caddr rb)))))
-             (list (rev (list (str ">%HD%\car%HN% echo(" (vref (cadr ra))) (str ">%HD%\cdr%HN% echo(" (vref (cadr rb)))
+             (list (rev (list (str ">%HD%\car%HN% echo(" (vref (cadr ra)) "#") (str ">%HD%\cdr%HN% echo(" (vref (cadr rb)) "#"))
                               (qset (str "" tmp "=P:!HN!")) "set /a HN+=1") (car rb))
                    (cons (quote val) tmp) (+ (caddr rb) 1))))))
     ((eq? (car f) (quote car)) (ccell f "car" pmap k live acc))

@@ -238,8 +238,8 @@ rem post-parse) so operators (& | < >) and parens in a value never re-tokenize.
 rem Files don't degrade with heap size, so GC is non-critical here (po_gc neutralised).
 :hp_cons
 set "hca=%~1" & set "hcd=%~2"
->%HD%\car%HN% echo(!hca!
->%HD%\cdr%HN% echo(!hcd!
+>%HD%\car%HN% echo(!hca!#
+>%HD%\cdr%HN% echo(!hcd!#
 set "R=P:%HN%"
 set /a HN+=1
 goto :eof
@@ -248,20 +248,22 @@ set "hcp=%~1"
 if "!hcp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
 set "hcp=!hcp:P:=!"
 set /p R=<%HD%\car%hcp%
+set "R=!R:~0,-1!"
 goto :eof
 :hp_cdr
 set "hdp=%~1"
 if "!hdp:~0,2!" NEQ "P:" set "R=NIL" & goto :eof
 set "hdp=!hdp:P:=!"
 set /p R=<%HD%\cdr%hdp%
+set "R=!R:~0,-1!"
 goto :eof
 :hp_setcar
 set "scp=%~1" & set "scp=!scp:P:=!" & set "sca=%~2"
->%HD%\car%scp% echo(!sca!
+>%HD%\car%scp% echo(!sca!#
 goto :eof
 :hp_setcdr
 set "sdp=%~1" & set "sdp=!sdp:P:=!" & set "sda=%~2"
->%HD%\cdr%sdp% echo(!sda!
+>%HD%\cdr%sdp% echo(!sda!#
 goto :eof
 :list_reverse
 rem reverse a list (flat helper; never re-enters :ev, so plain temps are safe)
@@ -298,29 +300,37 @@ set "elkEnv=%~1" & set "elkSym=%~2"
 if "!elkEnv!"=="NIL" goto elk_unbound
 set "ei=!elkEnv:P:=!"
 set /p elkB=<%HD%\car%ei%
+set "elkB=!elkB:~0,-1!"
 set "elkPrev="
 :elk_b
 if "!elkB!"=="NIL" goto elk_next
 set "bi=!elkB:P:=!"
 set /p elkP=<%HD%\car%bi%
+set "elkP=!elkP:~0,-1!"
 set "pi=!elkP:P:=!"
 set /p _pk=<%HD%\car%pi%
+set "_pk=!_pk:~0,-1!"
 if "!_pk!"=="!elkSym!" goto elk_found
 set "elkPrev=!elkB!"
 set /p elkB=<%HD%\cdr%bi%
+set "elkB=!elkB:~0,-1!"
 goto elk_b
 :elk_next
 set /p elkEnv=<%HD%\cdr%ei%
+set "elkEnv=!elkEnv:~0,-1!"
 goto elk_env
 :elk_found
 if "!elkPrev!"=="" goto elk_val
 set /p elkNext=<%HD%\cdr%bi%
+set "elkNext=!elkNext:~0,-1!"
 call :hp_setcdr "!elkPrev!" "!elkNext!"
 set /p elkHead=<%HD%\car%ei%
+set "elkHead=!elkHead:~0,-1!"
 call :hp_setcdr "!elkB!" "!elkHead!"
 call :hp_setcar "!elkEnv!" "!elkB!"
 :elk_val
 set /p R=<%HD%\cdr%pi%
+set "R=!R:~0,-1!"
 goto :eof
 :elk_unbound
 set "elkU=!elkSym:S:=!"
@@ -351,10 +361,12 @@ if not "!evPre!"=="P:" set "R=!_%1_x!" & goto :eof
 rem combination: eval combiner (non-tail), read operands, dispatch on combiner type
 set "eci=!_%1_x:P:=!"
 set /p _eca=<%HD%\car%eci%
+set "_eca=!_eca:~0,-1!"
 set /a ND=%1+1 & call :ev !ND! "!_eca!" "!_%1_env!"
 set "_%1_c=!R!"
 set "eci=!_%1_x:P:=!"
 set /p _%1_ops=<%HD%\cdr%eci%
+set "_%1_ops=!_%1_ops:~0,-1!"
 :ev_apply
 set "cPre=!_%1_c:~0,2!"
 if "!cPre!"=="A:" goto ev_appl
@@ -416,13 +428,19 @@ rem compound operative O:<i> = (formals eformal body senv): bind, eval body; las
 rem body form is TAIL -> loop. operands are as-passed (pre-evaluated if reached via A:).
 set "ci=!_%1_c:O:=!"
 set /p _%1_f=<%HD%\car%ci%
+set "_%1_f=!_%1_f:~0,-1!"
 set /p cr1=<%HD%\cdr%ci%
+set "cr1=!cr1:~0,-1!"
 set "cr1=!cr1:P:=!"
 set /p _%1_ef=<%HD%\car%cr1%
+set "_%1_ef=!_%1_ef:~0,-1!"
 set /p cr2=<%HD%\cdr%cr1%
+set "cr2=!cr2:~0,-1!"
 set "cr2=!cr2:P:=!"
 set /p _%1_body=<%HD%\car%cr2%
+set "_%1_body=!_%1_body:~0,-1!"
 set /p _%1_senv=<%HD%\cdr%cr2%
+set "_%1_senv=!_%1_senv:~0,-1!"
 set /a ND=%1+1 & call :build_alist !ND! "!_%1_f!" "!_%1_ops!" "NIL"
 set "_%1_al=!R!"
 if "!_%1_ef!"=="S:#ignore" goto ev_co_noenv
@@ -496,10 +514,12 @@ goto :eof
 if "%~2"=="NIL" set "R=NIL" & goto :eof
 set "eli=%~2" & set "eli=!eli:P:=!"
 set /p _ele=<%HD%\car%eli%
+set "_ele=!_ele:~0,-1!"
 set /a ND=%1+1 & call :ev !ND! "!_ele!" "%~3"
 set "_%1_e=!R!"
 set "eli=%~2" & set "eli=!eli:P:=!"
 set /p _eld=<%HD%\cdr%eli%
+set "_eld=!_eld:~0,-1!"
 set /a ND=%1+1 & call :eval_list !ND! "!_eld!" "%~3"
 call :hp_cons "!_%1_e!" "!R!"
 goto :eof
@@ -625,13 +645,19 @@ goto :eof
 :combine_oper
 set "ci=%~2" & set "ci=!ci:O:=!"
 set /p _%1_f=<%HD%\car%ci%
+set "_%1_f=!_%1_f:~0,-1!"
 set /p cr1=<%HD%\cdr%ci%
+set "cr1=!cr1:~0,-1!"
 set "cr1=!cr1:P:=!"
 set /p _%1_ef=<%HD%\car%cr1%
+set "_%1_ef=!_%1_ef:~0,-1!"
 set /p cr2=<%HD%\cdr%cr1%
+set "cr2=!cr2:~0,-1!"
 set "cr2=!cr2:P:=!"
 set /p _%1_body=<%HD%\car%cr2%
+set "_%1_body=!_%1_body:~0,-1!"
 set /p _%1_senv=<%HD%\cdr%cr2%
+set "_%1_senv=!_%1_senv:~0,-1!"
 set /a ND=%1+1 & call :build_alist !ND! "!_%1_f!" "%~3" "NIL"
 set "_%1_al=!R!"
 if "!_%1_ef!"=="S:#ignore" goto co_noenv
