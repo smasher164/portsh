@@ -25,10 +25,17 @@ goto :CMDSTART
 # ---------------------------------------------------------------------------
 set -u
 
+# zsh (and bash) cap function-recursion depth; zsh's default FUNCNEST=500 aborts deep
+# NON-tail recursion (append/reverse/gc_mark's car-recursion) that dash/mksh run fine,
+# diverging behavior by shell. Raise it to the host-stack ceiling so every shell behaves
+# the same (completes, or segfaults at the same pathological depth). dash/mksh have no
+# FUNCNEST and harmlessly ignore this assignment.
+FUNCNEST=1000000
+
 die() { printf 'portsh: %s\n' "$1" >&2; exit 1; }
 
 # ---- heap (swappable for the append-only dd-file heap later) --------------
-HEAP_N=0; FREE_HEAD=NIL; MARKGEN=0; LAST_GC=0; NURSERY=${NURSERY:-50000}; GC_RUNNING=
+HEAP_N=0; FREE_HEAD=NIL; MARKGEN=0; LAST_GC=0; NURSERY=${NURSERY:-50000}; GC_RUNNING=; ROOTS=
 # allocate a pair: reuse a GC'd cell from the free-list if any, else grow the heap.
 # The gc trigger lives ONLY in the grow branch -- the common (free-list reuse) path
 # has zero extra cost. gc fires when the high-water HEAP_N has grown by NURSERY since
@@ -76,21 +83,25 @@ gc_sweep() {
     _i=$((_i + 1))
   done
 }
-# gc_run: a CONSERVATIVE mark-sweep. Roots are GLOBAL, R, any extra args (the cons
-# being built), AND every heap ref (P:/A:/O:<n>) held in a shell variable, found by
-# scanning `set`. In a dynamically-scoped shell `set` exposes the locals of every
-# ancestor frame, so this captures the whole live eval stack without instrumenting
-# ev — no missed roots. Heap vars (H_<n>_*) are filtered out so the scan sees only
-# the interpreter's pointers INTO the heap, not the heap's internal links (marking
-# those would retain everything). Cheap because auto-gc keeps the var table small.
+# gc_run: a precise mark-sweep. Roots are GLOBAL, R, the cons args being built ($@),
+# and the EXPLICIT root stack $ROOTS. We do NOT scan `set`: that only works on mksh
+# (whose `set` lists every frame's locals); dash/bash/zsh `set` shows only the
+# INNERMOST binding of a shadowed name, so a recursive interpreter (every frame reuses
+# `env`/`x`/`e`) hides ancestor frames' live refs -> freed-while-live -> corruption.
+# Instead each allocating frame appends its live, non-cons-arg refs (active envs +
+# intermediate evaluated values) to $ROOTS and restores on exit. $ROOTS is peeled with
+# parameter expansion (a `for ... in $ROOTS` would NOT split on zsh; read -a isn't in
+# dash) so root-finding is identical on every shell.
 gc_run() {
   [ -n "$GC_RUNNING" ] && return
   GC_RUNNING=1
-  local _v
+  local _v _rest
   MARKGEN=$((MARKGEN + 1))
   gc_mark "$GLOBAL"; gc_mark "$R"
   for _v in "$@"; do gc_mark "$_v"; done
-  for _v in $(set 2>/dev/null | grep -vE '^H_[0-9]' | grep -oE '[POA]:[0-9][0-9]*' | sort -u); do
+  _rest=$ROOTS
+  while [ -n "$_rest" ]; do
+    case $_rest in *' '*) _v=${_rest%% *}; _rest=${_rest#* } ;; *) _v=$_rest; _rest= ;; esac
     gc_mark "$_v"
   done
   gc_sweep
@@ -147,7 +158,7 @@ rd_expr() {
 rd_quote() { local q; rd_expr; q=$R; hp_cons "$q" NIL; q=$R; hp_cons "S:quote" "$q"; }
 
 rd_list() {
-  local head tail
+  local head tail _rs=$ROOTS
   rd_expr
   case $R in RPAREN|EOF) R=NIL; return ;; esac
   # dotted tail: (a b . c) — '.' only appears in a tail-position read.
@@ -157,8 +168,10 @@ rd_list() {
     R=$tail; return
   fi
   head=$R
+  ROOTS="$_rs $head"                     # head must survive the recursive (allocating) tail read
   rd_list; tail=$R
   hp_cons "$head" "$tail"
+  ROOTS=$_rs
 }
 
 rd_atom() {
@@ -192,11 +205,13 @@ rd_string() {
 env_new() { hp_cons NIL "$1"; }
 
 env_define() {
-  local env=$1 sym=$2 val=$3 binds pair
+  local env=$1 sym=$2 val=$3 binds pair _rs=$ROOTS
+  ROOTS="$_rs $env $sym $val"            # env live across the conses (hp_setcar after); binds reachable via env
   hp_car "$env"; binds=$R
   hp_cons "$sym" "$val"; pair=$R
   hp_cons "$pair" "$binds"
   hp_setcar "$env" "$R"
+  ROOTS=$_rs
 }
 
 env_lookup() {
@@ -234,39 +249,49 @@ env_lookup() {
 # recursing. That gives unbounded tail recursion (loops/foldl) in constant host
 # stack, and skips a frame per tail call.
 ev() {
-  local x=$1 env=$2 c operands w r ne formals eformal body senv tv
+  local x=$1 env=$2 c operands w r ne formals eformal body senv tv _rs=$ROOTS
+  # _rs holds all ANCESTOR frames' roots; at each program point we set ROOTS to
+  # "$_rs <this frame's live, non-cons-arg refs>" so a gc inside any hp_cons sees the
+  # whole live stack. Every exit restores ROOTS=$_rs. (Cons ARGS are rooted by gc_run
+  # "$@" already; values reachable from a rooted ref are marked transitively.)
   while :; do
+    ROOTS="$_rs $x $env"
     case $x in
-      S:*) env_lookup "$env" "$x"; return ;;
+      S:*) env_lookup "$env" "$x"; ROOTS=$_rs; return ;;
       P:*) ;;
-      *)   R=$x; return ;;            # NIL, I:, T:, F:, R:, O:, A: self-evaluate
+      *)   R=$x; ROOTS=$_rs; return ;;   # NIL, I:, T:, F:, R:, O:, A: self-evaluate
     esac
     hp_car "$x"; ev "$R" "$env"; c=$R     # evaluate the combiner (not tail)
     hp_cdr "$x"; operands=$R
     while :; do
+      ROOTS="$_rs $x $env $c $operands"
       case $c in
-        R:*) eval_list "$operands" "$env"; prim_app "${c#R:}" "$R"; return ;;
+        R:*) eval_list "$operands" "$env"; prim_app "${c#R:}" "$R"; ROOTS=$_rs; return ;;
         A:*) hp_car "P:${c#A:}"; w=$R
+             ROOTS="$_rs $x $env $c $operands $w"
              eval_list "$operands" "$env"; operands=$R; c=$w ;;     # unwrap, loop
         F:*) case $c in
                'F:if') hp_car "$operands"; ev "$R" "$env"; tv=$R
                        hp_cdr "$operands"; r=$R
                        if [ "$tv" = NIL ]; then hp_cdr "$r"; hp_car "$R"; else hp_car "$r"; fi
                        x=$R; break ;;                              # tail -> outer loop
-               *) prim_oper "${c#F:}" "$operands" "$env"; return ;;
+               *) prim_oper "${c#F:}" "$operands" "$env"; ROOTS=$_rs; return ;;
              esac ;;
         O:*) r="P:${c#O:}"
              hp_car "$r"; formals=$R
              hp_cdr "$r"; r=$R; hp_car "$r"; eformal=$R
              hp_cdr "$r"; r=$R; hp_car "$r"; body=$R
              hp_cdr "$r"; senv=$R
+             ROOTS="$_rs $x $env $c $operands $body"
              env_new "$senv"; ne=$R
+             ROOTS="$_rs $env $c $operands $body $ne"
              bind_tree "$ne" "$formals" "$operands"
              case $eformal in 'S:#ignore') ;; *) env_define "$ne" "$eformal" "$env" ;; esac
-             [ "$body" = NIL ] && { R=NIL; return; }
+             [ "$body" = NIL ] && { R=NIL; ROOTS=$_rs; return; }
              while :; do                                          # eval body
                hp_cdr "$body"; r=$R
                [ "$r" = NIL ] && break                           # ...last form is tail
+               ROOTS="$_rs $env $c $ne $body"
                hp_car "$body"; ev "$R" "$ne"
                body=$r
              done
@@ -278,15 +303,20 @@ ev() {
 }
 
 eval_list() {                    # map ev over a list -> R = list of values
-  local lst=$1 env=$2 e rest
+  local lst=$1 env=$2 e rest _rs=$ROOTS
   [ "$lst" = NIL ] && { R=NIL; return; }
+  ROOTS="$_rs $lst $env"                  # lst (for cdr) + env live across element ev
   hp_car "$lst"; e=$R; ev "$e" "$env"; e=$R
-  hp_cdr "$lst"; eval_list "$R" "$env"; rest=$R
+  hp_cdr "$lst"
+  ROOTS="$_rs $env $e"                    # evaluated e must survive the recursive eval_list
+  eval_list "$R" "$env"; rest=$R
   hp_cons "$e" "$rest"
+  ROOTS=$_rs
 }
 
 bind_tree() {                    # env formals operands  (formals: NIL | symbol-rest | tree)
-  local env=$1 formals=$2 operands=$3 fcar ftail
+  local env=$1 formals=$2 operands=$3 fcar ftail _rs=$ROOTS
+  ROOTS="$_rs $env $formals $operands"   # all three live across env_define/recursion (it conses)
   case $formals in
     NIL) ;;
     S:*) env_define "$env" "$formals" "$operands" ;;
@@ -295,11 +325,12 @@ bind_tree() {                    # env formals operands  (formals: NIL | symbol-
          hp_cdr "$formals"; ftail=$R
          hp_cdr "$operands"; bind_tree "$env" "$ftail" "$R" ;;
   esac
+  ROOTS=$_rs
 }
 
 # ---- primitive operatives (unevaluated operands + env) --------------------
 prim_oper() {
-  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out
+  local name=$1 ops=$2 denv=$3 formals eformal body sym test r _cmd _lst _tok _acc _rev _v _ln _out _rs=$ROOTS
   case $name in
     gc)  # explicit collection; auto-gc from hp_cons already fires every NURSERY allocs,
          # so this is now mostly redundant. Conservative roots (incl. denv) via gc_run.
@@ -324,8 +355,8 @@ prim_oper() {
 $_out
 RCEOF
       _rev=NIL
-      while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done
-      R=$_rev ;;
+      while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; ROOTS="$_rs $_acc"; hp_cons "$_v" "$_rev"; _rev=$R; done
+      R=$_rev; ROOTS=$_rs ;;
     vau)
       hp_car "$ops"; formals=$R
       hp_cdr "$ops"; r=$R; hp_car "$r"; eformal=$R
@@ -361,7 +392,7 @@ arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
 prim_app() {
-  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv _sep _part
+  local name=$1 args=$2 sum prod lst v _sa _l _o _n _f _ln _acc _rev _v _rdsave _rdv _sep _part _rs=$ROOTS
   case $name in
     list)    R=$args ;;                       # already-evaluated args, as a list
     cons)    arg2 "$args"; hp_cons "$ARG1" "$ARG2" ;;
@@ -396,7 +427,7 @@ prim_app() {
                  _part=${_sa%%"$_sep"*}; hp_cons "T:$_part" "$_acc"; _acc=$R; _sa=${_sa#*"$_sep"}
                done
                hp_cons "T:$_sa" "$_acc"; _acc=$R
-               _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev
+               _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; ROOTS="$_rs $_acc"; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; ROOTS=$_rs
              fi ;;
     'type-of') arg1 "$args"; case $ARG1 in
              NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
@@ -404,8 +435,8 @@ prim_app() {
     'read-lines') arg1 "$args"; _f=${ARG1#T:}; _acc=NIL
              while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
              _rev=NIL
-             while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done
-             R=$_rev ;;
+             while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; ROOTS="$_rs $_acc"; hp_cons "$_v" "$_rev"; _rev=$R; done
+             R=$_rev; ROOTS=$_rs ;;
     'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
              R="S:t" ;;
