@@ -138,6 +138,7 @@
     ((pair? f)
       (cond
         ((eq? (car f) (quote quote)) (cquote-sh (car (cdr f)) pmap k live acc))
+        ((eq? (car f) (quote dq)) (list acc (cons (quote val) "G_DQ") k))  ; runtime: G_DQ='T:"' (literal " would break source)
         ((eq? (car f) (quote str))  (cexpr-sh (dsg-str (cdr f)) pmap k live acc))
         ((eq? (car f) (quote list)) (cexpr-sh (dsg-list (cdr f)) pmap k live acc))
         ((eq? (car f) (quote and))  (cexpr-sh (dsg-and (cdr f)) pmap k live acc))
