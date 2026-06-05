@@ -28,10 +28,10 @@ set wll=!A2!
 :al_loop_c
 if !wll!==NIL (set R=S:t & goto :eof)
 set wli=!wll:~2!
-call :rdfield CAR_ !wli!
+call :rdfield car !wli!
 set wlline=!R:~2!
 call :wl_emit_c !wlf!
-call :rdfield CDR_ !wli!
+call :rdfield cdr !wli!
 set wll=!R!
 goto al_loop_c
 rem :write-lines -- A1=path (T:..), A2=list. Truncate, then per line decode+append.
@@ -45,10 +45,10 @@ break > !wlf!
 :wl_loop_c
 if !wll!==NIL (set R=S:t & goto :eof)
 set wli=!wll:~2!
-call :rdfield CAR_ !wli!
+call :rdfield car !wli!
 set wlline=!R:~2!
 call :wl_emit_c !wlf!
-call :rdfield CDR_ !wli!
+call :rdfield cdr !wli!
 set wll=!R!
 goto wl_loop_c
 rem :wl_emit_c -- write one line (in wlline) to the file (%1). A line can hold
