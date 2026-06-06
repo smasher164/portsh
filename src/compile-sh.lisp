@@ -22,6 +22,13 @@
   ((eq? c "*") "zzS") ((eq? c "?") "zzQ") ((eq? c "!") "zzB") ((eq? c "=") "zzE") ((eq? c "+") "zzP") (t c))))
 (define sh-mangle-go (lambda (s i n acc) (if (= i n) acc (sh-mangle-go s (+ i 1) n (string-append acc (sh-mangle-at (substring s i 1)))))))
 (define sh-mangle (lambda (s) (sh-mangle-go s 0 (string-length s) "")))
+;; sh-esc: a tagged value's content is emitted INSIDE double quotes (setq/argstr), so a
+;; bare $ in a string/symbol literal (comp's "$ELIDE" marker) would shell-expand. Escape
+;; $ -> \$ via split/join (one ${%%} op per part; no per-char fork). The shell strips the
+;; backslash at runtime, restoring the literal value. (\ stays before a letter, " is the
+;; (dq) primitive -- comp's literals carry neither, so $ is the only metacharacter here.)
+(define sh-esc-join (lambda (ps) (if (null? (cdr ps)) (car ps) (string-append (car ps) (string-append "\$" (sh-esc-join (cdr ps)))))))
+(define sh-esc (lambda (s) (sh-esc-join (split s "$"))))
 
 ;; refs: (lit . "n") | (val . "VAR") tagged value in an sh name/position | (cst . "TAGGED").
 (define shval (lambda (r)
@@ -49,6 +56,12 @@
 ;; ksh93-safe and value-space-safe (each STK slot is a separate var).
 (define sh-save (lambda (vs) (if (null? vs) nil (cons (str "eval STK$SP='${" (car vs) "}'") (cons "SP=$((SP+1))" (sh-save (cdr vs)))))))
 (define sh-restore (lambda (vs) (if (null? vs) nil (cons "SP=$((SP-1))" (cons (str "eval " (car vs) "='${STK'$SP'}'") (sh-restore (cdr vs)))))))
+;; iota-str i n -> ("i" "i+1" ... "n"). Used as the positional list ($1..$np) to MIRROR a frame's
+;; params into STK for gc. Params are positional (private per call) -> invisible to gc unless mirrored;
+;; the mirror is written only at frame entry / self-tail-call (O(arity)), so fast positional access
+;; is unchanged. The frame's base index into STK rides in positional $(np+1).
+(define iota-str (lambda (i n) (if (< n i) nil (cons (number->string i) (iota-str (+ i 1) n)))))
+(define lenl (lambda (xs) (if (null? xs) 0 (+ 1 (lenl (cdr xs))))))
 
 (define setq (lambda (var val) (str var "=" (dq) val (dq))))
 (define argstr (lambda (vs) (if (null? vs) "" (str " " (dq) (car vs) (dq) (argstr (cdr vs))))))
@@ -64,8 +77,8 @@
   (cond ((null? d) (list acc (cons (quote cst) "NIL") k))
         ((pair? d) (cexpr-sh (list (quote cons) (list (quote quote) (car d)) (list (quote quote) (cdr d))) pmap k live acc))
         ((number? d) (list acc (cons (quote lit) (number->string d)) k))
-        ((string? d) (list acc (cons (quote cst) (str "T:" d)) k))
-        (t (list acc (cons (quote cst) (str "S:" (symbol->string d))) k)))))
+        ((string? d) (list acc (cons (quote cst) (str "T:" (sh-esc d))) k))
+        (t (list acc (cons (quote cst) (str "S:" (sh-esc (symbol->string d)))) k)))))
 
 ;; variadic / boolean source rewrites (what comp's mexpand does): str->string-append,
 ;; list->cons, and/or->if.
@@ -92,9 +105,9 @@
   (if (null? (cdr es)) (cexpr-sh (car es) pmap k live acc)
     (let ((r1 (cexpr-sh (car es) pmap k live acc))) (cbegin-sh (cdr es) pmap (caddr r1) live (car r1))))))
 ;; begin in tail position: run all but last (value), tail-compile the last.
-(define ctbegin-sh (lambda (es pmap fname k live acc)
-  (if (null? (cdr es)) (ctail-sh (car es) pmap fname k live acc)
-    (let ((r1 (cexpr-sh (car es) pmap k live acc))) (ctbegin-sh (cdr es) pmap fname (caddr r1) live (car r1))))))
+(define ctbegin-sh (lambda (es pmap fname np k live acc)
+  (if (null? (cdr es)) (ctail-sh (car es) pmap fname np k live acc)
+    (let ((r1 (cexpr-sh (car es) pmap k live acc))) (ctbegin-sh (cdr es) pmap fname np (caddr r1) live (car r1))))))
 
 ;; cargs-sh: compile arg exprs -> (list acc shval-list k), threading live so a later
 ;; arg's call saves an earlier arg's temp.
@@ -106,27 +119,31 @@
 
 ;; ctest-sh: an `if` test -> (list acc condstr k).
 (define ctest-sh (lambda (f pmap k live acc)
-  (cond
-    ((eq? (car f) (quote null?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (str "[ " (dq) (shval (cadr ra)) (dq) " = NIL ]") (caddr ra))))
-    ((eq? (car f) (quote eq?))
-      (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc)))
-        (let ((rb (cexpr-sh (car (cdr (cdr f))) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-          (list (car rb) (str "[ " (dq) (shval (cadr ra)) (dq) " = " (dq) (shval (cadr rb)) (dq) " ]") (caddr rb)))))
-    ((eq? (car f) (quote pair?))   (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "P:") (caddr ra))))
-    ((eq? (car f) (quote atom?))   (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (natagtest (cadr ra) "P:") (caddr ra))))
-    ((eq? (car f) (quote number?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "I:") (caddr ra))))
-    ((eq? (car f) (quote string?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "T:") (caddr ra))))
-    ((eq? (car f) (quote symbol?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "S:") (caddr ra))))
-    (t ;; < or =
-      (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc)))
-        (let ((rb (cexpr-sh (car (cdr (cdr f))) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-          (list (car rb) (str "[ " (shdet (cadr ra)) " " (shcmp (car f)) " " (shdet (cadr rb)) " ]") (caddr rb))))))))
+  (if (if (pair? f) (pred? (car f)) nil)
+    (cond
+      ((eq? (car f) (quote null?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (str "[ " (dq) (shval (cadr ra)) (dq) " = NIL ]") (caddr ra))))
+      ((eq? (car f) (quote eq?))
+        (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc)))
+          (let ((rb (cexpr-sh (car (cdr (cdr f))) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
+            (list (car rb) (str "[ " (dq) (shval (cadr ra)) (dq) " = " (dq) (shval (cadr rb)) (dq) " ]") (caddr rb)))))
+      ((eq? (car f) (quote pair?))   (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "P:") (caddr ra))))
+      ((eq? (car f) (quote atom?))   (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (natagtest (cadr ra) "P:") (caddr ra))))
+      ((eq? (car f) (quote number?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "I:") (caddr ra))))
+      ((eq? (car f) (quote string?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "T:") (caddr ra))))
+      ((eq? (car f) (quote symbol?)) (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc))) (list (car ra) (tagtest   (cadr ra) "S:") (caddr ra))))
+      (t ;; < or =
+        (let ((ra (cexpr-sh (car (cdr f)) pmap k live acc)))
+          (let ((rb (cexpr-sh (car (cdr (cdr f))) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
+            (list (car rb) (str "[ " (shdet (cadr ra)) " " (shcmp (car f)) " " (shdet (cadr rb)) " ]") (caddr rb))))))
+    ;; general expression test (a call, a variable, an inlined if, ...): eval -> truthiness
+    (let ((rx (cexpr-sh f pmap k live acc)))
+      (list (car rx) (str "[ " (dq) (shval (cadr rx)) (dq) " != NIL ]") (caddr rx))))))
 
 ;; cexpr-sh: value-position expr -> (list acc ref k). acc = reversed lines.
 (define cexpr-sh (lambda (f pmap k live acc)
   (cond
     ((null? f) (list acc (cons (quote cst) "NIL") k))
-    ((string? f) (list acc (cons (quote cst) (str "T:" f)) k))   ; self-evaluating string literal
+    ((string? f) (list acc (cons (quote cst) (str "T:" (sh-esc f))) k))   ; self-evaluating string literal
     ((number? f) (list acc (cons (quote lit) (number->string f)) k))
     ((symbol? f)
       (cond ((eq? f (quote nil)) (list acc (cons (quote cst) "NIL") k))
@@ -155,9 +172,17 @@
                 (list (cons (setq tmp (str "I:$(( " (shdet (cadr ra)) " " (shop (car f)) " " (shdet (cadr rb)) " ))")) (car rb))
                       (cons (quote val) tmp) (+ (caddr rb) 1))))))
         ((eq? (car f) (quote cons))
+          ;; hp_cons is the ONLY allocator in compiled code, so it's the only gc trigger.
+          ;; The cons ARGS are gc-rooted by gc_run "$@"; the ENCLOSING live temps are not, so
+          ;; save them to STK around hp_cons (sh-save/restore; no-op when live is empty) -- gc
+          ;; scans STK0..SP-1. car/cdr/string-ops/arith don't allocate; calls already caller-save.
           (let ((ca (cargs-sh (cdr f) pmap k live acc)))
             (let ((tmp (str "sht" (number->string (caddr ca)))))
-              (list (cons (setq tmp "${R}") (cons (str "hp_cons" (argstr (cadr ca))) (car ca))) (cons (quote val) tmp) (+ (caddr ca) 1)))))
+              (list (rev (sh-restore (rev live nil))
+                      (cons (setq tmp "${R}")
+                        (cons (str "hp_cons" (argstr (cadr ca)))
+                          (rev (sh-save live) (car ca)))))
+                    (cons (quote val) tmp) (+ (caddr ca) 1)))))
         ((eq? (car f) (quote car))
           (let ((rx (cexpr-sh (car (cdr f)) pmap k live acc)))
             (let ((tmp (str "sht" (number->string (caddr rx)))))
@@ -209,34 +234,43 @@
 
 ;; ctail-sh: tail position -> (list acc k). Only `if` (tail branches) and the self-tail
 ;; loop are special; everything else routes through cexpr-sh then `R=…; return`.
-(define ctail-sh (lambda (f pmap fname k live acc)
+(define ctail-sh (lambda (f pmap fname np k live acc)
   (cond
     ((and (pair? f) (eq? (car f) (quote if)))
       (let ((rt (ctest-sh (car (cdr f)) pmap k live acc)))
         (let ((a1 (cons (str "if " (cadr rt) "; then") (car rt))))
-          (let ((at (ctail-sh (car (cdr (cdr f))) pmap fname (caddr rt) live a1)))
-            (let ((ae (ctail-sh (cadddr f) pmap fname (cadr at) live (cons "else" (car at)))))
+          (let ((at (ctail-sh (car (cdr (cdr f))) pmap fname np (caddr rt) live a1)))
+            (let ((ae (ctail-sh (cadddr f) pmap fname np (cadr at) live (cons "else" (car at)))))
               (list (cons "fi" (car ae)) (cadr ae)))))))
-    ((and (pair? f) (eq? (car f) (quote str)))  (ctail-sh (dsg-str (cdr f)) pmap fname k live acc))
-    ((and (pair? f) (eq? (car f) (quote list))) (ctail-sh (dsg-list (cdr f)) pmap fname k live acc))
-    ((and (pair? f) (eq? (car f) (quote and)))  (ctail-sh (dsg-and (cdr f)) pmap fname k live acc))
-    ((and (pair? f) (eq? (car f) (quote or)))   (ctail-sh (dsg-or (cdr f)) pmap fname k live acc))
-    ((and (pair? f) (eq? (car f) (quote cond))) (ctail-sh (cond->if (cdr f)) pmap fname k live acc))
-    ((and (pair? f) (eq? (car f) (quote begin))) (ctbegin-sh (cdr f) pmap fname k live acc))
+    ((and (pair? f) (eq? (car f) (quote str)))  (ctail-sh (dsg-str (cdr f)) pmap fname np k live acc))
+    ((and (pair? f) (eq? (car f) (quote list))) (ctail-sh (dsg-list (cdr f)) pmap fname np k live acc))
+    ((and (pair? f) (eq? (car f) (quote and)))  (ctail-sh (dsg-and (cdr f)) pmap fname np k live acc))
+    ((and (pair? f) (eq? (car f) (quote or)))   (ctail-sh (dsg-or (cdr f)) pmap fname np k live acc))
+    ((and (pair? f) (eq? (car f) (quote cond))) (ctail-sh (cond->if (cdr f)) pmap fname np k live acc))
+    ((and (pair? f) (eq? (car f) (quote begin))) (ctbegin-sh (cdr f) pmap fname np k live acc))
     ((and (pair? f) (eq? (car f) (quote let)))
       (let ((b (clet-binds-sh (car (cdr f)) pmap k live acc)))
-        (ctail-sh (car (cdr (cdr f))) (car (cdr b)) fname (car (cdr (cdr b))) (cadddr b) (car b))))
-    ((and (pair? f) (eq? (car f) fname))  ;; tail self-call -> set -- (loop); no temp lives past it
+        (ctail-sh (car (cdr (cdr f))) (car (cdr b)) fname np (car (cdr (cdr b))) (cadddr b) (car b))))
+    ((and (pair? f) (eq? (car f) fname))  ;; tail self-call: set new args + re-append base; reset SP; re-mirror params
       (let ((ca (cargs-sh (cdr f) pmap k live acc)))
-        (list (cons (str "set --" (argstr (cadr ca))) (car ca)) (caddr ca))))
-    (t
+        (list (rev (cons (str "set --" (argstr (cadr ca)) " " (dq) "${" (number->string (+ np 1)) "}" (dq))
+                     (cons (str "SP=${" (number->string (+ np 1)) "}")
+                       (sh-save (iota-str 1 np))))
+                   (car ca))
+              (caddr ca))))
+    (t  ;; return: pop this frame off STK (SP=base, the mirror) before returning
       (let ((r (cexpr-sh f pmap k live acc)))
-        (list (cons "return" (cons (setq "R" (shval (cadr r))) (car r))) (caddr r)))))))
+        (list (cons "return" (cons (str "SP=${" (number->string (+ np 1)) "}") (cons (setq "R" (shval (cadr r))) (car r)))) (caddr r)))))))
 
 (define compile-fn-sh (lambda (name params body)
-  (let ((pm (pmap-pos params 1)))
-    (let ((a0 (cons "while :; do" (cons (str (sh-mangle (symbol->string name)) "() {") nil))))
-      (let ((r (ctail-sh body pm name 0 nil a0)))
+  (let ((pm (pmap-pos params 1)) (np (lenl params)))
+    ;; entry: stash this frame's STK base in positional $(np+1) (survives nested calls), then mirror
+    ;; $1..$np into STK so gc can see the params. Then the existing tail loop.
+    (let ((a0 (cons "while :; do"
+                (rev (sh-save (iota-str 1 np))
+                  (cons (str "set -- " (dq) "$@" (dq) " " (dq) "$SP" (dq))
+                    (cons (str (sh-mangle (symbol->string name)) "() {") nil))))))
+      (let ((r (ctail-sh body pm name np 0 nil a0)))
         (rev (cons "}" (cons "done" (car r))) nil))))))
 
 (define compile-def-sh (lambda (d)
