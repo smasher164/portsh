@@ -393,20 +393,39 @@ set "pn=!_%1_c:~2!"
 set /a ND=%1+1 & call :prim_oper !ND! "!pn!" "!_%1_ops!" "!_%1_env!"
 goto :eof
 :ev_compiled
-rem C:<label> compiled applicative: eval operands -> A1.., call <label>.cmd
+rem C:<label> compiled combiner -> TRAMPOLINE. Eval operands into the frame stack F[0..], then run a
+rem driver loop that `call`s the current fn's .cmd at DEPTH 1 (each compiled fn is a resumable
+rem segment machine: it does one segment then yields via ACTION=call/ret/tail + `goto :eof`). Host
+rem call-depth stays 1 regardless of logical recursion depth -- cmd's `call` overflows at ~341 deep.
 set /a ND=%1+1 & call :eval_list !ND! "!_%1_ops!" "!_%1_env!"
 set "ccL=!_%1_c:~2!"
 set "ccN=0" & set "ccLst=!R!"
 :ev_cc_loop
-if "!ccLst!"=="NIL" goto ev_cc_call
+if "!ccLst!"=="NIL" goto ev_cc_run
 call :hp_car "!ccLst!"
-set /a ccN+=1 & set "A!ccN!=!R!"
+set "F!ccN!=!R!" & set /a ccN+=1
 call :hp_cdr "!ccLst!"
 set "ccLst=!R!"
 goto ev_cc_loop
-:ev_cc_call
-call "!ccL!.cmd"
-goto :eof
+:ev_cc_run
+set "FP=0" & set "RSP=0" & set "CURFN=!ccL!" & set "PC=0"
+:ev_tloop
+if "!CURFN!"=="HALT" goto :eof
+set "ACTION="
+call "!CURFN!_pc!PC!.cmd"
+if "!ACTION!"=="call" goto ev_tcall
+if "!ACTION!"=="ret" goto ev_tret
+goto ev_tloop
+:ev_tcall
+set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!"
+set /a RSP+=1
+set "FP=!NFP!" & set "CURFN=!CALLEE!" & set "PC=0"
+goto ev_tloop
+:ev_tret
+if !RSP!==0 ( set "CURFN=HALT" & goto ev_tloop )
+set /a RSP-=1
+call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%"
+goto ev_tloop
 :ev_if
 rem (if test then else): eval test (non-tail); chosen branch is TAIL -> loop
 call :hp_car "!_%1_ops!"

@@ -72,29 +72,27 @@
 (define rev (lambda (xs acc) (if (null? xs) acc (rev (cdr xs) (cons (car xs) acc)))))
 ;; var names to caller-save. Skips the string-keyed "$ELIDE" marker (real param
 ;; keys are symbols), which carries the elide-set rather than a saveable var.
-(define pvars (lambda (pm) (if (null? pm) nil (if (string? (car (car pm))) (pvars (cdr pm)) (cons (cdr (car pm)) (pvars (cdr pm)))))))
+
 ;; add a ref's VAR to the live set (caller-saved across calls). Only val/raw are
 ;; vars; lit and cst are literals (e.g. "S:if") -- saving them would emit bogus
 ;; `set STK..=!S:if!` / restore and corrupt state.
-(define live-add (lambda (r live) (if (eq? (car r) (quote lit)) live (if (eq? (car r) (quote cst)) live (cons (cdr r) live)))))
+
 ;; qset: a QUOTED `set "VAR=VAL"`. Required for any value that may carry an operator
 ;; (S:< etc): an unquoted `set X=!v!` lets the < / > redirect (the kernel quotes too).
 (define qset (lambda (body) (str "set " (dq) body (dq))))
-(define save-lines (lambda (vs)
-  (if (null? vs) nil (cons (qset (str "STK!SP!=!" (car vs) "!")) (cons "set /a SP+=1" (save-lines (cdr vs)))))))
-(define restore-lines (lambda (vs)
-  (if (null? vs) nil (cons "set /a SP-=1" (cons (str "call set " (dq) (car vs) "=%%STK!SP!%%" (dq)) (restore-lines (cdr vs)))))))
+
+
 
 ;; param vars are FUNCTION-UNIQUE (prefixed with the fn's label) so a call to a
 ;; different function can never clobber the caller's params by name -- only a real
 ;; re-entry can, which the reachability elide-set detects. (temps zt<k> are already
 ;; globally-unique-numbered.)
-(define pmap-local  (lambda (fs lbl)   (if (null? fs) nil (cons (cons (car fs) (str lbl "_" (symbol->string (car fs)))) (pmap-local (cdr fs) lbl)))))
+
 ;; params arrive in the global A1.. vars (space/special-char safe via delayed
 ;; expansion; positional `call` args split on spaces). Read them in immediately,
 ;; before any nested call overwrites A1...
-(define load-params (lambda (fs i lbl) (if (null? fs) nil (cons (qset (str lbl "_" (symbol->string (car fs)) "=!A" (number->string i) "!")) (load-params (cdr fs) (+ i 1) lbl)))))
-(define aassign (lambda (vs i) (if (null? vs) nil (cons (qset (str "A" (number->string i) "=" (car vs))) (aassign (cdr vs) (+ i 1))))))
+
+
 
 ;; cexpr: value-position expr -> (list lines ref next-k). arithmetic -> a raw
 ;; temp; a call -> compute args (tagged), call, take the tagged R into a val temp.
@@ -105,243 +103,249 @@
 ;; Codegen threads `acc` = all emitted lines so far, in REVERSE order (cons is O(1);
 ;; append re-copies). Each fn takes acc and returns it extended; compile-fn reverses
 ;; once. `(rev fwd acc)` appends a forward fragment; `(cons line acc)` appends one line.
-(define cquote (lambda (d pmap k live acc)
-  (cond ((null? d) (list acc (cons (quote cst) "NIL") k))
-        ((pair? d) (cexpr (list (quote cons) (list (quote quote) (car d)) (list (quote quote) (cdr d))) pmap k live acc))
-        ((number? d) (list acc (cons (quote lit) (number->string d)) k))
-        ((string? d) (list acc (cons (quote cst) (str "T:" (enc-mc d))) k))
-        (t (list acc (cons (quote cst) (str "S:" (enc-mc (symbol->string d)))) k)))))
+
 ;; cbegin: (begin e1..en) -> run each in order (discarding all but the last's
 ;; value); the last expr supplies the result ref.
-(define cbegin (lambda (es pmap k live acc)
-  (if (null? (cdr es)) (cexpr (car es) pmap k live acc)
-    (let ((r1 (cexpr (car es) pmap k live acc)))
-      (cbegin (cdr es) pmap (caddr r1) live (car r1))))))
-(define cexpr (lambda (f pmap k live acc)
+
+(define lookup (lambda (k al) (if (null? al) nil (if (eq? (car (car al)) k) (cdr (car al)) (lookup k (cdr al))))))
+(define lenl (lambda (xs) (if (null? xs) 0 (+ 1 (lenl (cdr xs))))))
+(define maxi (lambda (a b) (if (< a b) b a)))
+(define qset (lambda (body) (str "set " (dq) body (dq))))
+(define b-blk (lambda (b) (car b)))
+(define b-cur (lambda (b) (car (cdr b))))
+(define b-pc  (lambda (b) (car (cdr (cdr b)))))
+(define b-npc (lambda (b) (cadddr b)))
+(define b-k   (lambda (b) (car (cdr (cdr (cdr (cdr b)))))))
+(define b-smax (lambda (b) (car (cdr (cdr (cdr (cdr (cdr b))))))))
+(define mkb (lambda (blk cur pc npc k sm) (cons blk (cons cur (cons pc (cons npc (cons k (cons sm nil))))))))
+(define emit (lambda (b ln) (mkb (b-blk b) (cons ln (b-cur b)) (b-pc b) (b-npc b) (b-k b) (b-smax b))))
+(define bk+ (lambda (b) (mkb (b-blk b) (b-cur b) (b-pc b) (b-npc b) (+ (b-k b) 1) (b-smax b))))
+(define bsm (lambda (b n) (mkb (b-blk b) (b-cur b) (b-pc b) (b-npc b) (b-k b) (maxi (b-smax b) n))))
+(define bnpc+ (lambda (b) (mkb (b-blk b) (b-cur b) (b-pc b) (+ (b-npc b) 1) (b-k b) (b-smax b))))
+(define switch (lambda (b to) (mkb (cons (cons (b-pc b) (rev (b-cur b) nil)) (b-blk b)) nil to (b-npc b) (b-k b) (b-smax b))))
+(define tmpn (lambda (b) (str "zt" (number->string (b-k b)))))
+(define fval (lambda (r) (vref r)))
+(define spill (lambda (b live j) (if (null? live) b (spill (emit b (str "set /a _i=!FP!+!NP!+" (number->string j) " & set " (dq) "F!_i!=!" (car live) "!" (dq))) (cdr live) (+ j 1)))))
+(define unspill (lambda (b live j) (if (null? live) b (unspill (emit b (str "set /a _i=!FP!+!NP!+" (number->string j) " & call set " (dq) (car live) "=%%F!_i!%%" (dq))) (cdr live) (+ j 1)))))
+(define stage (lambda (b refs i) (if (null? refs) b (stage (emit b (str "set /a _i=!NFP!+" (number->string i) " & set " (dq) "F!_i!=" (fval (car refs)) (dq))) (cdr refs) (+ i 1)))))
+(define setparams (lambda (b refs i) (if (null? refs) b (setparams (emit b (str "set /a _i=!FP!+" (number->string i) " & set " (dq) "F!_i!=" (fval (car refs)) (dq))) (cdr refs) (+ i 1)))))
+(define rvar (lambda (r) (if (eq? (car r) (quote val)) (cdr r) (if (eq? (car r) (quote raw)) (cdr r) nil))))
+(define addlive (lambda (r live) (let ((v (rvar r))) (if (null? v) live (cons v live)))))
+(define largs (lambda (es pmap b live)
+  (if (null? es) (cons b nil)
+    (let ((r1 (lval (car es) pmap b live)))
+      (let ((rest (largs (cdr es) pmap (car r1) (addlive (cdr r1) live))))
+        (cons (car rest) (cons (cdr r1) (cdr rest))))))))
+(define bargs (lambda (refs) (if (null? refs) "" (str " " (vref (car refs)) (bargs (cdr refs))))))
+(define lcell (lambda (f field pmap b live)
+  (let ((rx (lval (car (cdr f)) pmap b live)))
+    (let ((zi (str "zi" (number->string (b-k (car rx))))) (tmp (tmpn (car rx))))
+      (let ((b1 (emit (car rx) (qset (str zi "=!" (cdr (cdr rx)) ":~2!")))))
+        (let ((b2 (emit b1 (str "call rdfield.cmd " field " !" zi "!"))))
+          (cons (bk+ (emit b2 (qset (str tmp "=!R!")))) (cons (quote val) tmp))))))))
+(define ltagtest (lambda (e ch pmap b live neg)
+  (let ((rx (lval e pmap b live)))
+    (let ((zp (str "zp" (number->string (b-k (car rx))))))
+      (let ((b1 (emit (emit (car rx) (qset (str zp "=" (vref (cdr rx))))) (qset (str zp "=!" zp ":~0,1!")))))
+        (cons (bk+ b1) (str (if neg "not " "") "!" zp "!==" ch)))))))
+(define ctest (lambda (f pmap b live)
+  (if (if (pair? f) (tpred? (car f)) nil)
+    (cond
+      ((eq? (car f) (quote null?)) (let ((ra (lval (car (cdr f)) pmap b live))) (cons (car ra) (str (dq) (vref (cdr ra)) (dq) "==" (dq) "NIL" (dq)))))
+      ((eq? (car f) (quote eq?)) (let ((ra (lval (car (cdr f)) pmap b live))) (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) live))) (cons (car rb) (str (dq) (vref (cdr ra)) (dq) "==" (dq) (vref (cdr rb)) (dq))))))
+      ((eq? (car f) (quote pair?)) (ltagtest (car (cdr f)) "P" pmap b live nil))
+      ((eq? (car f) (quote atom?)) (ltagtest (car (cdr f)) "P" pmap b live t))
+      ((eq? (car f) (quote number?)) (ltagtest (car (cdr f)) "I" pmap b live nil))
+      ((eq? (car f) (quote string?)) (ltagtest (car (cdr f)) "T" pmap b live nil))
+      ((eq? (car f) (quote symbol?)) (ltagtest (car (cdr f)) "S" pmap b live nil))
+      (t (let ((ra (lval (car (cdr f)) pmap b live))) (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) live))) (cons (car rb) (str (iref (cdr ra)) " " (cmp->batch (car f)) " " (iref (cdr rb))))))))
+    (let ((rx (lval f pmap b live))) (cons (car rx) (str "not " (dq) (vref (cdr rx)) (dq) "==" (dq) "NIL" (dq)))))))
+(define jumpto (lambda (n) (str "set " (dq) "PC=" (number->string n) (dq) " & set " (dq) "ACTION=jump" (dq) " & goto :eof")))
+(define ifjump (lambda (cond n) (str "if " cond " (set " (dq) "PC=" (number->string n) (dq) " & set " (dq) "ACTION=jump" (dq) " & goto :eof)")))
+(define seg-files (lambda (preamble blk i n lbl) (if (= i n) nil (cons (cons (str lbl "_pc" (number->string i)) (append preamble (blkget blk i))) (seg-files preamble blk (+ i 1) n lbl)))))
+(define write-segs (lambda (segs cmdpath) (if (null? segs) (quote done) (begin (write-lines (str cmdpath "/" (car (car segs)) ".cmd") (cdr (car segs))) (write-segs (cdr segs) cmdpath)))))
+(define lif-val (lambda (c a bb pmap b live)
+  (let ((ct (ctest c pmap b live)))
+    (let ((aid (b-npc (car ct))) (bid (+ (b-npc (car ct)) 1)) (jid (+ (b-npc (car ct)) 2)) (tmp (tmpn (car ct))))
+      (let ((b2 (emit (emit (bk+ (bnpc+ (bnpc+ (bnpc+ (car ct))))) (ifjump (cdr ct) aid)) (jumpto bid))))
+        (let ((ra (lval a pmap (switch b2 aid) live)))
+          (let ((ba (emit (emit (car ra) (qset (str tmp "=" (vref (cdr ra))))) (jumpto jid))))
+            (let ((rb (lval bb pmap (switch ba bid) live)))
+              (let ((bj (emit (emit (car rb) (qset (str tmp "=" (vref (cdr rb))))) (jumpto jid))))
+                (cons (switch bj jid) (cons (quote val) tmp)))))))))))
+(define lbinds (lambda (binds pmap b live) (if (null? binds) (cons b (cons pmap live)) (let ((r1 (lval (car (cdr (car binds))) pmap b live))) (let ((tmp (tmpn (car r1)))) (lbinds (cdr binds) (cons (cons (car (car binds)) tmp) pmap) (bk+ (emit (car r1) (qset (str tmp "=" (vref (cdr r1)))))) (cons tmp live)))))))
+(define llet (lambda (binds body pmap b live) (let ((r (lbinds binds pmap b live))) (lval body (car (cdr r)) (car r) (cdr (cdr r))))))
+(define lbegin (lambda (es pmap b live) (if (null? (cdr es)) (lval (car es) pmap b live) (let ((r1 (lval (car es) pmap b live))) (lbegin (cdr es) pmap (car r1) live)))))
+(define lquote (lambda (d b)
+  (cond ((null? d) (cons b (cons (quote cst) "NIL")))
+        ((number? d) (cons b (cons (quote lit) (number->string d))))
+        ((string? d) (cons b (cons (quote cst) (str "T:" (enc-mc d)))))
+        ((symbol? d) (cons b (cons (quote cst) (str "S:" (enc-mc (symbol->string d))))))
+        (t (lval (list (quote cons) (list (quote quote) (car d)) (list (quote quote) (cdr d))) nil b nil)))))
+(define lretag (lambda (f pmap b live)
+  (let ((rx (lval (car (cdr f)) pmap b live)))
+    (let ((tmp (tmpn (car rx))))
+      (cons (bk+ (emit (car rx) (qset (str tmp "=T:" (cref (cdr rx)))))) (cons (quote val) tmp))))))
+(define lstrlen (lambda (f pmap b live)
+  (let ((rx (lval (car (cdr f)) pmap b live)))
+    (let ((j (number->string (b-k (car rx)))))
+      (let ((zc (str "zc" j)) (zn (tmpn (car rx))) (lp (str "zSL" j)))
+        (let ((b1 (emit (car rx) (qset (str zc "=" (cref (cdr rx)))))))
+          (let ((b2 (emit b1 (str "set /a " zn "=0"))))
+            (let ((b3 (emit b2 (str ":" lp))))
+              (cons (bk+ (emit b3 (str "if defined " zc " (set " zc "=!" zc ":~1!& set /a " zn "+=1& goto " lp ")"))) (cons (quote raw) zn))))))))))
+(define lsubstr (lambda (f pmap b live)
+  (let ((rs (lval (car (cdr f)) pmap b live)))
+    (let ((ro (lval (car (cdr (cdr f))) pmap (car rs) (addlive (cdr rs) live))))
+      (let ((rl (lval (cadddr f) pmap (car ro) (addlive (cdr ro) (addlive (cdr rs) live)))))
+        (let ((j (number->string (b-k (car rl)))))
+          (let ((zc (str "zc" j)) (zsk (str "zsk" j)) (ztk (str "ztk" j)) (zr (str "zr" j)) (ztmp (tmpn (car rl))) (sk (str "zSK" j)) (tk (str "zTK" j)))
+            (let ((b1 (emit (car rl) (qset (str zc "=" (cref (cdr rs)))))))
+              (let ((b2 (emit b1 (str "set /a " zsk "=" (aref (cdr ro))))))
+                (let ((b3 (emit b2 (str ":" sk))))
+                  (let ((b4 (emit b3 (str "if defined " zc " if !" zsk "! gtr 0 (set " zc "=!" zc ":~1!& set /a " zsk "-=1& goto " sk ")"))))
+                    (let ((b5 (emit b4 (qset (str zr "=")))))
+                      (let ((b6 (emit b5 (str "set /a " ztk "=" (aref (cdr rl))))))
+                        (let ((b7 (emit b6 (str ":" tk))))
+                          (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
+                            (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) (t nil))))
+(define aas (lambda (refs i) (if (null? refs) nil (cons (qset (str "A" (number->string i) "=" (vref (car refs)))) (aas (cdr refs) (+ i 1))))))
+(define emit-list (lambda (b lns) (if (null? lns) b (emit-list (emit b (car lns)) (cdr lns)))))
+(define lbuiltin (lambda (f pmap b live)
+  (let ((ar (largs (cdr f) pmap b live)))
+    (let ((tmp (tmpn (car ar))) (mn (mangle (symbol->string (car f)))))
+      (let ((b1 (emit-list (car ar) (aas (cdr ar) 1))))
+        (let ((b2 (emit b1 (str "call " mn ".cmd"))))
+          (cons (bk+ (emit b2 (qset (str tmp "=!R!")))) (cons (quote val) tmp))))))))
+(define lval (lambda (f pmap b live)
   (cond
-    ((number? f) (list acc (cons (quote lit) (number->string f)) k))
-    ((eq? f (quote nil)) (list acc (cons (quote cst) "NIL") k))
-    ((eq? f (quote t)) (list acc (cons (quote cst) "S:t") k))
-    ((string? f) (list acc (cons (quote cst) (str "T:" (enc-mc f))) k))
-    ((symbol? f) (let ((e (assoc f pmap)))
-                   ;; param/local -> its temp var; otherwise a top-level constant,
-                   ;; held in a G_<name> cmd var seeded by the dispatch header.
-                   (list acc (cons (quote val) (if (null? e) (str "G_" (symbol->string f)) (cdr e))) k)))
-    ((eq? (car f) (quote quote)) (cquote (cadr f) pmap k live acc))
-    ((eq? (car f) (quote begin)) (cbegin (cdr f) pmap k live acc))
+    ((number? f) (cons b (cons (quote lit) (number->string f))))
+    ((eq? f (quote nil)) (cons b (cons (quote cst) "NIL")))
+    ((eq? f (quote t)) (cons b (cons (quote cst) "S:t")))
+    ((string? f) (cons b (cons (quote cst) (str "T:" (enc-mc f)))))
+    ((symbol? f) (let ((p (lookup f pmap))) (if (null? p) (cons b (cons (quote val) (str "G_" (symbol->string f)))) (cons b (cons (quote val) p)))))
     ((arith? (car f))
-       (let ((ra (cexpr (cadr f) pmap k live acc)))
-         (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-           (let ((tmp (str "zt" (number->string (caddr rb)))))
-             (list (cons (str "set /a " tmp "=" (aref (cadr ra)) (op->batch (car f)) (aref (cadr rb))) (car rb))
-                   (cons (quote raw) tmp) (+ (caddr rb) 1))))))
+      (let ((ra (lval (car (cdr f)) pmap b live)))
+        (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) (addlive (cdr ra) live))))
+          (let ((tmp (tmpn (car rb))))
+            (cons (bk+ (emit (car rb) (str "set /a " tmp "=" (aref (cdr ra)) (op->batch (car f)) (aref (cdr rb))))) (cons (quote raw) tmp))))))
     ((eq? (car f) (quote cons))
-       ;; file-backed heap: cell HN = files %HD%\car<HN>/cdr<HN>. Redirect PATH uses
-       ;; %HN% (immediate; re-expands per line execution, incl goto-loops); the value
-       ;; is delayed content of `echo(` so operators/parens in it never re-tokenize.
-       ;; Trailing GUARD byte (#): set /p (rdfield) strips trailing control bytes
-       ;; (0x01=! 0x08="); the guard absorbs that strip so values ending in !/" survive.
-       (let ((ra (cexpr (cadr f) pmap k live acc)))
-         (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-           (let ((tmp (str "zt" (number->string (caddr rb)))))
-             (list (rev (list (str ">%HD%\car%HN% echo(" (vref (cadr ra)) "#") (str ">%HD%\cdr%HN% echo(" (vref (cadr rb)) "#")
-                              (qset (str "" tmp "=P:!HN!")) "set /a HN+=1") (car rb))
-                   (cons (quote val) tmp) (+ (caddr rb) 1))))))
-    ((eq? (car f) (quote car)) (ccell f "car" pmap k live acc))
-    ((eq? (car f) (quote cdr)) (ccell f "cdr" pmap k live acc))
-    ((eq? (car f) (quote symbol->string)) (cretag f pmap k live acc))
-    ((eq? (car f) (quote number->string)) (cretag f pmap k live acc))
+      (let ((ar (largs (cdr f) pmap b live)))
+        (let ((tmp (tmpn (car ar))) (a0 (car (cdr ar))) (a1 (car (cdr (cdr ar)))))
+          (let ((b1 (emit (car ar) "set /a HN+=1")))
+            (let ((b2 (emit b1 (str ">%HD%\car%HN% echo(" (vref a0) "#"))))
+              (let ((b3 (emit b2 (str ">%HD%\cdr%HN% echo(" (vref a1) "#"))))
+                (cons (bk+ (emit b3 (qset (str tmp "=P:!HN!")))) (cons (quote val) tmp))))))))
     ((eq? (car f) (quote string-append))
-       ;; (string-append a b) -> T:<content-a><content-b>
-       (let ((ra (cexpr (cadr f) pmap k live acc)))
-         (let ((rb (cexpr (caddr f) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-           (let ((tmp (str "zt" (number->string (caddr rb)))))
-             (list (cons (qset (str "" tmp "=T:" (cref (cadr ra)) (cref (cadr rb)))) (car rb))
-                   (cons (quote val) tmp) (+ (caddr rb) 1))))))
-    ((eq? (car f) (quote string-length)) (cstrlen f pmap k live acc))
-    ((eq? (car f) (quote substring)) (csubstr f pmap k live acc))
-    ((eq? (car f) (quote dq)) (let ((tmp (str "zt" (number->string k)))) (list (cons (qset (str "" tmp "=T:!BANG8!")) acc) (cons (quote val) tmp) (+ k 1))))
-    ((tpred? (car f)) (cexpr (list (quote if) f (list (quote quote) (quote t)) (quote nil)) pmap k live acc))
-    ((eq? (car f) (quote let))
-       ;; (let ((x v) ...) body): materialise each value into a temp, bind name->temp
-       ;; in pmap, compile body. clet-binds threads k, pmap, AND acc.
-       (let ((bs (clet-binds (cadr f) pmap k live acc)))
-         (cexpr (caddr f) (cadr bs) (caddr bs) live (car bs))))
-    ((eq? (car f) (quote if))
-       ;; value-position if: test branches to the then-label; both arms set the
-       ;; same result temp; fall-through is the else arm. The else arm (the deep
-       ;; cond-chain) is THREADED (no copy); the then arm (small) is compiled with a
-       ;; fresh acc and appended once -- keeps rt's numbering and order byte-identical.
-       (let ((tl (str "zT" (number->string k))) (dl (str "zE" (number->string k))))
-         (let ((tr (test-stmts (cadr f) tl pmap (+ k 1) live acc)))
-           (let ((rb (cexpr (cadddr f) pmap (cdr tr) live (car tr))))
-             (let ((ra (cexpr (caddr f) pmap (caddr rb) live nil)))
-               (let ((rt (str "zt" (number->string (caddr ra)))))
-                 (list (rev (list (qset (str "" rt "=" (vref (cadr ra)))) (str ":" dl))
-                         (append (car ra)
-                           (rev (list (qset (str "" rt "=" (vref (cadr rb)))) (str "goto " dl) (str ":" tl)) (car rb))))
-                       (cons (quote val) rt) (+ (caddr ra) 1))))))))
-    (t (let ((ar (cargs* (cdr f) pmap k live acc)))
-         ;; elide caller-saves entirely when the callee can't re-enter us (reachability).
-         (let ((tmp (str "zt" (number->string (caddr ar)))) (sv (if (mem? (car f) (elide-of pmap)) nil (append (pvars pmap) live))))
-           (list (rev (append (save-lines sv)
-                        (append (aassign (cadr ar) 1)
-                          ;; multi-file: each compiled fn is its own <label>.cmd, so a
-                          ;; call is `call <label>.cmd` (cwd-relative). cmd's label scan is
-                          ;; O(file-position), so one-fn-per-file keeps every entry at the
-                          ;; top -> ~1ms flat, vs ~30-59ms in a single 8900-line file.
-                          (cons (str "call " (mangle (symbol->string (car f))) ".cmd")
-                            (append (restore-lines (rev sv nil)) (list (qset (str "" tmp "=!R!")))))))
-                      (car ar))
-                 (cons (quote val) tmp) (+ (caddr ar) 1))))))))
+      (let ((ra (lval (car (cdr f)) pmap b live)))
+        (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) (addlive (cdr ra) live))))
+          (let ((tmp (tmpn (car rb))))
+            (cons (bk+ (emit (car rb) (qset (str tmp "=T:" (cref (cdr ra)) (cref (cdr rb)))))) (cons (quote val) tmp))))))
+    ((eq? (car f) (quote car)) (lcell f "car" pmap b live))
+    ((eq? (car f) (quote cdr)) (lcell f "cdr" pmap b live))
+    ((eq? (car f) (quote if)) (lif-val (car (cdr f)) (car (cdr (cdr f))) (cadddr f) pmap b live))
+    ((eq? (car f) (quote cond)) (lval (cond->if (cdr f)) pmap b live))
+    ((eq? (car f) (quote let)) (llet (car (cdr f)) (car (cdr (cdr f))) pmap b live))
+    ((eq? (car f) (quote begin)) (lbegin (cdr f) pmap b live))
+    ((eq? (car f) (quote quote)) (lquote (car (cdr f)) b))
+    ((eq? (car f) (quote string-length)) (lstrlen f pmap b live))
+    ((eq? (car f) (quote substring)) (lsubstr f pmap b live))
+    ((eq? (car f) (quote symbol->string)) (lretag f pmap b live))
+    ((eq? (car f) (quote number->string)) (lretag f pmap b live))
+    ((eq? (car f) (quote dq)) (let ((tmp (tmpn b))) (cons (bk+ (emit b (qset (str tmp "=T:!BANG8!")))) (cons (quote val) tmp))))
+    ((builtin? (car f)) (lbuiltin f pmap b live))
+    ((tpred? (car f)) (lif-val f (quote t) (quote nil) pmap b live))
+    (t ;; general non-tail call -> YIELD
+      (let ((ar (largs (cdr f) pmap b live)))
+        (let ((rpc (b-npc (car ar))) (mn (mangle (symbol->string (car f)))))
+          (let ((c1 (emit (spill (bnpc+ (car ar)) live 0) "set /a NFP=!FT!")))
+            (let ((c2 (stage c1 (cdr ar) 0)))
+              (let ((c3 (emit c2 (str "set " (dq) "CALLEE=" mn (dq)))))
+                (let ((c4 (emit c3 (str "set " (dq) "RPC=" (number->string rpc) (dq)))))
+                  (let ((c5 (emit c4 (str "set " (dq) "ACTION=call" (dq) " & goto :eof"))))
+                    (let ((br (switch c5 rpc)))
+                      (let ((tmp (tmpn br)))
+                        (cons (bk+ (bsm (emit (unspill br live 0) (qset (str tmp "=!R!"))) (lenl live)))
+                              (cons (quote val) tmp)))))))))))))))
+(define ltbegin (lambda (es pmap fn np b live) (if (null? (cdr es)) (ltail (car es) pmap fn np b live) (let ((r1 (lval (car es) pmap b live))) (ltbegin (cdr es) pmap fn np (car r1) live)))))
+(define ltail (lambda (f pmap fn np b live)
+  (cond
+    ((if (pair? f) (eq? (car f) (quote begin)) nil) (ltbegin (cdr f) pmap fn np b live))
+    ((if (pair? f) (eq? (car f) fn) nil)   ;; self-tail-call: reset params, loop via ACTION=tail
+      (let ((ar (largs (cdr f) pmap b live)))
+        (emit (setparams (car ar) (cdr ar) 0) (str "set " (dq) "PC=0" (dq) " & set " (dq) "ACTION=tail" (dq) " & goto :eof"))))
+    ((if (pair? f) (eq? (car f) (quote if)) nil)
+      (let ((ct (ctest (car (cdr f)) pmap b live)))
+        (let ((aid (b-npc (car ct))) (bid (+ (b-npc (car ct)) 1)))
+          (let ((b2 (emit (emit (bnpc+ (bnpc+ (car ct))) (ifjump (cdr ct) aid)) (jumpto bid))))
+            (let ((ba (ltail (car (cdr (cdr f))) pmap fn np (switch b2 aid) live)))
+              (ltail (cadddr f) pmap fn np (switch ba bid) live))))))
+    ((if (pair? f) (eq? (car f) (quote cond)) nil) (ltail (cond->if (cdr f)) pmap fn np b live))
+    ((if (pair? f) (eq? (car f) (quote let)) nil)
+      (let ((r (lbinds (car (cdr f)) pmap b live))) (ltail (car (cdr (cdr f))) (car (cdr r)) fn np (car r) (cdr (cdr r)))))
+    (t (let ((r (lval f pmap b live)))
+         (emit (car r) (str "set " (dq) "R=" (vref (cdr r)) (dq) " & set " (dq) "ACTION=ret" (dq) " & goto :eof")))))))
+(define pmap-fr (lambda (fs i) (if (null? fs) nil (cons (cons (car fs) (str "p" (number->string i))) (pmap-fr (cdr fs) (+ i 1))))))
+(define ploads (lambda (fs i) (if (null? fs) nil (if (= i 0)
+  (cons (str "call set " (dq) "p0=%%F!FP!%%" (dq)) (ploads (cdr fs) 1))
+  (cons (str "set /a _i=!FP!+" (number->string i) " & call set " (dq) "p" (number->string i) "=%%F!_i!%%" (dq)) (ploads (cdr fs) (+ i 1)))))))
+(define blkget (lambda (al pc) (if (null? al) nil (if (eq? (car (car al)) pc) (cdr (car al)) (blkget (cdr al) pc)))))
+(define caseblocks (lambda (al i n) (if (= i n) nil (append (cons (str ":_pc" (number->string i)) (blkget al i)) (caseblocks al (+ i 1) n)))))
+(define compile-fn (lambda (nm lbl fs body k0 elide)
+  (let ((np (lenl fs)) (pm (pmap-fr fs 0)))
+    (let ((bf (ltail body pm nm np (mkb nil nil 0 1 0 0) nil)))
+      (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
+        (let ((preamble (append (ploads fs 0) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil)))))
+          (cons (seg-files preamble blk 0 (b-npc bf) lbl) k0)))))))
+(define tst (lambda (x) (let ((y (cdr x))) (cond ((null? y) (quote done)) ((pair? y) (write-lines "out" y)) (t (string-length y))))))
+
 ;; string-length: count chars by stripping one at a time (no batch strlen). The
 ;; content goes in via cref (delayed expansion, operator-safe); `if defined` ends
 ;; the loop when empty (avoids comparing content, which could hold operators/"").
-(define cstrlen (lambda (f pmap k live acc)
-  (let ((rx (cexpr (cadr f) pmap k live acc)))
-    (let ((j (number->string (caddr rx))))
-      (let ((zc (str "zc" j)) (zn (str "zt" (number->string (+ (caddr rx) 1)))) (lp (str "zSL" j)))
-        (list (rev (list (qset (str "" zc "=" (cref (cadr rx))))
-                         (str "set /a " zn "=0")
-                         (str ":" lp)
-                         (str "if defined " zc " (set " zc "=!" zc ":~1!& set /a " zn "+=1& goto " lp ")")) (car rx))
-              (cons (quote raw) zn) (+ (caddr rx) 2)))))))
+
 ;; substring: (substring s start len). Dynamic offsets can't use !v:~i,n! (i/n must
 ;; be literal) and the `call set %%v:~%i%,%n%%%` form would put an operator char into
 ;; command text. So walk char by char: skip `start`, then append `len` chars built
 ;; from !zc:~0,1! -- every char moves through delayed expansion, so operators survive.
-(define csubstr (lambda (f pmap k live acc)
-  (let ((rs (cexpr (cadr f) pmap k live acc)))
-    (let ((rb (cexpr (caddr f) pmap (caddr rs) (live-add (cadr rs) live) (car rs))))
-      (let ((rl (cexpr (cadddr f) pmap (caddr rb) (live-add (cadr rb) (live-add (cadr rs) live)) (car rb))))
-        (let ((j (number->string (caddr rl))))
-          (let ((zc (str "zc" j)) (zsk (str "zsk" j)) (ztk (str "ztk" j)) (zr (str "zr" j))
-                (ztmp (str "zt" (number->string (+ (caddr rl) 1)))) (sk (str "zSK" j)) (tk (str "zTK" j)))
-            (list (rev (list (qset (str "" zc "=" (cref (cadr rs))))
-                             (str "set /a " zsk "=" (aref (cadr rb)))
-                             (str ":" sk)
-                             (str "if defined " zc " if !" zsk "! gtr 0 (set " zc "=!" zc ":~1!& set /a " zsk "-=1& goto " sk ")")
-                             (qset (str "" zr "="))
-                             (str "set /a " ztk "=" (aref (cadr rl)))
-                             (str ":" tk)
-                             (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")")
-                             (qset (str "" ztmp "=T:!" zr "!"))) (car rl))
-                  (cons (quote val) ztmp) (+ (caddr rl) 2)))))))))
+
 ;; cretag: symbol->string / number->string -- the content is unchanged, only the
 ;; 2-char tag becomes T:. set zt=T:<content of arg>.
-(define cretag (lambda (f pmap k live acc)
-  (let ((rx (cexpr (cadr f) pmap k live acc)))
-    (let ((tmp (str "zt" (number->string (caddr rx)))))
-      (list (cons (qset (str "" tmp "=T:" (cref (cadr rx)))) (car rx)) (cons (quote val) tmp) (+ (caddr rx) 1))))))
+
 ;; car/cdr: strip P: from the (val) operand to an index, then read CAR_/CDR_<idx>.
-(define ccell (lambda (f field pmap k live acc)
-  (let ((rx (cexpr (cadr f) pmap k live acc)))
-    (let ((zi (str "zi" (number->string (caddr rx)))) (tmp (str "zt" (number->string (+ (caddr rx) 1)))))
-      ;; read CAR_/CDR_<idx> via :rdfield (set R=!FIELD<idx>!, delayed -> operator-safe);
-      ;; `call set tmp=%%FIELD!zi!%%` would re-parse the value unquoted and a & | < >
-      ;; in it would split the line.
-      (list (rev (list (qset (str "" zi "=!" (cdr (cadr rx)) ":~2!"))
-                       (str "call rdfield.cmd " field " !" zi "!")
-                       (qset (str "" tmp "=!R!"))) (car rx))
-            (cons (quote val) tmp) (+ (caddr rx) 2))))))
+
 ;; cargs*: evaluate call args left-to-right -> (list lines (vref1 vref2 ...) k).
 ;; Each arg is evaluated with the earlier args' temps added to `live`, so a call
 ;; inside a later arg won't clobber an already-computed arg.
-(define cargs* (lambda (as pmap k live acc)
-  (if (null? as) (list acc nil k)
-    (let ((r (cexpr (car as) pmap k live acc)))
-      (let ((rest (cargs* (cdr as) pmap (caddr r) (live-add (cadr r) live) (car r))))
-        (list (car rest) (cons (vref (cadr r)) (cadr rest)) (caddr rest)))))))
+
 ;; clet-binds: compile each (name value) binding -> materialise value into a temp,
 ;; extend pmap with name->temp. Returns (list lines extended-pmap nextk). Each later
 ;; binding's value sees the earlier bindings (sequential let, like let*).
-(define clet-binds (lambda (binds pmap k live acc)
-  (if (null? binds) (list acc pmap k)
-    (let ((b (car binds)))
-      (let ((rv (cexpr (cadr b) pmap k live acc)))
-        (let ((tmp (str "zt" (number->string (caddr rv)))))
-          (clet-binds (cdr binds) (cons (cons (car b) tmp) pmap) (+ (caddr rv) 1) (cons tmp live)
-            (cons (qset (str "" tmp "=" (vref (cadr rv)))) (car rv)))))))))
-(define uassign (lambda (vs i) (if (null? vs) nil (cons (qset (str "zu" (number->string i) "=" (car vs))) (uassign (cdr vs) (+ i 1))))))
-(define pupd (lambda (ps i lbl) (if (null? ps) nil (cons (qset (str lbl "_" (symbol->string (car ps)) "=!zu" (number->string i) "!")) (pupd (cdr ps) (+ i 1) lbl)))))
+
+
+
 ;; test of an `if` -> lines ending in a `if ... goto TL`. Numeric (< =) compares
 ;; raw numbers; eq?/null? compare tagged values as strings (quote-free, so
 ;; space-free values only — symbols/NIL/numbers/pairs); pair? checks the P: tag.
 ;; tag-prefix predicate (pair?/number?/string?/symbol?): materialise the operand
 ;; into a temp (works for a var or a literal), then branch to TL if its first char
 ;; equals the tag letter (P/I/T/S).
-(define ctag-test (lambda (test tl pmap k ch live acc)
-  (let ((rx (cexpr (cadr test) pmap k live acc)))
-    (let ((zt (str "zp" (number->string (caddr rx)))))
-      ;; substring must be done in a `set` -- a `:~0,1` inside `if` breaks (the
-      ;; comma is a token delimiter there). Materialise the value, slice to its
-      ;; first char in place, then compare the whole short var.
-      (cons (rev (list (qset (str "" zt "=" (vref (cadr rx))))
-                       (qset (str "" zt "=!" zt ":~0,1!"))
-                       (str "if !" zt "!==" ch " goto " tl)) (car rx)) (+ (caddr rx) 1))))))
+
 ;; test of an `if`. If it's a pair headed by a known predicate/comparison, emit the
 ;; specialised compare; OTHERWISE (a variable, or any other call -- e.g.
 ;; (if (def-lambda? f) ..), (if x ..)) it's a TRUTHINESS test: evaluate it and branch
 ;; to TL when the value is not NIL.
-(define test-stmts (lambda (test tl pmap k live acc)
-  (if (if (pair? test) (tpred? (car test)) nil)
-    (let ((op (car test)))
-    (cond
-      ((eq? op (quote null?))
-        (let ((rx (cexpr (cadr test) pmap k live acc)))
-          ;; MUST quote: an unquoted `if !v!==NIL` with a < or > in the value triggers
-          ;; a redirection (< is not just a separator like &). The " come from dq;
-          ;; write-lines handles " in the generated code.
-          (let ((q (dq)))
-            (cons (cons (str "if " q (vref (cadr rx)) q "==" q "NIL" q " goto " tl) (car rx)) (caddr rx)))))
-      ((eq? op (quote pair?)) (ctag-test test tl pmap k "P" live acc))
-      ((eq? op (quote number?)) (ctag-test test tl pmap k "I" live acc))
-      ((eq? op (quote string?)) (ctag-test test tl pmap k "T" live acc))
-      ((eq? op (quote symbol?)) (ctag-test test tl pmap k "S" live acc))
-      ((eq? op (quote eq?))
-        (let ((ra (cexpr (cadr test) pmap k live acc)))
-          (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-            (let ((q (dq)))
-              (cons (cons (str "if " q (vref (cadr ra)) q "==" q (vref (cadr rb)) q " goto " tl) (car rb)) (caddr rb))))))
-      (t
-        (let ((ra (cexpr (cadr test) pmap k live acc)))
-          (let ((rb (cexpr (caddr test) pmap (caddr ra) (live-add (cadr ra) live) (car ra))))
-            (cons (cons (str "if " (iref (cadr ra)) " " (cmp->batch op) " " (iref (cadr rb)) " goto " tl) (car rb)) (caddr rb)))))))
-    (let ((rx (cexpr test pmap k live acc)))
-      (let ((q (dq)))
-        (cons (cons (str "if not " q (vref (cadr rx)) q "==" q "NIL" q " goto " tl) (car rx)) (caddr rx)))))))
+
 ;; ctail: tail position. self-call -> args into zu temps, update params, goto top;
 ;; if -> goto-branch; else -> set R to the tagged value, return.
-(define ctail-begin (lambda (es nm lbl ps pmap k acc)
-  (if (null? (cdr es)) (ctail (car es) nm lbl ps pmap k acc)
-    (let ((r1 (cexpr (car es) pmap k nil acc)))
-      (ctail-begin (cdr es) nm lbl ps pmap (caddr r1) (car r1))))))
-(define ctail (lambda (f nm lbl ps pmap k acc)
-  (cond
-    ((is? f (quote begin)) (ctail-begin (cdr f) nm lbl ps pmap k acc))
-    ((is? f nm)
-       (let ((ar (cargs* (cdr f) pmap k nil acc)))
-         (cons (rev (append (uassign (cadr ar) 1) (append (pupd ps 1 lbl) (list (str "goto " lbl "_top")))) (car ar)) (caddr ar))))
-    ((is? f (quote if))
-       ;; else arm threaded (deep cond-chain), then arm compiled fresh + appended (small).
-       (let ((tl (str lbl "_L" (number->string k))))
-         (let ((tr (test-stmts (cadr f) tl pmap (+ k 1) nil acc)))
-           (let ((er (ctail (cadddr f) nm lbl ps pmap (cdr tr) (car tr))))
-             (let ((th (ctail (caddr f) nm lbl ps pmap (cdr er) nil)))
-               (cons (append (car th) (cons (str ":" tl) (car er))) (cdr th)))))))
-    ((is? f (quote let))
-       (let ((bs (clet-binds (cadr f) pmap k nil acc)))
-         (ctail (caddr f) nm lbl ps (cadr bs) (caddr bs) (car bs))))
-    (t (let ((r (cexpr f pmap k nil acc))) (cons (rev (list (qset (str "R=" (vref (cadr r)))) "goto :eof") (car r)) (caddr r)))))))
+
+
 
 ;; k0 is the program-wide monotonic label/temp counter: cexpr-level labels (zT/zE
 ;; value-if, zSL/zSK/zTK loops) are NOT function-prefixed, so `goto` would hit the
 ;; first match in the file. Threading one k across all fns keeps every label unique.
 ;; Returns (cons lines next-k).
-(define compile-fn (lambda (nm lbl fs body k0 elide)
-  ;; ctail accumulates body lines in REVERSE; reverse once here, then prepend the header.
-  (let ((tb (ctail body nm lbl fs (cons (cons "$ELIDE" elide) (pmap-local fs lbl)) k0 nil)))
-    (cons (append (cons (str ":" lbl) (load-params fs 1 lbl)) (cons (str ":" lbl "_top") (rev (car tb) nil))) (cdr tb)))))
+
 
 ;;; -------------------------------------------------- the driver (compile a program)
 (define show-list (lambda (f)
@@ -452,7 +456,7 @@
               (begin
                 ;; multi-file: write THIS fn to its own <cmddir>/<label>.cmd (write-lines
                 ;; truncates -> one file per fn). cmdpath is the output DIRECTORY now.
-                (write-lines (str cmdpath "/" lbl ".cmd") (car cf))
+                (write-segs (car cf) cmdpath)
                 (append-lines lisppath (cons (show (resid-bind (cadr (car forms)))) nil))
                 (cp (cdr forms) cmdpath lisppath nextk elide)))))
         ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
@@ -469,7 +473,7 @@
 (define const-inits (lambda (forms)
   (if (null? forms) nil
     (if (atom-const? (car forms))
-      (cons (qset (str "G_" (symbol->string (cadr (car forms))) "=" (vref (cadr (cexpr (caddr (car forms)) nil 0 nil nil)))))
+      (cons (qset (str "G_" (symbol->string (cadr (car forms))) "=" (vref (cdr (lval (caddr (car forms)) nil (mkb nil nil 0 1 0 0) nil)))))
             (const-inits (cdr forms)))
       (const-inits (cdr forms))))))
 ;; The I/O runtime (:write-lines + :rdfield) is NOT emitted here -- it lives in a
@@ -523,13 +527,12 @@
 (define elide-of (lambda (pm) (let ((e (assoc "$ELIDE" pm))) (if (null? e) nil (cdr e)))))
 (define compile-program (lambda (forms cmdpath lisppath)
   (let ((ms (mexpand-program forms)))
-    (let ((defs (defnames ms)))
-      (let ((elide (clean-fix (build-adj ms defs) nil)))
-        (begin
-          ;; multi-file: cmdpath is an output DIRECTORY (must exist). Each compiled fn is
-          ;; written there as <label>.cmd by cp. The top-level atom constants (G_<name>),
-          ;; which used to live in the single file's header, go in _consts.cmd -- `call`ed
-          ;; ONCE at startup to seed the G_ env vars (inherited by every fn file in-process).
-          (write-lines (str cmdpath "/_consts.cmd") (const-inits ms))
-          (write-lines lisppath nil)
-          (cp ms cmdpath lisppath 0 elide)))))))
+    (begin
+      ;; multi-file: cmdpath is an output DIRECTORY. Each compiled fn -> <label>.cmd by cp.
+      ;; Atom constants (G_<name>) -> _consts.cmd, called ONCE at startup. The TRAMPOLINE
+      ;; codegen spills only the precise live set across each call, so the old reachability
+      ;; elide analysis (defnames/build-adj/clean-fix -- O(n^2), the dominant comp(comp) cost)
+      ;; is unnecessary; pass nil and skip it.
+      (write-lines (str cmdpath "/_consts.cmd") (const-inits ms))
+      (write-lines lisppath nil)
+      (cp ms cmdpath lisppath 0 nil)))))
