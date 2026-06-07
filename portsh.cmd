@@ -118,15 +118,19 @@ gc_run() {
     done
     gr_i=$((gr_i + 1))
   done
-  # COMPILED-code roots: native (compiled) functions hold live cells in the caller-save
-  # stack STK0..STK(SP-1) (one tagged value per slot) -- the interpreter's ROOT slots don't
-  # see them. SP is unset under the plain interpreter (no compiled code) -> ${SP-0} = no scan.
-  gs_i=0; gs_sp=${SP-0}
-  while [ "$gs_i" -lt "$gs_sp" ]; do
-    eval "gr_v=\${STK$gs_i-}"
-    gc_mark "$gr_v"
-    gs_i=$((gs_i + 1))
-  done
+  # COMPILED-code roots (trampoline): native functions hold live cells in the frame stack
+  # F[0..FP+SIZE_<CURFN>). Frames stack contiguously (callee base = caller base + caller SIZE),
+  # so this single range covers EVERY suspended caller's frame too. CURFN is unset under the
+  # plain interpreter / the reader phase (rd_expr runs before the driver) -> no F scan.
+  if [ -n "${CURFN-}" ] && [ "${CURFN-}" != HALT ]; then
+    eval "gs_sz=\${SIZE_${CURFN}-0}"
+    gs_top=$((FP + gs_sz)); gs_i=0
+    while [ "$gs_i" -lt "$gs_top" ]; do
+      eval "gr_v=\${F$gs_i-}"
+      gc_mark "$gr_v"
+      gs_i=$((gs_i + 1))
+    done
+  fi
   gc_sweep
   LAST_GC=$HEAP_N
   GC_RUNNING=

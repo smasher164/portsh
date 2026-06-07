@@ -10,8 +10,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 root=$(pwd)
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+# WORK=<dir> keeps a persistent (resumable) workdir: a crash on one form (e.g. cexpr OOM/stack)
+# won't wipe the other 85 already-compiled outputs. Unset -> ephemeral mktemp, cleaned on exit.
+if [ -n "${WORK:-}" ]; then work=$WORK; mkdir -p "$work"; else work=$(mktemp -d); trap 'rm -rf "$work"' EXIT; fi
 
 [ -f portsh-full.cmd ] || sh build.sh >/dev/null
 tr -d '\r' < portsh-full.cmd > "$work/pf.sh"
@@ -74,9 +75,14 @@ echo "extracted $nf comp forms + $ns stdlib deps; compiling gc-off, P=$par ..."
 cat > "$work/one.sh" <<EOF
 #!/bin/sh
 d=\$1; k=\$2
+[ -s "\$d/\$k.sh" ] && exit 0   # resume: already compiled this form (persistent WORK)
 { cat "$root/src/compile-sh.lisp" "$work/gen1.lisp"
-  printf '(write-lines "%s/\$k.sh" (gen1 (quote ' "\$d"; cat "\$d/\$k.lisp"; printf ')))(print (quote OK))\n'
+  printf '(write-lines "%s/%s.sh" (gen1 (quote ' "\$d" "\$k"; cat "\$d/\$k.lisp"; printf ')))(print (quote OK))\n'
 } > "\$d/\$k.drv.lisp"
+# The codegen runs INTERPRETED (mksh shell-function recursion = C-stack); the 2 biggest comp
+# fns (cexpr/csubstr) overflow the default 8MB stack -- the trampoline codegen recurses deeper
+# than the old direct-call one, so cexpr segfaults without this bump. 65500KB = macOS hard cap.
+ulimit -s 65500 2>/dev/null || true
 env NURSERY=999999999 PORTSH_COOKED=1 PORTSH_SELF="$work/pf.sh" mksh "$work/pf.sh" "\$d/\$k.drv.lisp" </dev/null >/dev/null 2>&1
 EOF
 chmod +x "$work/one.sh"

@@ -116,6 +116,16 @@ if [ -z "${PORTSH_SKIP_XSHELL:-}" ] && [ -f "$here/cross-shell.sh" ]; then
   else red "FAIL  cross-shell guard"; fail=$((fail+1)); fi
 fi
 
+# --- native-comp equivalence guard ------------------------------------------
+# Native (compiled) comp must produce byte-identical batch output to the interpreter.
+# Regression guard for the trampoline codegen (frame framing + value quoting + mangle).
+# Skip with PORTSH_SKIP_NATIVE=1 (it builds comp.sh, ~seconds).
+if [ -z "${PORTSH_SKIP_NATIVE:-}" ] && [ -f "$here/native-comp.sh" ]; then
+  echo; echo "=== native-comp equivalence guard ==="
+  if sh "$here/native-comp.sh"; then grn "PASS  native-comp guard"; pass=$((pass+1))
+  else red "FAIL  native-comp guard"; fail=$((fail+1)); fi
+fi
+
 echo
 printf 'pass=%d fail=%d skip=%d\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]
