@@ -46,6 +46,11 @@ cat > "$work/prog.forms" <<'L'
 (define adder3 (lambda (a) (lambda (b) (lambda (c) (+ a (+ b c))))))
 (define go3 (lambda () (((adder3 1) 2) 3)))
 (define dbl-clo (lambda (k) ((lambda (x) (+ x k)) k)))
+(define cf_case (lambda (x) (case x (1 (quote one)) (2 (quote two)) (else (quote other)))))
+(define cf_lets (lambda (a) (let* ((x (+ a 1)) (y (+ x 1))) (+ x y))))
+(define cf_when (lambda (x) (when (< x 5) (quote small))))
+(define cf_unless (lambda (x) (unless (< x 5) (quote big))))
+(define cf_or (lambda (a b) (or a b)))
 L
 
 pass=0 fail=0

@@ -81,6 +81,11 @@ cat > "$work/corpus.forms" <<'LISP'
 (define t_adder3 (lambda (a) (lambda (b) (lambda (c) (+ a (+ b c))))))
 (define t_go3 (lambda () (((t_adder3 1) 2) 3)))
 (define t_dblclo (lambda (k) ((lambda (x) (+ x k)) k)))
+(define t_case (lambda (x) (case x (1 (quote one)) (2 (quote two)) (else (quote other)))))
+(define t_lets (lambda (a) (let* ((x (+ a 1)) (y (+ x 1))) (+ x y))))
+(define t_cwhen (lambda (x) (when (< x 5) (quote small))))
+(define t_cunless (lambda (x) (unless (< x 5) (quote big))))
+(define t_cor (lambda (a b) (or a b)))
 LISP
 
 # ---- reference: comp.sh (local) ----

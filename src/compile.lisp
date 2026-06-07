@@ -440,10 +440,12 @@
 ;; macro-expand: (cond (c1 e1)..(t en)) -> nested if. A source transform run before
 ;; compilation; cexpr/ctail then handle the resulting ifs. Skips `quote`d data so a
 ;; (cond ...) inside quoted data is left intact.
+;; cond->if: a clause body is a SEQUENCE -> (begin body...), matching the stdlib cond
+;; (a single-expr begin collapses in codegen, so single-body clauses are unchanged).
 (define cond->if (lambda (cls)
   (if (null? cls) (quote nil)
-    (if (eq? (car (car cls)) (quote t)) (cadr (car cls))
-      (list (quote if) (car (car cls)) (cadr (car cls)) (cond->if (cdr cls)))))))
+    (if (eq? (car (car cls)) (quote t)) (cons (quote begin) (cdr (car cls)))
+      (list (quote if) (car (car cls)) (cons (quote begin) (cdr (car cls))) (cond->if (cdr cls)))))))
 ;; str/list are variadic; the compiler is fixed-arity. comp only ever calls them
 ;; with a syntactically fixed arg count, so desugar to right-nested binary ops.
 ;; (str a b c)->(string-append a (string-append b c)); all comp's str args are
@@ -467,6 +469,18 @@
         (list (quote if) (quote __or) (quote __or) (or->if (cdr as))))))))
 (define when->if (lambda (c body) (list (quote if) c (cons (quote begin) body) (quote nil))))
 (define unless->if (lambda (c body) (list (quote if) c (quote nil) (cons (quote begin) body))))
+;; case: eval key ONCE (bound to __case), then a cond of eq? tests against quoted datum
+;; literals; `else` -> the t clause. (__case reserved, like __or; nested cases shadow safely.)
+(define case-clause (lambda (cl)
+  (if (eq? (car cl) (quote else)) (cons (quote t) (cdr cl))
+    (cons (list (quote eq?) (quote __case) (list (quote quote) (car cl))) (cdr cl)))))
+(define case-clauses (lambda (cls) (if (null? cls) nil (cons (case-clause (car cls)) (case-clauses (cdr cls))))))
+(define case->cond (lambda (key clauses)
+  (list (quote let) (list (list (quote __case) key)) (cons (quote cond) (case-clauses clauses)))))
+;; let*: sequential single-binding lets; (let* () body...) -> (begin body...).
+(define let*->lets (lambda (binds body)
+  (if (null? binds) (cons (quote begin) body)
+    (list (quote let) (list (car binds)) (let*->lets (cdr binds) body)))))
 (define mexpand (lambda (f)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) f
@@ -480,12 +494,14 @@
       (if (eq? (car f) (quote or)) (mexpand (or->if (cdr f)))
       (if (eq? (car f) (quote when)) (mexpand (when->if (car (cdr f)) (cdr (cdr f))))
       (if (eq? (car f) (quote unless)) (mexpand (unless->if (car (cdr f)) (cdr (cdr f))))
+      (if (eq? (car f) (quote case)) (mexpand (case->cond (car (cdr f)) (cdr (cdr f))))
+      (if (eq? (car f) (quote let*)) (mexpand (let*->lets (car (cdr f)) (cdr (cdr f))))
         (if (eq? (car f) (quote str)) (str->app (map-mexpand (cdr f)))
           (if (eq? (car f) (quote list)) (list->cons (map-mexpand (cdr f)))
             ;; structural sharing: if neither sub-tree changed, return f rather than
             ;; re-consing, so most of comp's source isn't copied.
             (let ((a (mexpand (car f))) (d (mexpand (cdr f))))
-              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))))))
+              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))))))))
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 
