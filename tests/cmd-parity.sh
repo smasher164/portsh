@@ -67,6 +67,14 @@ cat > "$work/corpus.forms" <<'LISP'
 (define t_pcond (lambda (cond) cond))
 (define t_pstr (lambda (str) str))
 (define t_plist (lambda (list) list))
+(define t_bang (lambda () (str "x" "!" "y")))
+(define t_pct (lambda () (str "a" "%" "b")))
+(define t_caret (lambda () (str "p" "^" "q")))
+(define t_quotes (lambda (s) (str "[" s "]")))
+(define t_symop (lambda () (quote <)))
+(define t_symq (lambda () (quote foo?)))
+(define t_strlit (lambda () "literal with spaces"))
+(define t_retag (lambda (n) (str "<" (number->string n) ">")))
 LISP
 
 # ---- reference: comp.sh (local) ----
