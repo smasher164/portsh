@@ -419,14 +419,18 @@
 (define mexpand (lambda (f)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) f
+      ;; lambda: preserve the param list verbatim, mexpand only the body. A param
+      ;; named cond/str/list is a BINDING, not that special form -- without this
+      ;; guard mexpand rewrites the param list (e.g. ifjump's (cond n)) and the
+      ;; function loses its params (refs fall through to undefined G_<name> globals).
+      (if (eq? (car f) (quote lambda)) (cons (quote lambda) (cons (car (cdr f)) (map-mexpand (cdr (cdr f)))))
       (if (eq? (car f) (quote cond)) (mexpand (cond->if (cdr f)))
         (if (eq? (car f) (quote str)) (str->app (map-mexpand (cdr f)))
           (if (eq? (car f) (quote list)) (list->cons (map-mexpand (cdr f)))
             ;; structural sharing: if neither sub-tree changed, return f rather than
-            ;; re-consing. comp's source is mostly untouched by mexpand (only
-            ;; cond/str/list rewrite), so this avoids copying nearly the whole tree.
+            ;; re-consing, so most of comp's source isn't copied.
             (let ((a (mexpand (car f))) (d (mexpand (cdr f))))
-              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d)))))))
+              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 

@@ -126,6 +126,17 @@ if [ -z "${PORTSH_SKIP_NATIVE:-}" ] && [ -f "$here/native-comp.sh" ]; then
   else red "FAIL  native-comp guard"; fail=$((fail+1)); fi
 fi
 
+# --- binding-name correctness guard -----------------------------------------
+# ABSOLUTE correctness (not a comp.sh-vs-interpreter diff): a param named like a
+# special-form head (cond/str/list/...) must resolve to the parameter, not be
+# rewritten by mexpand. Catches the param-list corruption that made comp.cmd emit
+# the malformed `if ~2` -- a diff guard misses it (both sides shared the bug).
+if [ -z "${PORTSH_SKIP_NATIVE:-}" ] && [ -f "$here/binding-names.sh" ]; then
+  echo; echo "=== binding-name correctness guard ==="
+  if sh "$here/binding-names.sh"; then grn "PASS  binding-names guard"; pass=$((pass+1))
+  else red "FAIL  binding-names guard"; fail=$((fail+1)); fi
+fi
+
 echo
 printf 'pass=%d fail=%d skip=%d\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]
