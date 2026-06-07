@@ -137,6 +137,20 @@ if [ -z "${PORTSH_SKIP_NATIVE:-}" ] && [ -f "$here/binding-names.sh" ]; then
   else red "FAIL  binding-names guard"; fail=$((fail+1)); fi
 fi
 
+# --- cmd compiler-parity guard (VM-gated) -----------------------------------
+# comp.cmd (native cmd self-host, run on Windows) must emit batch byte-identical to
+# comp.sh across a codegen-surface corpus. Closes the gap that hid `~2`: nothing else
+# RUNS comp.cmd's output. Needs PORTSH_WIN_SSH (a real Windows box/VM); skipped else.
+if [ -f "$here/cmd-parity.sh" ]; then
+  if [ -n "${PORTSH_WIN_SSH:-}" ]; then
+    echo; echo "=== cmd compiler-parity guard ==="
+    if sh "$here/cmd-parity.sh"; then grn "PASS  cmd-parity guard"; pass=$((pass+1))
+    else red "FAIL  cmd-parity guard"; fail=$((fail+1)); fi
+  else
+    yel "SKIP  cmd-parity guard  (set PORTSH_WIN_SSH=user@host)"; skip=$((skip+1))
+  fi
+fi
+
 echo
 printf 'pass=%d fail=%d skip=%d\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]
