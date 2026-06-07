@@ -75,6 +75,12 @@ cat > "$work/corpus.forms" <<'LISP'
 (define t_symq (lambda () (quote foo?)))
 (define t_strlit (lambda () "literal with spaces"))
 (define t_retag (lambda (n) (str "<" (number->string n) ">")))
+(define t_make_adder (lambda (n) (lambda (x) (+ x n))))
+(define t_apply1 (lambda (f a) (f a)))
+(define t_use_adder (lambda () (t_apply1 (t_make_adder 5) 3)))
+(define t_adder3 (lambda (a) (lambda (b) (lambda (c) (+ a (+ b c))))))
+(define t_go3 (lambda () (((t_adder3 1) 2) 3)))
+(define t_dblclo (lambda (k) ((lambda (x) (+ x k)) k)))
 LISP
 
 # ---- reference: comp.sh (local) ----

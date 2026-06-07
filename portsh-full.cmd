@@ -979,7 +979,7 @@ call :hp_cdr "!ccLst!"
 set "ccLst=!R!"
 goto ev_cc_loop
 :ev_cc_run
-set "FP=0" & set "RSP=0" & set "CURFN=!ccL!" & set "PC=0"
+set "FP=0" & set "RSP=0" & set "CURFN=!ccL!" & set "PC=0" & set "CLO="
 :ev_tloop
 if "!CURFN!"=="HALT" goto :eof
 set "ACTION="
@@ -988,14 +988,23 @@ if "!ACTION!"=="call" goto ev_tcall
 if "!ACTION!"=="ret" goto ev_tret
 goto ev_tloop
 :ev_tcall
-set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!"
+rem save caller frame (incl. closure-record ptr CLO) on the return stack
+set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!"
 set /a RSP+=1
-set "FP=!NFP!" & set "CURFN=!CALLEE!" & set "PC=0"
+set "FP=!NFP!" & set "PC=0" & set "CLO="
+rem K:<idx> = a flat closure: CURFN = the record's label (car), CLO = the record idx
+if "!CALLEE:~0,2!"=="K:" goto ev_tcall_clo
+set "CURFN=!CALLEE!"
+goto ev_tloop
+:ev_tcall_clo
+set "CLO=!CALLEE:~2!"
+call :hp_car "P:!CLO!"
+set "CURFN=!R:~2!"
 goto ev_tloop
 :ev_tret
 if !RSP!==0 ( set "CURFN=HALT" & goto ev_tloop )
 set /a RSP-=1
-call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%"
+call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%" & call set "CLO=%%RSL!RSP!%%"
 goto ev_tloop
 :ev_if
 rem (if test then else): eval test (non-tail); chosen branch is TAIL -> loop

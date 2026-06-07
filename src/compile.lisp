@@ -182,10 +182,10 @@
         ((string? d) (cons b (cons (quote cst) (str "T:" (enc-mc d)))))
         ((symbol? d) (cons b (cons (quote cst) (str "S:" (enc-mc (symbol->string d))))))
         (t (lval (list (quote cons) (list (quote quote) (car d)) (list (quote quote) (cdr d))) nil b nil)))))
-(define lretag (lambda (f pmap b live)
+(define lretag (lambda (f tag pmap b live)
   (let ((rx (lval (car (cdr f)) pmap b live)))
     (let ((tmp (tmpn (car rx))))
-      (cons (bk+ (emit (car rx) (qset (str tmp "=T:" (cref (cdr rx)))))) (cons (quote val) tmp))))))
+      (cons (bk+ (emit (car rx) (qset (str tmp "=" tag (cref (cdr rx)))))) (cons (quote val) tmp))))))
 (define lstrlen (lambda (f pmap b live)
   (let ((rx (lval (car (cdr f)) pmap b live)))
     (let ((j (number->string (b-k (car rx)))))
@@ -251,23 +251,47 @@
     ((eq? (car f) (quote quote)) (lquote (car (cdr f)) b))
     ((eq? (car f) (quote string-length)) (lstrlen f pmap b live))
     ((eq? (car f) (quote substring)) (lsubstr f pmap b live))
-    ((eq? (car f) (quote symbol->string)) (lretag f pmap b live))
-    ((eq? (car f) (quote number->string)) (lretag f pmap b live))
+    ((eq? (car f) (quote symbol->string)) (lretag f "T:" pmap b live))
+    ((eq? (car f) (quote number->string)) (lretag f "T:" pmap b live))
+    ((eq? (car f) (quote string->symbol)) (lretag f "S:" pmap b live))
+    ((eq? (car f) (quote string->number)) (lretag f "I:" pmap b live))
     ((eq? (car f) (quote dq)) (let ((tmp (tmpn b))) (cons (bk+ (emit b (qset (str tmp "=T:!BANG8!")))) (cons (quote val) tmp))))
     ((builtin? (car f)) (lbuiltin f pmap b live))
     ((tpred? (car f)) (lif-val f (quote t) (quote nil) pmap b live))
+    ((eq? (car f) (quote make-closure))
+      ;; (make-closure (quote __lamN) cap...) -> heap record (S:__lamN cap...) tagged K:<idx>
+      (let ((rr (lval (list (quote cons) (car (cdr f)) (mkclo-caps (cdr (cdr f)))) pmap b live)))
+        (let ((tmp (tmpn (car rr))))
+          (cons (bk+ (emit (car rr) (qset (str tmp "=K:!" (cdr (cdr rr)) ":~2!")))) (cons (quote val) tmp)))))
     (t ;; general non-tail call -> YIELD
-      (let ((ar (largs (cdr f) pmap b live)))
-        (let ((rpc (b-npc (car ar))) (mn (mangle (symbol->string (car f)))))
-          (let ((c1 (emit (spill (bnpc+ (car ar)) live 0) "set /a NFP=!FT!")))
-            (let ((c2 (stage c1 (cdr ar) 0)))
-              (let ((c3 (emit c2 (str "set " (dq) "CALLEE=" mn (dq)))))
-                (let ((c4 (emit c3 (str "set " (dq) "RPC=" (number->string rpc) (dq)))))
-                  (let ((c5 (emit c4 (str "set " (dq) "ACTION=call" (dq) " & goto :eof"))))
-                    (let ((br (switch c5 rpc)))
-                      (let ((tmp (tmpn br)))
-                        (cons (bk+ (bsm (emit (unspill br live 0) (qset (str tmp "=!R!"))) (lenl live)))
-                              (cons (quote val) tmp)))))))))))))))
+      (if (if (symbol? (car f)) (null? (lookup (car f) pmap)) nil)
+        ;; named call: CALLEE = the mangled global fn name (static)
+        (let ((ar (largs (cdr f) pmap b live)))
+          (let ((rpc (b-npc (car ar))) (mn (mangle (symbol->string (car f)))))
+            (let ((c1 (emit (spill (bnpc+ (car ar)) live 0) "set /a NFP=!FT!")))
+              (let ((c2 (stage c1 (cdr ar) 0)))
+                (let ((c3 (emit c2 (str "set " (dq) "CALLEE=" mn (dq)))))
+                  (let ((c4 (emit c3 (str "set " (dq) "RPC=" (number->string rpc) (dq)))))
+                    (let ((c5 (emit c4 (str "set " (dq) "ACTION=call" (dq) " & goto :eof"))))
+                      (let ((br (switch c5 rpc)))
+                        (let ((tmp (tmpn br)))
+                          (cons (bk+ (bsm (emit (unspill br live 0) (qset (str tmp "=!R!"))) (lenl live)))
+                                (cons (quote val) tmp)))))))))))
+        ;; computed call: eval the callee (a closure value) -> CALLEE=!cvar!; the driver's K: case
+        ;; reads the record's label into CURFN and sets CLO for captured-var loads.
+        (let ((rc (lval (car f) pmap b live)))
+          (let ((cvar (cdr (cdr rc))) (live2 (addlive (cdr rc) live)))
+            (let ((ar (largs (cdr f) pmap (car rc) live2)))
+              (let ((rpc (b-npc (car ar))))
+                (let ((c1 (emit (spill (bnpc+ (car ar)) live2 0) "set /a NFP=!FT!")))
+                  (let ((c2 (stage c1 (cdr ar) 0)))
+                    (let ((c3 (emit c2 (str "set " (dq) "CALLEE=!" cvar "!" (dq)))))
+                      (let ((c4 (emit c3 (str "set " (dq) "RPC=" (number->string rpc) (dq)))))
+                        (let ((c5 (emit c4 (str "set " (dq) "ACTION=call" (dq) " & goto :eof"))))
+                          (let ((br (switch c5 rpc)))
+                            (let ((tmp (tmpn br)))
+                              (cons (bk+ (bsm (emit (unspill br live2 0) (qset (str tmp "=!R!"))) (lenl live2)))
+                                    (cons (quote val) tmp))))))))))))))))))
 (define ltbegin (lambda (es pmap fn np b live) (if (null? (cdr es)) (ltail (car es) pmap fn np b live) (let ((r1 (lval (car es) pmap b live))) (ltbegin (cdr es) pmap fn np (car r1) live)))))
 (define ltail (lambda (f pmap fn np b live)
   (cond
@@ -298,6 +322,13 @@
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (let ((preamble (append (ploads fs 0) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil)))))
           (cons (seg-files preamble blk 0 (b-npc bf) lbl) k0)))))))
+;; a lifted closure sub: formals from frame slots (ploads), captured vars from the record (cap-loads via CLO).
+(define compile-clambda (lambda (name lf cap body)
+  (let ((np (lenl lf)) (pm (pmap-fr (append lf cap) 0)) (lbl (mangle (symbol->string name))))
+    (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
+      (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
+        (let ((preamble (append (ploads lf 0) (append (cap-loads cap np) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil))))))
+          (seg-files preamble blk 0 (b-npc bf) lbl)))))))
 (define tst (lambda (x) (let ((y (cdr x))) (cond ((null? y) (quote done)) ((pair? y) (write-lines "out" y)) (t (string-length y))))))
 
 ;; string-length: count chars by stripping one at a time (no batch strlen). The
@@ -362,6 +393,11 @@
 (define def-lambda? (lambda (f)
   (if (pair? f) (if (eq? (car f) (quote define))
     (if (pair? (caddr f)) (eq? (car (caddr f)) (quote lambda)) nil) nil) nil)))
+;; (define __lamN (clambda lf cap body)) -- a lifted closure sub; compiled like a fn but with
+;; cap-loads. Never bound by name (called only via K:<idx>), so it emits NO residual binding.
+(define def-clambda? (lambda (f)
+  (if (pair? f) (if (eq? (car f) (quote define))
+    (if (pair? (caddr f)) (eq? (car (caddr f)) (quote clambda)) nil) nil) nil)))
 ;; (define <nm> (make-compiled "<mangled>")) -- the residual binds the original symbol
 ;; to a C: combiner naming the MANGLED label, so calls dispatch to the right sub.
 (define resid-bind (lambda (nm)
@@ -416,21 +452,40 @@
   (if (null? as) "" (if (null? (cdr as)) (car as) (list (quote string-append) (car as) (str->app (cdr as)))))))
 (define list->cons (lambda (as)
   (if (null? as) (quote nil) (list (quote cons) (car as) (list->cons (cdr as))))))
+;; builtin control forms (regular-Lisp derived forms; no vau, no macro system). Each
+;; rewrites to core if/let/begin, then mexpand re-processes the result. (and)->t, (or)->nil.
+;; or uses a temp so its test isn't double-evaluated; __or is reserved (nested ors shadow
+;; safely -- the outer __or is consumed before the inner binding).
+(define and->if (lambda (as)
+  (if (null? as) (quote t)
+    (if (null? (cdr as)) (car as)
+      (list (quote if) (car as) (and->if (cdr as)) (quote nil))))))
+(define or->if (lambda (as)
+  (if (null? as) (quote nil)
+    (if (null? (cdr as)) (car as)
+      (list (quote let) (list (list (quote __or) (car as)))
+        (list (quote if) (quote __or) (quote __or) (or->if (cdr as))))))))
+(define when->if (lambda (c body) (list (quote if) c (cons (quote begin) body) (quote nil))))
+(define unless->if (lambda (c body) (list (quote if) c (quote nil) (cons (quote begin) body))))
 (define mexpand (lambda (f)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) f
-      ;; lambda: preserve the param list verbatim, mexpand only the body. A param
-      ;; named cond/str/list is a BINDING, not that special form -- without this
-      ;; guard mexpand rewrites the param list (e.g. ifjump's (cond n)) and the
-      ;; function loses its params (refs fall through to undefined G_<name> globals).
+      ;; lambda: preserve the param list verbatim, mexpand only the body (a param named
+      ;; cond/and/... is a BINDING, not that form -- else the param list gets rewritten and
+      ;; the fn loses its params -> undefined G_<name> globals). cond/and/or/when/unless are
+      ;; builtin DERIVED control forms: rewrite to core if/let/begin, then re-mexpand.
       (if (eq? (car f) (quote lambda)) (cons (quote lambda) (cons (car (cdr f)) (map-mexpand (cdr (cdr f)))))
       (if (eq? (car f) (quote cond)) (mexpand (cond->if (cdr f)))
+      (if (eq? (car f) (quote and)) (mexpand (and->if (cdr f)))
+      (if (eq? (car f) (quote or)) (mexpand (or->if (cdr f)))
+      (if (eq? (car f) (quote when)) (mexpand (when->if (car (cdr f)) (cdr (cdr f))))
+      (if (eq? (car f) (quote unless)) (mexpand (unless->if (car (cdr f)) (cdr (cdr f))))
         (if (eq? (car f) (quote str)) (str->app (map-mexpand (cdr f)))
           (if (eq? (car f) (quote list)) (list->cons (map-mexpand (cdr f)))
             ;; structural sharing: if neither sub-tree changed, return f rather than
             ;; re-consing, so most of comp's source isn't copied.
             (let ((a (mexpand (car f))) (d (mexpand (cdr f))))
-              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))
+              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))))))
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 
@@ -453,6 +508,12 @@
       ;; forms/k/elide -> the mexpanded source) are intact, so gc keeps them and
       ;; sweeps the dead intermediate cells. Bounds the heap to ~one function.
       (gc)
+      (if (def-clambda? (car forms))
+        ;; lifted closure sub -> its own <label>.cmd files; NO residual bind (called via K:).
+        (let ((ce (caddr (car forms))))
+          (begin
+            (write-segs (compile-clambda (cadr (car forms)) (cadr ce) (caddr ce) (cadddr ce)) cmdpath)
+            (cp (cdr forms) cmdpath lisppath k elide)))
       (if (def-lambda? (car forms))
         (let ((lbl (mangle (symbol->string (cadr (car forms))))))
           (let ((cf (compile-fn (cadr (car forms)) lbl (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide)))
@@ -469,7 +530,7 @@
           (cp (cdr forms) cmdpath lisppath k elide)
           (begin
             (append-lines lisppath (cons (show (car forms)) nil))
-            (cp (cdr forms) cmdpath lisppath k elide))))))))
+            (cp (cdr forms) cmdpath lisppath k elide)))))))))
 ;; a top-level (define X <atom>) -> a constant compiled fns read as G_X. (Only
 ;; atoms: a list-valued constant would rebuild itself on the heap every dispatch.)
 (define atom-const? (lambda (f)
@@ -500,6 +561,60 @@
 ;; reach-set contains no recursive fn. Computed once per program in compile-program.
 (define mem? (lambda (x xs) (if (null? xs) nil (if (eq? x (car xs)) t (mem? x (cdr xs))))))
 (define set-add (lambda (x xs) (if (mem? x xs) xs (cons x xs))))
+;; free-variable analysis for flat closures: collect symbols referenced in a form that
+;; are NOT bound by an enclosing lambda/let (over-collects globals/primitives; the caller
+;; intersects with the enclosing pmap to get the real CAPTURE set -- globals aren't in it).
+;; lambda/let extend `bound`; quote is opaque. Mirrors `callees` but visits every symbol.
+(define lv-names (lambda (binds) (if (pair? binds) (cons (car (car binds)) (lv-names (cdr binds))) nil)))
+(define fv-binds (lambda (binds bound acc) (if (pair? binds) (fv-binds (cdr binds) bound (fv (car (cdr (car binds))) bound acc)) acc)))
+(define fv-list (lambda (fs bound acc) (if (pair? fs) (fv-list (cdr fs) bound (fv (car fs) bound acc)) acc)))
+(define fv (lambda (f bound acc)
+  (if (pair? f)
+    (if (eq? (car f) (quote quote)) acc
+      (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
+        (if (eq? (car f) (quote let))
+          (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
+          (fv-list f bound acc))))
+    (if (symbol? f) (if (mem? f bound) acc (set-add f acc)) acc))))
+;; lambda-lift (flat closures): hoist each inline (lambda lf lb) to a top-level
+;; (define __lamN (clambda lf cap lb)) and replace it with (make-closure (quote __lamN) cap...).
+;; cap = free vars of the lambda bound in the ENCLOSING scope (fv ∩ bound). Returns
+;; (form' lifted-defs next-ctr). Backend-independent -- byte-identical to compile-sh.lisp's lift.
+(define keep-bound (lambda (fs bound) (if (null? fs) nil (if (mem? (car fs) bound) (cons (car fs) (keep-bound (cdr fs) bound)) (keep-bound (cdr fs) bound)))))
+(define lift-list (lambda (fs bound ctr)
+  (if (pair? fs)
+    (let ((rh (lift (car fs) bound ctr)))
+      (let ((rt (lift-list (cdr fs) bound (car (cdr (cdr rh))))))
+        (list (cons (car rh) (car rt)) (append (car (cdr rh)) (car (cdr rt))) (car (cdr (cdr rt))))))
+    (list fs nil ctr))))
+(define lift (lambda (f bound ctr)
+  (if (pair? f)
+    (if (eq? (car f) (quote quote)) (list f nil ctr)
+      (if (eq? (car f) (quote lambda))
+        (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (car (cdr f)) bound) ctr)))
+          (let ((cap (keep-bound (fv (car rb) lf nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
+            (list (cons (quote make-closure) (cons (list (quote quote) name) cap))
+                  (append (car (cdr rb)) (list (list (quote define) name (list (quote clambda) lf cap (car rb)))))
+                  (+ (car (cdr (cdr rb))) 1))))
+        (lift-list f bound ctr)))
+    (list f nil ctr))))
+(define lift-program (lambda (forms ctr)
+  (if (null? forms) nil
+    (let ((d (car forms)))
+      (if (if (pair? d) (if (eq? (car d) (quote define)) (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil) nil) nil)
+        (let ((nm (car (cdr d))) (lf (car (cdr (car (cdr (cdr d)))))) (bd (car (cdr (cdr (car (cdr (cdr d))))))))
+          (let ((r (lift bd lf ctr)))
+            (cons (list (quote define) nm (list (quote lambda) lf (car r)))
+                  (append (car (cdr r)) (lift-program (cdr forms) (car (cdr (cdr r))))))))
+        (cons d (lift-program (cdr forms) ctr)))))))
+;; make-closure record builder + captured-var loads (cmd file-heap flavor: rdfield.cmd).
+(define mkclo-caps (lambda (caps) (if (null? caps) (quote nil) (list (quote cons) (car caps) (mkclo-caps (cdr caps))))))
+(define cap-loads-go (lambda (cap i)
+  (if (null? cap) nil
+    (append (list (str "call rdfield.cmd car !_cl!") (qset (str "p" (number->string i) "=!R!")) (str "call rdfield.cmd cdr !_cl!") (qset "_cl=!R:~2!"))
+            (cap-loads-go (cdr cap) (+ i 1))))))
+(define cap-loads (lambda (cap np)
+  (if (null? cap) nil (cons (str "call rdfield.cmd cdr !CLO!") (cons (qset "_cl=!R:~2!") (cap-loads-go cap np))))))
 ;; operator-position symbols in a body (over-collects; filtered to defined fns).
 (define callees (lambda (f acc)
   (if (pair? f)
@@ -530,7 +645,9 @@
 ;; the elide-set is threaded to cexpr via a string-keyed marker in pmap (pvars skips it).
 (define elide-of (lambda (pm) (let ((e (assoc "$ELIDE" pm))) (if (null? e) nil (cdr e)))))
 (define compile-program (lambda (forms cmdpath lisppath)
-  (let ((ms (mexpand-program forms)))
+  ;; mexpand derived forms first, THEN lambda-lift (hoist inline lambdas -> clambda subs +
+  ;; make-closure sites). lift after mexpand so cond/let/etc are already core when fv runs.
+  (let ((ms (lift-program (mexpand-program forms) 0)))
     (begin
       ;; multi-file: cmdpath is an output DIRECTORY. Each compiled fn -> <label>.cmd by cp.
       ;; Atom constants (G_<name>) -> _consts.cmd, called ONCE at startup. The TRAMPOLINE

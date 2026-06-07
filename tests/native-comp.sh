@@ -40,6 +40,12 @@ cat > "$work/prog.forms" <<'L'
 (define classify (lambda (x) (cond ((< x 0) "is negative") ((= x 0) "is zero") (t "is positive"))))
 (define rjoin (lambda (xs acc) (if (null? xs) acc (rjoin (cdr xs) (str acc " " (car xs))))))
 (define depth (lambda (n) (if (< n 1) 0 (+ 1 (depth (- n 1))))))
+(define make-adder (lambda (n) (lambda (x) (+ x n))))
+(define apply1 (lambda (f a) (f a)))
+(define use-adder (lambda () (apply1 (make-adder 5) 3)))
+(define adder3 (lambda (a) (lambda (b) (lambda (c) (+ a (+ b c))))))
+(define go3 (lambda () (((adder3 1) 2) 3)))
+(define dbl-clo (lambda (k) ((lambda (x) (+ x k)) k)))
 L
 
 pass=0 fail=0
