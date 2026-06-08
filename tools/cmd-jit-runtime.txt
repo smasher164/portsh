@@ -1,0 +1,69 @@
+:el_drive
+if "!CURFN!"=="HALT" goto :eof
+set "ACTION="
+call "!CURFN!_pc!PC!.cmd"
+rem guard (mirrors eval-sh drive): a per-PC file that's missing (unbound global / first-class named
+rem fn) or sets no ACTION would otherwise re-call the same file forever -> hang. Fail loudly instead.
+rem NOTE: `if cond A & B` runs B unconditionally in cmd -- so branch via a label, never `&`-chain here.
+if "!ACTION!"=="" goto eld_noaction
+if "!ACTION!"=="call" goto eld_call
+if "!ACTION!"=="ret" goto eld_ret
+goto el_drive
+:eld_noaction
+echo drive: !CURFN! pc !PC! yielded no ACTION ^(unbound global / missing fn?^) 1>&2
+set "CURFN=HALT"
+goto :eof
+:eld_call
+set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!"
+set /a RSP+=1
+set "FP=!NFP!" & set "PC=0" & set "CLO="
+if "!CALLEE:~0,2!"=="K:" goto eld_clo
+if "!CALLEE:~0,2!"=="C:" set "CURFN=!CALLEE:~2!" & goto el_drive
+set "CURFN=!CALLEE!"
+goto el_drive
+:eld_clo
+set "CLO=!CALLEE:~2!"
+call :hp_car "P:!CLO!"
+set "CURFN=!R:~2!"
+goto el_drive
+:eld_ret
+if !RSP!==0 ( set "CURFN=HALT" & goto el_drive )
+set /a RSP-=1
+call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%" & call set "CLO=%%RSL!RSP!%%"
+goto el_drive
+
+rem ---- value renderer: byte-identical to eval-sh's _relem/_rlist (sets ELR) ----------------
+:el_relem
+rem %1 = recursion depth (for unique scratch names), %2 = tagged value -> ELR
+set "ev=%~2"
+if "!ev!"=="NIL" set "ELR=nil" & goto :eof
+set "ep=!ev:~0,2!"
+if "!ep!"=="I:" set "ELR=!ev:~2!" & goto :eof
+if "!ep!"=="S:" set "ELR=!ev:~2!" & goto :eof
+if "!ep!"=="T:" set "ELR=!ev:~2!" & goto :eof
+if "!ep!"=="K:" set "ELR=<closure>" & goto :eof
+if "!ep!"=="C:" set "ELR=<fn:!ev:~2!>" & goto :eof
+if "!ep!"=="P:" goto el_relem_pair
+set "ELR=!ev!" & goto :eof
+:el_relem_pair
+set /a ND=%1+1 & call :el_rlist !ND! "!ev!"
+set "ELR=(!ELR!)"
+goto :eof
+
+:el_rlist
+rem %1 = depth, %2 = P: ref -> ELR = "e e e" (proper) or "e e . t" (improper)
+set "_r%1_lst=%~2"
+set "_r%1_acc="
+set "_r%1_first=1"
+:el_rl2
+call :hp_car "!_r%1_lst!"
+set /a ND=%1+1 & call :el_relem !ND! "!R!"
+if "!_r%1_first!"=="1" (set "_r%1_acc=!ELR!") else (set "_r%1_acc=!_r%1_acc! !ELR!")
+set "_r%1_first=0"
+call :hp_cdr "!_r%1_lst!"
+set "_r%1_tl=!R!"
+if "!_r%1_tl!"=="NIL" set "ELR=!_r%1_acc!" & goto :eof
+if "!_r%1_tl:~0,2!"=="P:" set "_r%1_lst=!_r%1_tl!" & goto el_rl2
+set /a ND=%1+1 & call :el_relem !ND! "!_r%1_tl!"
+set "ELR=!_r%1_acc! . !ELR!"
+goto :eof
