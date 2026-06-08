@@ -51,8 +51,42 @@ set "CUR=!R!"
 set "LHD=NIL"
 if "!FORM:~0,2!"=="P:" call :lm_head "!FORM!"
 if "!LHD!"=="S:define" goto lm_keep
-rem wrap expr -> (define __evNN (lambda () FORM))
-call :hp_cons "!FORM!" "NIL"
+rem bare expression -> (define __evNN (lambda () FORM)), shown (=S)
+call :lm_wrap "!FORM!"
+set "THUNKS=!THUNKS! __ev!NN!=S"
+set /a NN+=1
+goto lm_part
+:lm_keep
+rem (define NAME VALUE): lambda VALUE -> compiled fn; atom VALUE -> G_<name> const; compound VALUE ->
+rem a thunk run in program order whose result is bound to G_<name> (the last :ev-only gap).
+call :hp_cdr "!FORM!"
+set "NV=!R!"
+call :hp_car "!NV!"
+set "DNAME=!R!"
+call :hp_cdr "!NV!"
+set "VV=!R!"
+call :hp_car "!VV!"
+set "DVAL=!R!"
+if not "!DVAL:~0,2!"=="P:" goto lm_keepform
+call :hp_car "!DVAL!"
+set "DVHD=!R!"
+if "!DVHD!"=="S:lambda" goto lm_keepform
+rem compound non-lambda value -> thunk binding G_<name> (=G:<name>)
+call :lm_wrap "!DVAL!"
+set "THUNKS=!THUNKS! __ev!NN!=G:!DNAME:~2!"
+set /a NN+=1
+goto lm_part
+:lm_keepform
+call :hp_cons "!FORM!" "!XF!"
+set "XF=!R!"
+goto lm_part
+:lm_head
+call :hp_car "%~1"
+set "LHD=!R!"
+goto :eof
+:lm_wrap
+rem %1 = body heap-ref -> cons (define __evNN (lambda () body)) onto XF (uses NN, sets XF)
+call :hp_cons "%~1" "NIL"
 set "B=!R!"
 call :hp_cons "NIL" "!B!"
 set "LL=!R!"
@@ -66,16 +100,6 @@ call :hp_cons "S:define" "!D2!"
 set "DEF=!R!"
 call :hp_cons "!DEF!" "!XF!"
 set "XF=!R!"
-set "THUNKS=!THUNKS! __ev!NN!"
-set /a NN+=1
-goto lm_part
-:lm_keep
-call :hp_cons "!FORM!" "!XF!"
-set "XF=!R!"
-goto lm_part
-:lm_head
-call :hp_car "%~1"
-set "LHD=!R!"
 goto :eof
 
 :lm_compile
@@ -87,13 +111,19 @@ rem run each top-level expression's thunk, in SOURCE order, via a goto-loop over
 rem calling el_drive's goto-machine from inside a for-body). Render each like eval-sh show_val.
 set "RUNQ=!THUNKS!"
 :lm_run
-for /f "tokens=1*" %%a in ("!RUNQ!") do (set "TH=%%a" & set "RUNQ=%%b")
-if "!TH!"=="" goto lm_done
-set "FP=0" & set "RSP=0" & set "CURFN=!TH!" & set "PC=0" & set "CLO="
+set "ENT="
+for /f "tokens=1*" %%a in ("!RUNQ!") do (set "ENT=%%a" & set "RUNQ=%%b")
+if "!ENT!"=="" goto lm_done
+for /f "tokens=1,2 delims==" %%x in ("!ENT!") do (set "TN=%%x" & set "TA=%%y")
+set "FP=0" & set "RSP=0" & set "CURFN=!TN!" & set "PC=0" & set "CLO="
 call :el_drive
+if "!TA!"=="S" goto lm_show
+rem TA = G:<name> -> bind G_<name> = result (compiled code reads !G_<name>!)
+set "G_!TA:~2!=!R!"
+goto lm_run
+:lm_show
 call :el_relem 0 "!R!"
 echo(!ELR!
-set "TH="
 goto lm_run
 :lm_done
 exit /b 0

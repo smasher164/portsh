@@ -30,6 +30,9 @@ add '(define len (lambda (xs) (if (null? xs) 0 (+ 1 (len (cdr xs)))))) (len (con
 add '(define classify (lambda (x) (cond ((< x 0) (quote neg)) ((eq? x 0) (quote zero)) (t (quote pos))))) (classify 5) (classify 0)' 'pos
 zero'
 add '(define map1 (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map1 f (cdr xs)))))) (define dbl (lambda (x) (* x 2))) (define len (lambda (xs) (if (null? xs) 0 (+ 1 (len (cdr xs)))))) (len (map1 dbl (cons 1 (cons 2 (cons 3 nil)))))' '3'
+add '(define x (+ 2 3)) (define y (* x x)) y' '25'
+add '(define sq (lambda (n) (* n n))) (define a (sq 6)) (+ a 1)' '37'
+add '(define xs (cons 1 (cons 2 (cons 3 nil)))) (define n (length xs)) (* n 10)' '30'
 
 # deploy comp-cmd/ (per-PC fns + load-cmd.cmd) + the program files into one dir on the VM.
 tar czf "$work/run.tgz" -C comp-cmd . -C "$work" $progs

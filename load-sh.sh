@@ -12877,7 +12877,22 @@ _relem() { case $1 in NIL) printf nil ;; I:*) printf %s "${1#I:}" ;; T:*) printf
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
 show_val() { _relem "$1"; printf "\n"; }
 
-# ---- loader: partition forms (defines kept; exprs -> thunks), compile all, source, run thunks ----
+# ---- loader: partition forms, compile all, source, run thunks in program order -------------------
+# Top-level forms are one of: a LAMBDA define -> compiled fn; an ATOM define -> G_<name> constant
+# (compiler-emitted); a COMPUTED define (define x EXPR) -> a 0-arg thunk run in order whose result is
+# bound to G_<name>; or a bare EXPRESSION -> a thunk run in order whose value is shown. Each thunk
+# entry is "<fn>|<action>": S = show value, G:<name> = bind G_<name>. This is what lets compile+run
+# stand in for the interpreter on whole programs (computed defines were the last :ev-only gap).
+_mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define __evN (lambda () body))
+  hp_cons "$1" NIL;          _b=$R
+  hp_cons NIL "$_b";         _ll=$R
+  hp_cons "S:lambda" "$_ll"; _lam=$R
+  hp_cons "$_lam" NIL;       _d3=$R
+  hp_cons "S:__ev$_n" "$_d3"; _d2=$R
+  hp_cons "S:define" "$_d2"; _def=$R
+  hp_cons "$_def" "$_xf";    _xf=$R
+  _thunks="$_thunks __ev$_n=$2"; _n=$((_n+1))   # '=' separator: mksh treats '|' as glob-alternation
+}
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
 while [ "$_cur" != NIL ]; do
@@ -12885,25 +12900,32 @@ while [ "$_cur" != NIL ]; do
   hp_cdr "$_cur"; _cur=$R
   _hd=NIL; case $_form in P:*) hp_car "$_form"; _hd=$R ;; esac
   if [ "$_hd" = "S:define" ]; then
-    hp_cons "$_form" "$_xf"; _xf=$R                       # keep the define
+    hp_cdr "$_form"; _nv=$R; hp_car "$_nv"; _name=$R       # NAME  (cadr)
+    hp_cdr "$_nv"; _vv=$R;   hp_car "$_vv"; _val=$R        # VALUE (caddr)
+    case $_val in
+      P:*) hp_car "$_val"; _vhd=$R
+           if [ "$_vhd" = "S:lambda" ]; then
+             hp_cons "$_form" "$_xf"; _xf=$R                # lambda define -> compiled fn
+           else
+             _mkthunk "$_val" "G:${_name#S:}"              # computed define -> thunk binds G_<name>
+           fi ;;
+      *)   hp_cons "$_form" "$_xf"; _xf=$R ;;              # atom define -> G_<name> constant
+    esac
   else
-    hp_cons "$_form" NIL;          _b=$R                  # wrap expr as (define __evN (lambda () expr))
-    hp_cons NIL "$_b";             _ll=$R
-    hp_cons "S:lambda" "$_ll";     _lam=$R
-    hp_cons "$_lam" NIL;           _d3=$R
-    hp_cons "S:__ev$_n" "$_d3";    _d2=$R
-    hp_cons "S:define" "$_d2";     _def=$R
-    hp_cons "$_def" "$_xf";        _xf=$R
-    _thunks="$_thunks __ev$_n"; _n=$((_n+1))
+    _mkthunk "$_form" "S"                                   # bare expression -> thunk, show value
   fi
 done
-# compile ALL forms (defines + thunk-defines) in-process; source so every fn is live.
+# compile ALL forms (defines + thunk-defines) in-process; source so every fn/const is live.
 _tmp=$(mktemp)
 FP=0; RSP=0; PC=0; CLO=""; F0=$_xf; F1="T:$_tmp"; CURFN=compile_program_sh; drive
 . "$_tmp"
-# run each top-level expression's thunk in program order.
-for _th in $_thunks; do
+# run each thunk in program order: show expressions, bind computed-define globals.
+for _e in $_thunks; do
+  _th=${_e%%=*}; _act=${_e#*=}
   FP=0; RSP=0; PC=0; CLO=""; CURFN=$_th; drive
-  show_val "$R"
+  case $_act in
+    S)   show_val "$R" ;;
+    G:*) eval "G_${_act#G:}=\$R" ;;
+  esac
 done
 rm -f "$_tmp"

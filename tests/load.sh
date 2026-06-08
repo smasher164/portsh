@@ -29,6 +29,10 @@ ckprog '(define len (lambda (xs) (if (null? xs) 0 (+ 1 (len (cdr xs)))))) (len (
 ckprog '(define classify (lambda (x) (cond ((< x 0) (quote neg)) ((eq? x 0) (quote zero)) (t (quote pos))))) (classify 5) (classify 0)' 'pos
 zero'
 ckprog '(define map1 (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map1 f (cdr xs)))))) (define dbl (lambda (x) (* x 2))) (define len (lambda (xs) (if (null? xs) 0 (+ 1 (len (cdr xs)))))) (len (map1 dbl (cons 1 (cons 2 (cons 3 nil)))))' '3'
+# computed top-level defines: (define x EXPR) for non-lambda EXPR -> evaluated in program order, binds G_x.
+ckprog '(define x (+ 2 3)) (define y (* x x)) y' '25'
+ckprog '(define sq (lambda (n) (* n n))) (define a (sq 6)) (+ a 1)' '37'
+ckprog '(define xs (cons 1 (cons 2 (cons 3 nil)))) (define n (length xs)) (* n 10)' '30'
 
 printf 'load: ok=%d bad=%d\n' "$ok" "$bad"
 [ "$bad" -eq 0 ]
