@@ -91,6 +91,8 @@
 (define bsl (lambda () (substring "\$" 0 1)))
 (define eqt (lambda () (str (bsl) (dq))))
 (define fval (lambda (r) (cond ((eq? (car r) (quote loc)) (str "\${" (cdr r) "}")) ((eq? (car r) (quote lit)) (str "I:" (cdr r))) (t (cdr r)))))
+;; like fval but for a DIRECT (non-eval) RHS: loc -> ${var} (no backslash), lit -> I:n, cst -> value.
+(define refrhs (lambda (r) (cond ((eq? (car r) (quote loc)) (str "${" (cdr r) "}")) ((eq? (car r) (quote lit)) (str "I:" (cdr r))) (t (cdr r)))))
 (define spill (lambda (b live j) (if (null? live) b (spill (emit b (str "eval " (dq) "F$((FP+NP+" (number->string j) "))=" (eqt) "\${" (car live) "}" (eqt) (dq))) (cdr live) (+ j 1)))))
 (define unspill (lambda (b live j) (if (null? live) b (unspill (emit b (str "eval " (dq) (car live) "=" (eqt) "\$F$((FP+NP+" (number->string j) "))" (eqt) (dq))) (cdr live) (+ j 1)))))
 ;; Frame stores go through eval (dynamic slot name) -> the value is parsed TWICE (the line, then
@@ -199,6 +201,21 @@
       (let ((rr (lval (list (quote cons) (car (cdr f)) (mkclo-caps (cdr (cdr f)))) pmap b live)))
         (let ((tmp (tmpn (car rr))))
           (cons (bk+ (emit (car rr) (str tmp "=" (dq) "K:${" (cdr (cdr rr)) "#P:}" (dq)))) (cons (quote loc) tmp)))))
+    ((eq? (car f) (quote apply))
+      ;; (apply fn arglist): eval fn -> CALLEE, eval arglist -> APLIST; yield ACTION=apply. The driver's
+      ;; apply arm spreads APLIST into the callee frame slots (runtime count) then dispatches like a call.
+      (let ((rc (lval (car (cdr f)) pmap b live)))
+        (let ((live2 (addlive (cdr rc) live)))
+          (let ((rl (lval (car (cdr (cdr f))) pmap (car rc) live2)))
+            (let ((live3 (addlive (cdr rl) live2)) (rpc (b-npc (car rl))))
+              (let ((bc (emit (emit (emit (emit (spill (bnpc+ (car rl)) live3 0) "NFP=$FTOP")
+                                          (str "CALLEE=" (refrhs (cdr rc))))
+                                    (str "APLIST=" (refrhs (cdr rl))))
+                              (str "RPC=" (number->string rpc) "; ACTION=apply; return"))))
+                (let ((br (switch bc rpc)))
+                  (let ((tmp (tmpn br)))
+                    (cons (bk+ (bsm (emit (unspill br live3 0) (str tmp "=" (dq) "${R}" (dq))) (lenl live3)))
+                          (cons (quote loc) tmp))))))))))
     (t
       (if (if (symbol? (car f)) (null? (lookup (car f) pmap)) nil)
         ;; named call: CALLEE = the mangled global fn name

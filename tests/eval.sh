@@ -39,6 +39,11 @@ ck '(foldr + 0 (cons 1 (cons 2 (cons 3 nil))))' '6'
 ck '(foldr cons nil (cons 1 (cons 2 nil)))' '(1 2)'
 ck '(map car (cons (cons 1 2) (cons (cons 3 4) nil)))' '(1 3)'
 ck '(foldl * 1 (cons 2 (cons 3 (cons 4 nil))))' '24'
+# apply: spread a runtime-length list into a call (variadic at the call site; callee fixed-arity).
+ck '(apply + (cons 1 (cons 2 nil)))' '3'
+ck '(apply cons (cons 1 (cons 2 nil)))' '(1 . 2)'
+ck '(apply (lambda (a b c) (+ a (+ b c))) (cons 1 (cons 2 (cons 3 nil))))' '6'
+ck '(apply ((lambda (n) (lambda (a b) (+ n (+ a b)))) 10) (cons 1 (cons 2 nil)))' '13'
 
 printf 'eval: ok=%d bad=%d\n' "$ok" "$bad"
 [ "$bad" -eq 0 ]

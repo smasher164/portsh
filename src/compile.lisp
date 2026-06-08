@@ -279,6 +279,22 @@
       (let ((rr (lval (list (quote cons) (car (cdr f)) (mkclo-caps (cdr (cdr f)))) pmap b live)))
         (let ((tmp (tmpn (car rr))))
           (cons (bk+ (emit (car rr) (qset (str tmp "=K:!" (cdr (cdr rr)) ":~2!")))) (cons (quote val) tmp)))))
+    ((eq? (car f) (quote apply))
+      ;; (apply fn arglist): eval fn -> CALLEE, eval arglist -> APLIST; yield ACTION=apply. The driver's
+      ;; apply arm spreads APLIST into the callee frame slots (runtime count) then dispatches like a call.
+      (let ((rc (lval (car (cdr f)) pmap b live)))
+        (let ((live2 (addlive (cdr rc) live)))
+          (let ((rl (lval (car (cdr (cdr f))) pmap (car rc) live2)))
+            (let ((live3 (addlive (cdr rl) live2)) (rpc (b-npc (car rl))))
+              (let ((c1 (emit (spill (bnpc+ (car rl)) live3 0) "set /a NFP=!FT!")))
+                (let ((c2 (emit c1 (str "set " (dq) "CALLEE=" (vref (cdr rc)) (dq)))))
+                  (let ((c3 (emit c2 (str "set " (dq) "APLIST=" (vref (cdr rl)) (dq)))))
+                    (let ((c4 (emit c3 (str "set " (dq) "RPC=" (number->string rpc) (dq)))))
+                      (let ((c5 (emit c4 (str "set " (dq) "ACTION=apply" (dq) " & goto :eof"))))
+                        (let ((br (switch c5 rpc)))
+                          (let ((tmp (tmpn br)))
+                            (cons (bk+ (bsm (emit (unspill br live3 0) (qset (str tmp "=!R!"))) (lenl live3)))
+                                  (cons (quote val) tmp))))))))))))))
     (t ;; general non-tail call -> YIELD
       (if (if (symbol? (car f)) (null? (lookup (car f) pmap)) nil)
         ;; named call: CALLEE = the mangled global fn name (static)
