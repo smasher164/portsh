@@ -74,11 +74,15 @@
 (define tmpn (lambda (b) (str "sht" (number->string (b-k b)))))
 
 ;; spill/unspill enclosing live locs around a call (frame slots FP+NP+j; NP set per fn)
-(define BSL (substring "\$" 0 1))   ; one literal backslash (char 0 of the 2-char string "\$")
-(define EQT (str BSL (dq)))           ; the 2-char sequence  \"  -- quotes a value's RHS *inside* eval "..."
+;; bsl/eqt are FUNCTIONS, not consts: a computed const (define X (call ...)) isn't handled by the
+;; per-form codegen driver (gen1 only bakes ATOM consts or lambdas) -> it would self-compile to a
+;; stale heap pointer. As 0-arg fns they compile cleanly. bsl = one backslash (char 0 of "\$");
+;; eqt = the 2-char sequence \" (quotes a value's RHS inside eval "...").
+(define bsl (lambda () (substring "\$" 0 1)))
+(define eqt (lambda () (str (bsl) (dq))))
 (define fval (lambda (r) (cond ((eq? (car r) (quote loc)) (str "\${" (cdr r) "}")) ((eq? (car r) (quote lit)) (str "I:" (cdr r))) (t (cdr r)))))
-(define spill (lambda (b live j) (if (null? live) b (spill (emit b (str "eval " (dq) "F$((FP+NP+" (number->string j) "))=" EQT "\${" (car live) "}" EQT (dq))) (cdr live) (+ j 1)))))
-(define unspill (lambda (b live j) (if (null? live) b (unspill (emit b (str "eval " (dq) (car live) "=" EQT "\$F$((FP+NP+" (number->string j) "))" EQT (dq))) (cdr live) (+ j 1)))))
+(define spill (lambda (b live j) (if (null? live) b (spill (emit b (str "eval " (dq) "F$((FP+NP+" (number->string j) "))=" (eqt) "\${" (car live) "}" (eqt) (dq))) (cdr live) (+ j 1)))))
+(define unspill (lambda (b live j) (if (null? live) b (unspill (emit b (str "eval " (dq) (car live) "=" (eqt) "\$F$((FP+NP+" (number->string j) "))" (eqt) (dq))) (cdr live) (+ j 1)))))
 ;; Frame stores go through eval (dynamic slot name) -> the value is parsed TWICE (the line, then
 ;; the eval). A loc value (${var}) is safe (var holds the literal). A cst with a `$` (comp's
 ;; "$ELIDE" sentinel) is NOT: one sh-esc survives the line parse but the eval then expands it.
@@ -86,13 +90,13 @@
 ;; then store STGV as a loc (the safe path). loc/lit stage directly.
 (define stage (lambda (b refs i) (if (null? refs) b (stage
   (if (eq? (car (car refs)) (quote cst))
-    (emit (emit b (str "STGV=" (dq) (cdr (car refs)) (dq))) (str "eval " (dq) "F$((NFP+" (number->string i) "))=" EQT "\$STGV" EQT (dq)))
-    (emit b (str "eval " (dq) "F$((NFP+" (number->string i) "))=" EQT (fval (car refs)) EQT (dq))))
+    (emit (emit b (str "STGV=" (dq) (cdr (car refs)) (dq))) (str "eval " (dq) "F$((NFP+" (number->string i) "))=" (eqt) "\$STGV" (eqt) (dq)))
+    (emit b (str "eval " (dq) "F$((NFP+" (number->string i) "))=" (eqt) (fval (car refs)) (eqt) (dq))))
   (cdr refs) (+ i 1)))))
 (define setparams (lambda (b refs i) (if (null? refs) b (setparams
   (if (eq? (car (car refs)) (quote cst))
-    (emit (emit b (str "STGV=" (dq) (cdr (car refs)) (dq))) (str "eval " (dq) "F$((FP+" (number->string i) "))=" EQT "\$STGV" EQT (dq)))
-    (emit b (str "eval " (dq) "F$((FP+" (number->string i) "))=" EQT (fval (car refs)) EQT (dq))))
+    (emit (emit b (str "STGV=" (dq) (cdr (car refs)) (dq))) (str "eval " (dq) "F$((FP+" (number->string i) "))=" (eqt) "\$STGV" (eqt) (dq)))
+    (emit b (str "eval " (dq) "F$((FP+" (number->string i) "))=" (eqt) (fval (car refs)) (eqt) (dq))))
   (cdr refs) (+ i 1)))))
 
 ;; lower a list of args -> (b . refs), threading live-add so a later arg's call saves earlier temps
@@ -201,8 +205,15 @@
                       (cons (bk+ (bsm (emit (unspill br live2 0) (str tmp "=" (dq) "${R}" (dq))) (lenl live2)))
                             (cons (quote loc) tmp))))))))))))))
 
-(define sh-esc-join (lambda (ps) (if (null? (cdr ps)) (car ps) (string-append (car ps) (string-append "\$" (sh-esc-join (cdr ps)))))))
-(define sh-esc (lambda (s) (sh-esc-join (split s "$"))))
+;; sh-esc: escape a string literal for a double-quoted sh assignment (STGV="<...>"). Both \ and $
+;; must be escaped -- \ -> \\ and $ -> \$ -- else a `\$` sequence (deferred-expansion templates
+;; like \$F$((FP+..)) collapses: the \ is eaten and $F expands. Char-scan (mirrors sh-mangle-go),
+;; comp-inlined prims only (NOT `split`, which compiled code can't call). `bs` yields one backslash
+;; (carved from "\$") since a literal "\" string + a (define X (substring ...)) const are awkward.
+;; comp.sh never exercised the \ case (cmd emits no \$); the native sh-emitter does -> this matters.
+(define sh-esc-at (lambda (c) (if (eq? c "$") "\$" (if (eq? c (bsl)) (string-append (bsl) (bsl)) c))))
+(define sh-esc-go (lambda (s i n acc) (if (= i n) acc (sh-esc-go s (+ i 1) n (string-append acc (sh-esc-at (substring s i 1)))))))
+(define sh-esc (lambda (s) (sh-esc-go s 0 (string-length s) "")))
 (define dsg-str  (lambda (es) (if (null? es) "" (if (null? (cdr es)) (car es) (list (quote string-append) (car es) (dsg-str (cdr es)))))))
 (define dsg-list (lambda (es) (if (null? es) (quote nil) (list (quote cons) (car es) (dsg-list (cdr es))))))
 (define dsg-and  (lambda (es) (if (null? es) (quote t)   (if (null? (cdr es)) (car es) (list (quote if) (car es) (dsg-and (cdr es)) (quote nil))))))
@@ -290,7 +301,7 @@
 
 ;; assembly
 (define pmap-fr (lambda (fs i) (if (null? fs) nil (cons (cons (car fs) (str "p" (number->string i))) (pmap-fr (cdr fs) (+ i 1))))))
-(define ploads (lambda (fs i) (if (null? fs) nil (cons (str "eval " (dq) "p" (number->string i) "=" EQT "\$F$((FP+" (number->string i) "))" EQT (dq)) (ploads (cdr fs) (+ i 1))))))
+(define ploads (lambda (fs i) (if (null? fs) nil (cons (str "eval " (dq) "p" (number->string i) "=" (eqt) "\$F$((FP+" (number->string i) "))" (eqt) (dq)) (ploads (cdr fs) (+ i 1))))))
 (define blkget (lambda (al pc) (if (null? al) nil (if (eq? (car (car al)) pc) (cdr (car al)) (blkget (cdr al) pc)))))
 (define caseblocks (lambda (al i n) (if (= i n) nil (append (cons (str (number->string i) ")") (append (blkget al i) (list ";;"))) (caseblocks al (+ i 1) n)))))
 
@@ -339,3 +350,12 @@
   (if (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote clambda)) nil)
     (compile-clambda (car (cdr d)) (car (cdr (car (cdr (cdr d))))) (car (cdr (cdr (car (cdr (cdr d)))))) (car (cdr (cdr (cdr (car (cdr (cdr d))))))))
     (compile-fn-bb (car (cdr d)) (car (cdr (car (cdr (cdr d))))) (car (cdr (cdr (car (cdr (cdr d))))))))))
+;; whole-program entry (for the native sh-emitter, comp-sh.sh): lambda-lift, then per top-level
+;; form emit either a compiled fn (lambda/clambda body) or a G_<name> constant init (atom body),
+;; concatenated. Mirrors tools/bootstrap-comp.sh's gen1 but over the whole program in one process.
+(define cval-sh (lambda (v) (cond ((string? v) (str "T:" v)) ((number? v) (str "I:" (number->string v))) (t (str "S:" (symbol->string v))))))
+(define gen1-sh (lambda (f)
+  (if (pair? (car (cdr (cdr f)))) (compile-def-sh f)
+    (list (str "G_" (symbol->string (car (cdr f))) "='" (cval-sh (car (cdr (cdr f)))) "'")))))
+(define compile-all-sh (lambda (fs) (if (null? fs) nil (append (gen1-sh (car fs)) (compile-all-sh (cdr fs))))))
+(define compile-program-sh (lambda (forms outpath) (write-lines outpath (compile-all-sh (lift-program forms 0)))))
