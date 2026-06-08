@@ -31,7 +31,7 @@ cat > "$work/gen1.lisp" <<'L'
 (define cval (lambda (v) (cond ((string? v) (str "T:" v)) ((number? v) (str "I:" (number->string v))) (t (str "S:" (symbol->string v))))))
 (define gen1 (lambda (f)
   (if (if (pair? (car (cdr (cdr f)))) (eq? (car (car (cdr (cdr f)))) (quote lambda)) nil)
-    (compile-def-sh f)
+    (compile-def-sh f nil)
     (list (str "G_" (symbol->string (car (cdr f))) "='" (cval (car (cdr (cdr f)))) "'")))))
 L
 

@@ -51,6 +51,9 @@ cat > "$work/prog.forms" <<'L'
 (define cf_when (lambda (x) (when (< x 5) (quote small))))
 (define cf_unless (lambda (x) (unless (< x 5) (quote big))))
 (define cf_or (lambda (a b) (or a b)))
+(define hof_map (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (hof_map f (cdr xs))))))
+(define hof_dbl (lambda (x) (* x 2)))
+(define hof_use (lambda () (hof_map hof_dbl (cons 1 (cons 2 nil)))))
 L
 
 pass=0 fail=0

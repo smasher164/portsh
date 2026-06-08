@@ -423,6 +423,8 @@ set /a RSP+=1
 set "FP=!NFP!" & set "PC=0" & set "CLO="
 rem K:<idx> = a flat closure: CURFN = the record's label (car), CLO = the record idx
 if "!CALLEE:~0,2!"=="K:" goto ev_tcall_clo
+rem C:<label> = a first-class NAMED fn value: dispatch straight to the label (no captured env)
+if "!CALLEE:~0,2!"=="C:" set "CURFN=!CALLEE:~2!" & goto ev_tloop
 set "CURFN=!CALLEE!"
 goto ev_tloop
 :ev_tcall_clo

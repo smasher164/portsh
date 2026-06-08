@@ -4,10 +4,10 @@
 # as thunks and evaluated in order, referencing prior defines. eval = compile + run; no interpreter.
 #
 # COVERS: lambda defines + call, self-recursion, multiple top-level exprs, let-bound first-class
-# functions, closure-returning defines used via an expression.
-# NOT YET (first-class GLOBAL functions -- needs comp's global env): passing a NAMED top-level fn as
-# a value (map dbl xs), and computed top-level defines (define x (f y)). Those fail loudly (the
-# driver's empty-ACTION guard), they don't hang.
+# functions, closure-returning defines used via an expression, and a NAMED top-level fn passed as
+# a value (higher-order: (map dbl xs)) -- compiles to a C:label first-class fn-value.
+# NOT YET: computed top-level defines (define x (f y)) -- need eval-at-load + global binding; they
+# fail loudly (the driver's empty-ACTION guard), they don't hang.
 set -eu
 cd "$(dirname "$0")/.."
 [ -f load-sh.sh ] || sh build-load-sh.sh >/dev/null 2>&1
@@ -28,6 +28,7 @@ ckprog '(define adder (lambda (n) (lambda (x) (+ x n)))) ((adder 10) 5) (let ((i
 ckprog '(define len (lambda (xs) (if (null? xs) 0 (+ 1 (len (cdr xs)))))) (len (cons 1 (cons 2 (cons 3 nil))))' '3'
 ckprog '(define classify (lambda (x) (cond ((< x 0) (quote neg)) ((eq? x 0) (quote zero)) (t (quote pos))))) (classify 5) (classify 0)' 'pos
 zero'
+ckprog '(define map1 (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map1 f (cdr xs)))))) (define dbl (lambda (x) (* x 2))) (define len (lambda (xs) (if (null? xs) 0 (+ 1 (len (cdr xs)))))) (len (map1 dbl (cons 1 (cons 2 (cons 3 nil)))))' '3'
 
 printf 'load: ok=%d bad=%d\n' "$ok" "$bad"
 [ "$bad" -eq 0 ]

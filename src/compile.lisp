@@ -224,7 +224,13 @@
     ((eq? f (quote nil)) (cons b (cons (quote cst) "NIL")))
     ((eq? f (quote t)) (cons b (cons (quote cst) "S:t")))
     ((string? f) (cons b (cons (quote cst) (str "T:" (enc-mc f)))))
-    ((symbol? f) (let ((p (lookup f pmap))) (if (null? p) (cons b (cons (quote val) (str "G_" (symbol->string f)))) (cons b (cons (quote val) p)))))
+    ((symbol? f) (let ((p (lookup f pmap)))
+       (if (null? p)
+         ;; pmap miss: a KNOWN top-level fn used as a VALUE -> first-class C:<label> fn-value
+         ;; (the global analog of a closure's K:<idx>); else a global constant G_<name>.
+         (if (mem? f (gfns-of pmap)) (cons b (cons (quote cst) (str "C:" (mangle (symbol->string f)))))
+           (cons b (cons (quote val) (str "G_" (symbol->string f)))))
+         (cons b (cons (quote val) p)))))
     ((arith? (car f))
       (let ((ra (lval (car (cdr f)) pmap b live)))
         (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) (addlive (cdr ra) live))))
@@ -316,15 +322,15 @@
   (cons (str "set /a _i=!FP!+" (number->string i) " & call set " (dq) "p" (number->string i) "=%%F!_i!%%" (dq)) (ploads (cdr fs) (+ i 1)))))))
 (define blkget (lambda (al pc) (if (null? al) nil (if (eq? (car (car al)) pc) (cdr (car al)) (blkget (cdr al) pc)))))
 (define caseblocks (lambda (al i n) (if (= i n) nil (append (cons (str ":_pc" (number->string i)) (blkget al i)) (caseblocks al (+ i 1) n)))))
-(define compile-fn (lambda (nm lbl fs body k0 elide)
-  (let ((np (lenl fs)) (pm (pmap-fr fs 0)))
+(define compile-fn (lambda (nm lbl fs body k0 elide gfns)
+  (let ((np (lenl fs)) (pm (cons (cons "$GFNS" gfns) (pmap-fr fs 0))))
     (let ((bf (ltail body pm nm np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (let ((preamble (append (ploads fs 0) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil)))))
           (cons (seg-files preamble blk 0 (b-npc bf) lbl) k0)))))))
 ;; a lifted closure sub: formals from frame slots (ploads), captured vars from the record (cap-loads via CLO).
-(define compile-clambda (lambda (name lf cap body)
-  (let ((np (lenl lf)) (pm (pmap-fr (append lf cap) 0)) (lbl (mangle (symbol->string name))))
+(define compile-clambda (lambda (name lf cap body gfns)
+  (let ((np (lenl lf)) (pm (cons (cons "$GFNS" gfns) (pmap-fr (append lf cap) 0))) (lbl (mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (let ((preamble (append (ploads lf 0) (append (cap-loads cap np) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil))))))
@@ -516,7 +522,7 @@
 ;; header), so those survive every reset. nextk is read out BEFORE hreset (the cf pair
 ;; lives above base and is reclaimed; the k value it holds is an immediate, so it's safe
 ;; to carry across the reset).
-(define cp (lambda (forms cmdpath lisppath k elide)
+(define cp (lambda (forms cmdpath lisppath k elide gfns)
   (if (null? forms) (quote done)
     (begin
       ;; reclaim the PREVIOUS function's codegen garbage. At cp's entry the prior cf
@@ -528,25 +534,25 @@
         ;; lifted closure sub -> its own <label>.cmd files; NO residual bind (called via K:).
         (let ((ce (caddr (car forms))))
           (begin
-            (write-segs (compile-clambda (cadr (car forms)) (cadr ce) (caddr ce) (cadddr ce)) cmdpath)
-            (cp (cdr forms) cmdpath lisppath k elide)))
+            (write-segs (compile-clambda (cadr (car forms)) (cadr ce) (caddr ce) (cadddr ce) gfns) cmdpath)
+            (cp (cdr forms) cmdpath lisppath k elide gfns)))
       (if (def-lambda? (car forms))
         (let ((lbl (mangle (symbol->string (cadr (car forms))))))
-          (let ((cf (compile-fn (cadr (car forms)) lbl (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide)))
+          (let ((cf (compile-fn (cadr (car forms)) lbl (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide gfns)))
             (let ((nextk (cdr cf)))
               (begin
                 ;; multi-file: write THIS fn to its own <cmddir>/<label>.cmd (write-lines
                 ;; truncates -> one file per fn). cmdpath is the output DIRECTORY now.
                 (write-segs (car cf) cmdpath)
                 (append-lines lisppath (cons (show (resid-bind (cadr (car forms)))) nil))
-                (cp (cdr forms) cmdpath lisppath nextk elide)))))
+                (cp (cdr forms) cmdpath lisppath nextk elide gfns)))))
         ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
         ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
         (if (atom-const? (car forms))
-          (cp (cdr forms) cmdpath lisppath k elide)
+          (cp (cdr forms) cmdpath lisppath k elide gfns)
           (begin
             (append-lines lisppath (cons (show (car forms)) nil))
-            (cp (cdr forms) cmdpath lisppath k elide)))))))))
+            (cp (cdr forms) cmdpath lisppath k elide gfns)))))))))
 ;; a top-level (define X <atom>) -> a constant compiled fns read as G_X. (Only
 ;; atoms: a list-valued constant would rebuild itself on the heap every dispatch.)
 (define atom-const? (lambda (f)
@@ -660,6 +666,8 @@
 (define clean-fix (lambda (adj clean) (let ((r (clean-pass adj clean nil))) (if (cdr r) (clean-fix adj (car r)) (car r)))))
 ;; the elide-set is threaded to cexpr via a string-keyed marker in pmap (pvars skips it).
 (define elide-of (lambda (pm) (let ((e (assoc "$ELIDE" pm))) (if (null? e) nil (cdr e)))))
+;; the known-fns set rides in pmap under "$GFNS" (string key -> pvars skips it, like $ELIDE).
+(define gfns-of (lambda (pm) (let ((e (assoc "$GFNS" pm))) (if (null? e) nil (cdr e)))))
 (define compile-program (lambda (forms cmdpath lisppath)
   ;; mexpand derived forms first, THEN lambda-lift (hoist inline lambdas -> clambda subs +
   ;; make-closure sites). lift after mexpand so cond/let/etc are already core when fv runs.
@@ -672,4 +680,4 @@
       ;; is unnecessary; pass nil and skip it.
       (write-lines (str cmdpath "/_consts.cmd") (const-inits ms))
       (write-lines lisppath nil)
-      (cp ms cmdpath lisppath 0 nil)))))
+      (cp ms cmdpath lisppath 0 nil (defnames ms))))))

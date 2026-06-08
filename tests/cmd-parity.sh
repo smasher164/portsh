@@ -86,6 +86,9 @@ cat > "$work/corpus.forms" <<'LISP'
 (define t_cwhen (lambda (x) (when (< x 5) (quote small))))
 (define t_cunless (lambda (x) (unless (< x 5) (quote big))))
 (define t_cor (lambda (a b) (or a b)))
+(define t_hofmap (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (t_hofmap f (cdr xs))))))
+(define t_hofdbl (lambda (x) (* x 2)))
+(define t_hofuse (lambda () (t_hofmap t_hofdbl (cons 1 (cons 2 nil)))))
 LISP
 
 # ---- reference: comp.sh (local) ----

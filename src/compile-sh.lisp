@@ -114,7 +114,13 @@
     ((eq? f (quote nil)) (cons b (cons (quote cst) "NIL")))
     ((eq? f (quote t)) (cons b (cons (quote cst) "S:t")))
     ((string? f) (cons b (cons (quote cst) (str "T:" (sh-esc f)))))
-    ((symbol? f) (let ((p (lookup f pmap))) (if (null? p) (cons b (cons (quote loc) (str "G_" (symbol->string f)))) (cons b (cons (quote loc) p)))))   ; pmap miss -> global constant G_<name>
+    ((symbol? f) (let ((p (lookup f pmap)))
+       (if (null? p)
+         ;; pmap miss: a KNOWN top-level fn used as a VALUE -> first-class C:<label> fn-value
+         ;; (the global analog of a local closure's K:<idx>); else a global constant G_<name>.
+         (if (mem? f (lookup (quote __gfns) pmap)) (cons b (cons (quote cst) (str "C:" (sh-mangle (symbol->string f)))))
+           (cons b (cons (quote loc) (str "G_" (symbol->string f)))))
+         (cons b (cons (quote loc) p)))))
     ((arith? (car f))
       (let ((ra (lval (car (cdr f)) pmap b live)))
         (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) (let ((v (rvar (cdr ra)))) (if (null? v) live (cons v live))))))
@@ -314,8 +320,8 @@
 (define cap-loads (lambda (cap np)
   (if (null? cap) nil (cons (str "hp_cdr " (dq) "P:${CLO}" (dq)) (cons (str "_cl=" (dq) "${R}" (dq)) (cap-loads-go cap np))))))
 ;; a lifted closure sub: formals from frame slots, captured vars from the record (via CLO).
-(define compile-clambda (lambda (name lf cap body)
-  (let ((np (lenl lf)) (pm (pmap-fr (append lf cap) 0)) (mn (sh-mangle (symbol->string name))))
+(define compile-clambda (lambda (name lf cap body gfns)
+  (let ((np (lenl lf)) (pm (cons (cons (quote __gfns) gfns) (pmap-fr (append lf cap) 0))) (mn (sh-mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (append (cons (str "SIZE_" mn "=" (number->string fsz))
@@ -336,8 +342,8 @@
             (cons (list (quote define) nm (list (quote lambda) lf (car r)))
                   (append (car (cdr r)) (lift-program (cdr forms) (car (cdr (cdr r))))))))
         (cons d (lift-program (cdr forms) ctr)))))))
-(define compile-fn-bb (lambda (name params body)
-  (let ((np (lenl params)) (pm (pmap-fr params 0)) (mn (sh-mangle (symbol->string name))))
+(define compile-fn-bb (lambda (name params body gfns)
+  (let ((np (lenl params)) (pm (cons (cons (quote __gfns) gfns) (pmap-fr params 0))) (mn (sh-mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (append (cons (str "SIZE_" mn "=" (number->string fsz))
@@ -346,16 +352,25 @@
                       (cons (str "FTOP=$((FP + SIZE_" mn "))")
                         (cons (str "NP=" (number->string np)) (cons "case $PC in" (caseblocks blk 0 (b-npc bf))))))))
                 (list "esac; }")))))))
-(define compile-def-sh (lambda (d)
+(define compile-def-sh (lambda (d gfns)
   (if (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote clambda)) nil)
-    (compile-clambda (car (cdr d)) (car (cdr (car (cdr (cdr d))))) (car (cdr (cdr (car (cdr (cdr d)))))) (car (cdr (cdr (cdr (car (cdr (cdr d))))))))
-    (compile-fn-bb (car (cdr d)) (car (cdr (car (cdr (cdr d))))) (car (cdr (cdr (car (cdr (cdr d))))))))))
+    (compile-clambda (car (cdr d)) (car (cdr (car (cdr (cdr d))))) (car (cdr (cdr (car (cdr (cdr d)))))) (car (cdr (cdr (cdr (car (cdr (cdr d))))))) gfns)
+    (compile-fn-bb (car (cdr d)) (car (cdr (car (cdr (cdr d))))) (car (cdr (cdr (car (cdr (cdr d)))))) gfns))))
+;; gfn-names: top-level fn names (defines whose body is a lambda) -> the known-fns set; a
+;; reference to one of these in VALUE position compiles to a C:<label> first-class fn-value.
+(define gfn-names (lambda (forms)
+  (if (null? forms) nil
+    (let ((d (car forms)))
+      (if (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil)
+        (cons (car (cdr d)) (gfn-names (cdr forms)))
+        (gfn-names (cdr forms)))))))
 ;; whole-program entry (for the native sh-emitter, comp-sh.sh): lambda-lift, then per top-level
 ;; form emit either a compiled fn (lambda/clambda body) or a G_<name> constant init (atom body),
 ;; concatenated. Mirrors tools/bootstrap-comp.sh's gen1 but over the whole program in one process.
 (define cval-sh (lambda (v) (cond ((string? v) (str "T:" v)) ((number? v) (str "I:" (number->string v))) (t (str "S:" (symbol->string v))))))
-(define gen1-sh (lambda (f)
-  (if (pair? (car (cdr (cdr f)))) (compile-def-sh f)
+(define gen1-sh (lambda (f gfns)
+  (if (pair? (car (cdr (cdr f)))) (compile-def-sh f gfns)
     (list (str "G_" (symbol->string (car (cdr f))) "='" (cval-sh (car (cdr (cdr f)))) "'")))))
-(define compile-all-sh (lambda (fs) (if (null? fs) nil (append (gen1-sh (car fs)) (compile-all-sh (cdr fs))))))
-(define compile-program-sh (lambda (forms outpath) (write-lines outpath (compile-all-sh (lift-program forms 0)))))
+(define compile-all-sh (lambda (fs gfns) (if (null? fs) nil (append (gen1-sh (car fs) gfns) (compile-all-sh (cdr fs) gfns)))))
+(define compile-program-sh (lambda (forms outpath)
+  (let ((lifted (lift-program forms 0))) (write-lines outpath (compile-all-sh lifted (gfn-names lifted))))))
