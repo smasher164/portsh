@@ -51,6 +51,16 @@
 (define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote =)) "-eq") (t "?"))))
 (define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote =)) t) (t nil))))
 (define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) (t nil))))
+;; primitives inlined in CALL position have no fn value; in VALUE position (e.g. (foldr + 0 xs)) they
+;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp, compiled into the
+;; runtime) named __p_<op>. nil = not a wrappable primitive.
+(define prim-wrap (lambda (s)
+  (cond ((eq? s (quote +)) "__p_add") ((eq? s (quote -)) "__p_sub") ((eq? s (quote *)) "__p_mul")
+        ((eq? s (quote <)) "__p_lt")  ((eq? s (quote =)) "__p_neq")
+        ((eq? s (quote cons)) "__p_cons") ((eq? s (quote car)) "__p_car") ((eq? s (quote cdr)) "__p_cdr")
+        ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
+        ((eq? s (quote not)) "__p_not")
+        (t nil))))
 (define bargs (lambda (refs) (if (null? refs) "" (str " " (dq) (shval (car refs)) (dq) (bargs (cdr refs))))))
 (define sh-mangle-at (lambda (c) (cond ((eq? c "-") "_") ((eq? c ">") "zzG") ((eq? c "<") "zzL") ((eq? c "*") "zzS") ((eq? c "?") "zzQ") ((eq? c "!") "zzB") ((eq? c "=") "zzE") ((eq? c "+") "zzP") (t c))))
 (define sh-mangle-go (lambda (s i n acc) (if (= i n) acc (sh-mangle-go s (+ i 1) n (string-append acc (sh-mangle-at (substring s i 1)))))))
@@ -116,10 +126,12 @@
     ((string? f) (cons b (cons (quote cst) (str "T:" (sh-esc f)))))
     ((symbol? f) (let ((p (lookup f pmap)))
        (if (null? p)
-         ;; pmap miss: a KNOWN top-level fn used as a VALUE -> first-class C:<label> fn-value
-         ;; (the global analog of a local closure's K:<idx>); else a global constant G_<name>.
-         (if (mem? f (lookup (quote __gfns) pmap)) (cons b (cons (quote cst) (str "C:" (sh-mangle (symbol->string f)))))
-           (cons b (cons (quote loc) (str "G_" (symbol->string f)))))
+         ;; pmap miss: a primitive used as a VALUE -> C:<wrapper>; a KNOWN top-level fn used as a
+         ;; VALUE -> first-class C:<label> fn-value (global analog of a closure's K:<idx>); else a
+         ;; global constant G_<name>.
+         (if (prim-wrap f) (cons b (cons (quote cst) (str "C:" (prim-wrap f))))
+           (if (mem? f (lookup (quote __gfns) pmap)) (cons b (cons (quote cst) (str "C:" (sh-mangle (symbol->string f)))))
+             (cons b (cons (quote loc) (str "G_" (symbol->string f))))))
          (cons b (cons (quote loc) p)))))
     ((arith? (car f))
       (let ((ra (lval (car (cdr f)) pmap b live)))

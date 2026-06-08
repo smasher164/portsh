@@ -210,6 +210,15 @@
                           (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
                             (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
 (define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) (t nil))))
+;; primitives inlined in CALL position have no fn value; in VALUE position (e.g. (foldr + 0 xs)) they
+;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp) named __p_<op>.
+(define prim-wrap (lambda (s)
+  (cond ((eq? s (quote +)) "__p_add") ((eq? s (quote -)) "__p_sub") ((eq? s (quote *)) "__p_mul")
+        ((eq? s (quote <)) "__p_lt")  ((eq? s (quote =)) "__p_neq")
+        ((eq? s (quote cons)) "__p_cons") ((eq? s (quote car)) "__p_car") ((eq? s (quote cdr)) "__p_cdr")
+        ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
+        ((eq? s (quote not)) "__p_not")
+        (t nil))))
 (define aas (lambda (refs i) (if (null? refs) nil (cons (qset (str "A" (number->string i) "=" (vref (car refs)))) (aas (cdr refs) (+ i 1))))))
 (define emit-list (lambda (b lns) (if (null? lns) b (emit-list (emit b (car lns)) (cdr lns)))))
 (define lbuiltin (lambda (f pmap b live)
@@ -226,10 +235,11 @@
     ((string? f) (cons b (cons (quote cst) (str "T:" (enc-mc f)))))
     ((symbol? f) (let ((p (lookup f pmap)))
        (if (null? p)
-         ;; pmap miss: a KNOWN top-level fn used as a VALUE -> first-class C:<label> fn-value
-         ;; (the global analog of a closure's K:<idx>); else a global constant G_<name>.
-         (if (mem? f (gfns-of pmap)) (cons b (cons (quote cst) (str "C:" (mangle (symbol->string f)))))
-           (cons b (cons (quote val) (str "G_" (symbol->string f)))))
+         ;; pmap miss: a primitive used as a VALUE -> C:<wrapper>; a KNOWN top-level fn used as a
+         ;; VALUE -> first-class C:<label> fn-value; else a global constant G_<name>.
+         (if (prim-wrap f) (cons b (cons (quote cst) (str "C:" (prim-wrap f))))
+           (if (mem? f (gfns-of pmap)) (cons b (cons (quote cst) (str "C:" (mangle (symbol->string f)))))
+             (cons b (cons (quote val) (str "G_" (symbol->string f))))))
          (cons b (cons (quote val) p)))))
     ((arith? (car f))
       (let ((ra (lval (car (cdr f)) pmap b live)))

@@ -34,6 +34,11 @@ ck '(car (cdr (cons 1 (cons 2 (cons 3 nil)))))' '2'
 ck '(str "hello " "world")' 'hello world'
 ck '(null? nil)' 't'
 ck '(pair? (cons 1 2))' 't'
+# primitives as first-class VALUES (prim-wrap -> C:__p_<op>): + cons car * passed to HOFs.
+ck '(foldr + 0 (cons 1 (cons 2 (cons 3 nil))))' '6'
+ck '(foldr cons nil (cons 1 (cons 2 nil)))' '(1 2)'
+ck '(map car (cons (cons 1 2) (cons (cons 3 4) nil)))' '(1 3)'
+ck '(foldl * 1 (cons 2 (cons 3 (cons 4 nil))))' '24'
 
 printf 'eval: ok=%d bad=%d\n' "$ok" "$bad"
 [ "$bad" -eq 0 ]

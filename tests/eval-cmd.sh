@@ -38,6 +38,10 @@ add '(car (cdr (cons 1 (cons 2 (cons 3 nil)))))' '2'
 add '(str "hello " "world")' 'hello world'
 add '(null? nil)' 't'
 add '(pair? (cons 1 2))' 't'
+add '(foldr + 0 (cons 1 (cons 2 (cons 3 nil))))' '6'
+add '(foldr cons nil (cons 1 (cons 2 nil)))' '(1 2)'
+add '(map car (cons (cons 1 2) (cons (cons 3 4) nil)))' '(1 3)'
+add '(foldl * 1 (cons 2 (cons 3 (cons 4 nil))))' '24'
 
 # deploy: comp-cmd/ (per-PC files + eval-cmd.cmd) + the thunk files, into one dir on the VM.
 tar czf "$work/run.tgz" -C comp-cmd . -C "$work" $exprs

@@ -10,10 +10,12 @@ set -eu
 cd "$(dirname "$0")"
 [ -f portsh-full.cmd ] || sh build.sh >/dev/null
 [ -f src/comp-sh-compiled.sh ] || sh build-comp-sh.sh >/dev/null
+[ -f src/prims-aot.sh ] || sh tools/build-prims-aot.sh >/dev/null
 
 {
   tr -d '\r' < portsh-full.cmd | awk 'NR==1{next} /^main "\$@"$/{exit} {print}'
   cat src/comp-sh-compiled.sh
+  cat src/prims-aot.sh                 # primitive value-wrappers (__p_add/__p_cons/... for (foldr + 0 xs))
   cat src/stdlib-aot.sh                # AOT-compiled applicative stdlib (map/foldl/filter/assoc/...)
   cat <<'DRV'
 
