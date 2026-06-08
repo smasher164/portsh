@@ -209,7 +209,7 @@
                         (let ((b7 (emit b6 (str ":" tk))))
                           (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
                             (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
-(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) (t nil))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) (t nil))))
 ;; primitives inlined in CALL position have no fn value; in VALUE position (e.g. (foldr + 0 xs)) they
 ;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp) named __p_<op>.
 (define prim-wrap (lambda (s)

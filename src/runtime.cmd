@@ -80,3 +80,102 @@ set "wd=%wcar:@B1@=!%"
 >>%~1 echo(
 endlocal
 goto :eof
+rem :print -- A1 = a tagged value. Render it (byte-identical to the interpreter's print /
+rem the sh JIT's _relem) into R, then decode sentinels and emit to STDOUT + newline; R=NIL.
+rem :pr_write/:pr_list mirror the kernel's lisp_write/render_list but (a) read car/cdr via
+rem :rdfield (file heap) instead of hp_car/hp_cdr, and (b) render DOTTED pairs ((a . b)) and
+rem closures (<closure>/<fn:..>) like the sh side -- the kernel's render_list omits dotted-tail
+rem handling (a latent sh/cmd print divergence); this is the corrected canonical renderer. The
+rem emit mirrors pa_print exactly: @B2@->'%' (delayed), then @B7@->'^' and @B1@->'!' (disabled),
+rem a QUOTED set/p (operators & | < > ^ ( ) pass verbatim), then a newline.
+:print
+call :pr_write 0 "!A1!"
+if not defined R goto pr_nl
+setlocal enableDelayedExpansion
+set "pdec=!R:@B2@=%%!"
+endlocal & set "pcar=%pdec%"
+setlocal disableDelayedExpansion
+set "pout=%pcar:@B7@=^%"
+set "pout=%pout:@B1@=!%"
+<nul set /p "=%pout%"
+endlocal
+:pr_nl
+echo(
+set "R=NIL"
+goto :eof
+:pr_write
+set "lwV=%~2"
+if "!lwV!"=="NIL" set "R=()" & goto :eof
+set "lwPre=!lwV:~0,2!"
+if "!lwPre!"=="I:" set "R=!lwV:~2!" & goto :eof
+if "!lwPre!"=="S:" set "R=!lwV:~2!" & goto :eof
+if "!lwPre!"=="T:" set "R=!lwV:~2!" & goto :eof
+if "!lwPre!"=="K:" set "R=<closure>" & goto :eof
+if "!lwPre!"=="C:" set "R=<fn:!lwV:~2!>" & goto :eof
+if "!lwPre!"=="P:" goto pr_pair
+set "R=#<obj>" & goto :eof
+:pr_pair
+set /a PRND=%1+1 & call :pr_list !PRND! "%~2"
+set "R=(!R!)"
+goto :eof
+:pr_list
+set "_pw%1_lst=%~2"
+set "_pw%1_acc="
+set "_pw%1_first=1"
+:prl2
+set "_pw%1_i=!_pw%1_lst:~2!"
+call :rdfield car !_pw%1_i!
+set /a PRND=%1+1 & call :pr_write !PRND! "!R!"
+if "!_pw%1_first!"=="1" (set "_pw%1_acc=!R!") else (set "_pw%1_acc=!_pw%1_acc! !R!")
+set "_pw%1_first=0"
+call :rdfield cdr !_pw%1_i!
+set "_pw%1_tl=!R!"
+if "!_pw%1_tl!"=="NIL" set "R=!_pw%1_acc!" & goto :eof
+if "!_pw%1_tl:~0,2!"=="P:" set "_pw%1_lst=!_pw%1_tl!" & goto prl2
+set /a PRND=%1+1 & call :pr_write !PRND! "!_pw%1_tl!"
+set "R=!_pw%1_acc! . !R!"
+goto :eof
+rem :read-lines -- A1 = path (T:..). Read each line -> a list of T: cells, in file order.
+rem Mirrors the kernel's read-lines (pa_rdlines): `type file | find /v /n ""` prefixes every
+rem line with "[N]" (so blank/';'-leading lines survive for/f), strip it with !rlLn:*]=!, cons
+rem each onto an accumulator, then reverse. Cells are allocated like the codegen's cons (bump
+rem HN, write car/cdr at %HN% with the trailing guard byte '#'). KNOWN GAP (identical to :ev):
+rem for/f eats a literal '!' in file content (delayed expansion) -- a separately-tracked sh/cmd
+rem read-lines divergence, not introduced here.
+:read-lines
+set "rlF=!A1:~2!"
+set "rlF=!rlF:/=\!"
+set "rlAcc=NIL"
+type "!rlF!" | find /v /n "" > "%TEMP%\portsh_rl.txt"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl.txt") do (
+  set "rlLn=%%L" & set "rlLn=!rlLn:*]=!"
+  call :rl_cons "T:!rlLn!" "!rlAcc!"
+  set "rlAcc=!R!"
+)
+call :rl_reverse "!rlAcc!"
+goto :eof
+:rl_cons
+set "hca=%~1" & set "hcd=%~2"
+set /a HN+=1
+>%HD%\car%HN% echo(!hca!#
+>%HD%\cdr%HN% echo(!hcd!#
+set "R=P:%HN%"
+goto :eof
+:rl_reverse
+set "lrL=%~1" & set "lrAcc=NIL"
+:rl_lr
+if "!lrL!"=="NIL" set "R=!lrAcc!" & goto :eof
+set "lr_i=!lrL:~2!"
+call :rdfield car !lr_i!
+set "lr_hd=!R!"
+call :rdfield cdr !lr_i!
+set "lrL=!R!"
+call :rl_cons "!lr_hd!" "!lrAcc!"
+set "lrAcc=!R!"
+goto rl_lr
+rem :file-existszzQ -- A1 = path (T:..). R = S:t if it exists, else NIL. Matches pa_fex (no
+rem slash normalisation -- consistent with the interpreter; write-lines normalises, fex does not).
+:file-existszzQ
+set "fexP=!A1:~2!"
+if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
+goto :eof

@@ -1114,15 +1114,21 @@ set "_%1_lst=%~2"
 set "_%1_acc="
 set "_%1_first=1"
 :rl2
-if "!_%1_lst!"=="NIL" set "R=!_%1_acc!" & goto :eof
 call :hp_car "!_%1_lst!"
 set /a ND=%1+1 & call :lisp_write !ND! "!R!"
 set "_%1_piece=!R!"
 if "!_%1_first!"=="1" (set "_%1_acc=!_%1_piece!") else (set "_%1_acc=!_%1_acc! !_%1_piece!")
 set "_%1_first=0"
 call :hp_cdr "!_%1_lst!"
-set "_%1_lst=!R!"
-goto rl2
+set "_%1_tl=!R!"
+rem proper-list end -> done; another pair -> keep walking; atom tail -> emit " . tail" (dotted).
+rem (render_list previously dropped the dotted tail, rendering (a . b) as "(a ())" -- a sh/cmd
+rem print divergence; this matches the sh kernel's lisp_write and both JIT renderers.)
+if "!_%1_tl!"=="NIL" set "R=!_%1_acc!" & goto :eof
+if "!_%1_tl:~0,2!"=="P:" set "_%1_lst=!_%1_tl!" & goto rl2
+set /a ND=%1+1 & call :lisp_write !ND! "!_%1_tl!"
+set "R=!_%1_acc! . !R!"
+goto :eof
 
 rem ================================ bootstrap ================================
 :setup_global
