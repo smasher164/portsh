@@ -47,7 +47,7 @@
 (define nth (lambda (xs n) (car (list-tail xs n))))
 ;; take/drop: first n / all-but-first n.
 (define take (lambda (xs n) (if (= n 0) nil (if (null? xs) nil (cons (car xs) (take (cdr xs) (- n 1)))))))
-(define drop list-tail)
+(define drop (lambda (xs n) (list-tail xs n)))
 ;; member?: t if x is in xs (uses eq?, i.e. symbol/int/nil identity).
 (define member? (lambda (x xs)
   (if (null? xs) nil
@@ -64,7 +64,7 @@
   (if (null? xs) nil
     (cons (f (car xs) (car ys)) (map2 f (cdr xs) (cdr ys))))))
 ;; zip: list of (x . y) pairs from two lists.
-(define zip (lambda (xs ys) (map2 cons xs ys)))
+(define zip (lambda (xs ys) (map2 (lambda (a b) (cons a b)) xs ys)))
 (define filter (lambda (p xs)
   (if (null? xs) nil
     (if (p (car xs)) (cons (car xs) (filter p (cdr xs))) (filter p (cdr xs))))))
@@ -93,8 +93,8 @@
 (define max (lambda (a b) (if (< a b) b a)))
 (define min (lambda (a b) (if (< a b) a b)))
 ;; sum/product over a list (handy for counting build steps, etc.)
-(define sum     (lambda (xs) (foldl + 0 xs)))
-(define product (lambda (xs) (foldl * 1 xs)))
+(define sum     (lambda (xs) (foldl (lambda (a x) (+ a x)) 0 xs)))
+(define product (lambda (xs) (foldl (lambda (a x) (* a x)) 1 xs)))
 
 ;;; --------------------------------------------- control-flow operatives (vau)
 ;; and/or RETURN THE VALUE (not just t) and short-circuit.
