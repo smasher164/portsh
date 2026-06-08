@@ -5393,6 +5393,27 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 6)
+if [ "${p0}" = "S:print" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="S:t"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:read-lines" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+9)
+R="S:t"; ACTION=ret; return
+;;
+10)
+if [ "${p0}" = "S:file-exists?" ]; then PC=11; else PC=12; fi
+ACTION=jump; return
+;;
+11)
+R="S:t"; ACTION=ret; return
+;;
+12)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }

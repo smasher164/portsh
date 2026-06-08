@@ -32,6 +32,15 @@ print()          { _relem "$1"; printf '\n'; R=NIL; }
 read_lines()     { _f=${1#T:}; _acc=NIL; while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
                    _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; }
 file_existszzQ() { [ -e "${1#T:}" ] && R="S:t" || R=NIL; }
+# run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
+# read). $1 is the joined host command (run/run-capture) or the source string (read_str).
+run_cmd()     { sh -c "$1"; R="I:$?"; }
+run_capture() { _rc_out=$(sh -c "$1"); _rc_acc=NIL
+while IFS= read -r _rc_ln || [ -n "$_rc_ln" ]; do hp_cons "T:$_rc_ln" "$_rc_acc"; _rc_acc=$R; done <<RC_EOF
+$_rc_out
+RC_EOF
+_rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev; }
+read_str()    { _rd_save=$SRC; SRC=${1#T:}; rd_expr; _rd_v=$R; SRC=$_rd_save; R=$_rd_v; }
 drive() {
   while [ "$CURFN" != HALT ]; do
     ACTION=; eval "$CURFN"

@@ -19,10 +19,11 @@
 (define fv (lambda (f bound acc)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) acc
-      (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
-        (if (eq? (car f) (quote let))
-          (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
-          (fv-list f bound acc))))
+      (if (runop? (car f)) acc
+        (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
+          (if (eq? (car f) (quote let))
+            (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
+            (fv-list f bound acc)))))
     (if (symbol? f) (if (mem? f bound) acc (set-add f acc)) acc))))
 ;; lambda-lift: hoist each inline (lambda lf lb) to a top-level (define __lamN (clambda lf cap lb))
 ;; and replace it with (make-closure (quote __lamN) cap...). cap = free vars of the lambda that are
@@ -38,19 +39,26 @@
 (define lift (lambda (f bound ctr)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) (list f nil ctr)
+     (if (runop? (car f)) (list f nil ctr)
       (if (eq? (car f) (quote lambda))
         (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (car (cdr f)) bound) ctr)))
           (let ((cap (keep-bound (fv (car rb) lf nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
             (list (cons (quote make-closure) (cons (list (quote quote) name) cap))
                   (append (car (cdr rb)) (list (list (quote define) name (list (quote clambda) lf cap (car rb)))))
                   (+ (car (cdr (cdr rb))) 1))))
-        (lift-list f bound ctr)))
+        (lift-list f bound ctr))))
     (list f nil ctr))))
 (define arith? (lambda (o) (if (eq? o (quote +)) t (if (eq? o (quote -)) t (eq? o (quote *))))))
 (define shop (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
 (define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote =)) "-eq") (t "?"))))
 (define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote =)) t) (t nil))))
-(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) (t nil))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) (t nil))))
+;; runtime fn name for a builtin: usually the mangle, but `read` would shadow the shell `read`
+;; builtin (the driver uses it), so the read primitive's runtime fn is read_str.
+(define brt (lambda (o) (if (eq? o (quote read)) "read_str" (sh-mangle (symbol->string o)))))
+;; run / run-capture are OPERATIVES: operands are unevaluated literal tokens joined into a host
+;; command (matching the interpreter's prim_oper). So fv/lift must SKIP their operands (like quote).
+(define runop? (lambda (o) (if (eq? o (quote run)) t (eq? o (quote run-capture)))))
 ;; primitives inlined in CALL position have no fn value; in VALUE position (e.g. (foldr + 0 xs)) they
 ;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp, compiled into the
 ;; runtime) named __p_<op>. nil = not a wrappable primitive.
@@ -190,9 +198,20 @@
     ((pred? (car f))
       (let ((rt (ctest f pmap b live))) (let ((tmp (tmpn (car rt))))
         (cons (bk+ (emit (emit (emit (emit (emit (car rt) (str "if " (cdr rt) "; then")) (str tmp "=" (dq) "S:t" (dq))) "else") (str tmp "=" (dq) "NIL" (dq))) "fi")) (cons (quote loc) tmp)))))
+    ((eq? (car f) (quote run))
+      ;; operative: join literal operand tokens -> host command; run_cmd sets R="I:$?".
+      (let ((tmp (tmpn b)))
+        (cons (bk+ (emit (emit b (str "run_cmd " (dq) (run-esc (join-toks (cdr f))) (dq))) (str tmp "=" (dq) "${R}" (dq)))) (cons (quote loc) tmp))))
+    ((eq? (car f) (quote run-capture))
+      ;; operative: run the joined command, capture stdout as a line-list. Allocates heap cells, so
+      ;; protect live temps across the call (spill/unspill) exactly like the builtin? path.
+      (let ((tmp (tmpn b)))
+        (cons (bk+ (bsm (emit (unspill (emit (spill b live 0) (str "run_capture " (dq) (run-esc (join-toks (cdr f))) (dq))) live 0)
+                              (str tmp "=" (dq) "${R}" (dq))) (lenl live)))
+              (cons (quote loc) tmp))))
     ((builtin? (car f))
       (let ((ar (largs (cdr f) pmap b live)))
-        (let ((mn (sh-mangle (symbol->string (car f)))) (tmp (tmpn (car ar))))
+        (let ((mn (brt (car f))) (tmp (tmpn (car ar))))
           (cons (bk+ (bsm (emit (unspill (emit (spill (car ar) live 0) (str mn (bargs (cdr ar)))) live 0)
                                 (str tmp "=" (dq) "${R}" (dq))) (lenl live)))
                 (cons (quote loc) tmp)))))
@@ -249,6 +268,19 @@
 (define sh-esc-at (lambda (c) (if (eq? c "$") "\$" (if (eq? c (bsl)) (string-append (bsl) (bsl)) c))))
 (define sh-esc-go (lambda (s i n acc) (if (= i n) acc (sh-esc-go s (+ i 1) n (string-append acc (sh-esc-at (substring s i 1)))))))
 (define sh-esc (lambda (s) (sh-esc-go s 0 (string-length s) "")))
+;; run / run-capture: join the unevaluated operand tokens into ONE host command string (mirrors the
+;; interpreter's prim_oper, which concatenates ${tok#?:} of each operand with a leading space). The
+;; tokens are literal atoms, so we build the command at COMPILE time. tok-text strips the datum to its
+;; printed text (symbol/number text, string contents -- no quotes), matching the interpreter's tag-strip.
+(define tok-text (lambda (o) (cond ((symbol? o) (symbol->string o)) ((string? o) o) ((number? o) (number->string o)) (t ""))))
+(define join-toks (lambda (os) (if (null? os) "" (str " " (tok-text (car os)) (join-toks (cdr os))))))
+;; escape a command string for the emitted  run_cmd "<cmd>"  double-quoted literal so the RAW command
+;; text reaches the runtime helper's $1 (where  sh -c "$1"  then interprets the user's operators/$VARs,
+;; exactly like the interpreter's  sh -c "$po_cmd" ). Escapes \ $ " ; backtick is left as-is (rare, a
+;; documented minor gap akin to read-lines' '!').
+(define run-esc-at (lambda (c) (cond ((eq? c (bsl)) (str (bsl) (bsl))) ((eq? c "$") "\$") ((eq? c (dq)) (eqt)) (t c))))
+(define run-esc-go (lambda (s i n acc) (if (= i n) acc (run-esc-go s (+ i 1) n (string-append acc (run-esc-at (substring s i 1)))))))
+(define run-esc (lambda (s) (run-esc-go s 0 (string-length s) "")))
 (define dsg-str  (lambda (es) (if (null? es) "" (if (null? (cdr es)) (car es) (list (quote string-append) (car es) (dsg-str (cdr es)))))))
 (define dsg-list (lambda (es) (if (null? es) (quote nil) (list (quote cons) (car es) (dsg-list (cdr es))))))
 (define dsg-and  (lambda (es) (if (null? es) (quote t)   (if (null? (cdr es)) (car es) (list (quote if) (car es) (dsg-and (cdr es)) (quote nil))))))

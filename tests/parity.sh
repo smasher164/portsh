@@ -38,5 +38,10 @@ ck ''                                              '(apply (lambda (a b c) (+ a 
 ck ''                                              '(map (lambda (x) (* x x)) (cons 1 (cons 2 (cons 3 nil))))' '(1 4 9)'
 ck ''                                              '(reverse (cons 1 (cons 2 (cons 3 nil))))'         '(3 2 1)'
 ck ''                                              '(length (filter (lambda (x) (< x 3)) (cons 1 (cons 2 (cons 3 nil)))))' '2'
+ck ''                                              '(read "(a b c)")'                                 '(a b c)'
+ck ''                                              '(read "42")'                                      '42'
+ck ''                                              '(read "(nested (1 2) x)")'                        '(nested (1 2) x)'
+ck ''                                              '(run-capture echo hi)'                            '(hi)'
+ck ''                                              '(run-capture echo a b c)'                         '(a b c)'
 printf 'parity(sh :ev==JIT): ok=%d bad=%d\n' "$ok" "$bad"
 [ "$bad" -eq 0 ]

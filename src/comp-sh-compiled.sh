@@ -356,7 +356,7 @@ if [ "${sht0}" = "S:quote" ]; then PC=3; else PC=4; fi
 ACTION=jump; return
 ;;
 2)
-if [ "${p0#S:}" != "${p0}" ]; then PC=14; else PC=15; fi
+if [ "${p0#S:}" != "${p0}" ]; then PC=17; else PC=18; fi
 ACTION=jump; return
 ;;
 3)
@@ -365,133 +365,149 @@ R="${p2}"; ACTION=ret; return
 4)
 hp_car "${p0}"
 sht1="${R}"
-if [ "${sht1}" = "S:lambda" ]; then PC=5; else PC=6; fi
-ACTION=jump; return
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht1}\""
+CALLEE=runopzzQ
+RPC=5; ACTION=call; return
 ;;
 5)
-hp_cdr "${p0}"
 sht2="${R}"
-hp_cdr "${sht2}"
-sht3="${R}"
-hp_car "${sht3}"
-sht4="${R}"
-hp_cdr "${p0}"
-sht5="${R}"
-hp_car "${sht5}"
-sht6="${R}"
-eval "F$((FP+NP+0))=\"\${sht4}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht6}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=append
-RPC=7; ACTION=call; return
-;;
-6)
-hp_car "${p0}"
-sht8="${R}"
-if [ "${sht8}" = "S:let" ]; then PC=8; else PC=9; fi
+if [ "${sht2}" != NIL ]; then PC=6; else PC=7; fi
 ACTION=jump; return
 ;;
+6)
+R="${p2}"; ACTION=ret; return
+;;
 7)
-eval "sht4=\"\$F$((FP+NP+0))\""
-sht7="${R}"
-eval "F$((FP+0))=\"\${sht4}\""
-eval "F$((FP+1))=\"\${sht7}\""
-eval "F$((FP+2))=\"\${p2}\""
-PC=0; ACTION=tail; return
+hp_car "${p0}"
+sht3="${R}"
+if [ "${sht3}" = "S:lambda" ]; then PC=8; else PC=9; fi
+ACTION=jump; return
 ;;
 8)
 hp_cdr "${p0}"
-sht9="${R}"
-hp_cdr "${sht9}"
-sht10="${R}"
-hp_car "${sht10}"
-sht11="${R}"
+sht4="${R}"
+hp_cdr "${sht4}"
+sht5="${R}"
+hp_car "${sht5}"
+sht6="${R}"
 hp_cdr "${p0}"
-sht12="${R}"
-hp_car "${sht12}"
-sht13="${R}"
-eval "F$((FP+NP+0))=\"\${sht11}\""
+sht7="${R}"
+hp_car "${sht7}"
+sht8="${R}"
+eval "F$((FP+NP+0))=\"\${sht6}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
-CALLEE=lv_names
+eval "F$((NFP+0))=\"\${sht8}\""
+eval "F$((NFP+1))=\"\${p1}\""
+CALLEE=append
 RPC=10; ACTION=call; return
 ;;
 9)
+hp_car "${p0}"
+sht10="${R}"
+if [ "${sht10}" = "S:let" ]; then PC=11; else PC=12; fi
+ACTION=jump; return
+;;
+10)
+eval "sht6=\"\$F$((FP+NP+0))\""
+sht9="${R}"
+eval "F$((FP+0))=\"\${sht6}\""
+eval "F$((FP+1))=\"\${sht9}\""
+eval "F$((FP+2))=\"\${p2}\""
+PC=0; ACTION=tail; return
+;;
+11)
+hp_cdr "${p0}"
+sht11="${R}"
+hp_cdr "${sht11}"
+sht12="${R}"
+hp_car "${sht12}"
+sht13="${R}"
+hp_cdr "${p0}"
+sht14="${R}"
+hp_car "${sht14}"
+sht15="${R}"
+eval "F$((FP+NP+0))=\"\${sht13}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht15}\""
+CALLEE=lv_names
+RPC=13; ACTION=call; return
+;;
+12)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 CALLEE=fv_list
-RPC=13; ACTION=call; return
+RPC=16; ACTION=call; return
 ;;
-10)
-eval "sht11=\"\$F$((FP+NP+0))\""
-sht14="${R}"
-eval "F$((FP+NP+0))=\"\${sht11}\""
+13)
+eval "sht13=\"\$F$((FP+NP+0))\""
+sht16="${R}"
+eval "F$((FP+NP+0))=\"\${sht13}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht14}\""
+eval "F$((NFP+0))=\"\${sht16}\""
 eval "F$((NFP+1))=\"\${p1}\""
 CALLEE=append
-RPC=11; ACTION=call; return
+RPC=14; ACTION=call; return
 ;;
-11)
-eval "sht11=\"\$F$((FP+NP+0))\""
-sht15="${R}"
-hp_cdr "${p0}"
-sht16="${R}"
-hp_car "${sht16}"
+14)
+eval "sht13=\"\$F$((FP+NP+0))\""
 sht17="${R}"
-eval "F$((FP+NP+0))=\"\${sht15}\""
-eval "F$((FP+NP+1))=\"\${sht11}\""
+hp_cdr "${p0}"
+sht18="${R}"
+hp_car "${sht18}"
+sht19="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht13}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht17}\""
+eval "F$((NFP+0))=\"\${sht19}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 CALLEE=fv_binds
-RPC=12; ACTION=call; return
+RPC=15; ACTION=call; return
 ;;
-12)
-eval "sht15=\"\$F$((FP+NP+0))\""
-eval "sht11=\"\$F$((FP+NP+1))\""
-sht18="${R}"
-eval "F$((FP+0))=\"\${sht11}\""
-eval "F$((FP+1))=\"\${sht15}\""
-eval "F$((FP+2))=\"\${sht18}\""
+15)
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht13=\"\$F$((FP+NP+1))\""
+sht20="${R}"
+eval "F$((FP+0))=\"\${sht13}\""
+eval "F$((FP+1))=\"\${sht17}\""
+eval "F$((FP+2))=\"\${sht20}\""
 PC=0; ACTION=tail; return
 ;;
-13)
-sht19="${R}"
-R="${sht19}"; ACTION=ret; return
+16)
+sht21="${R}"
+R="${sht21}"; ACTION=ret; return
 ;;
-14)
+17)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 CALLEE=memzzQ
-RPC=16; ACTION=call; return
-;;
-15)
-R="${p2}"; ACTION=ret; return
-;;
-16)
-sht20="${R}"
-if [ "${sht20}" != NIL ]; then PC=17; else PC=18; fi
-ACTION=jump; return
-;;
-17)
-R="${p2}"; ACTION=ret; return
+RPC=19; ACTION=call; return
 ;;
 18)
+R="${p2}"; ACTION=ret; return
+;;
+19)
+sht22="${R}"
+if [ "${sht22}" != NIL ]; then PC=20; else PC=21; fi
+ACTION=jump; return
+;;
+20)
+R="${p2}"; ACTION=ret; return
+;;
+21)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p2}\""
 CALLEE=set_add
-RPC=19; ACTION=call; return
+RPC=22; ACTION=call; return
 ;;
-19)
-sht21="${R}"
-R="${sht21}"; ACTION=ret; return
+22)
+sht23="${R}"
+R="${sht23}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_keep_bound=3
@@ -694,14 +710,14 @@ ACTION=jump; return
 eval "F$((FP+NP+0))=\"\${p0}\""
 hp_cons "${p2}" "NIL"
 eval "p0=\"\$F$((FP+NP+0))\""
-sht51="${R}"
+sht56="${R}"
 eval "F$((FP+NP+0))=\"\${p0}\""
-hp_cons "NIL" "${sht51}"
+hp_cons "NIL" "${sht56}"
 eval "p0=\"\$F$((FP+NP+0))\""
-sht52="${R}"
-hp_cons "${p0}" "${sht52}"
-sht53="${R}"
-R="${sht53}"; ACTION=ret; return
+sht57="${R}"
+hp_cons "${p0}" "${sht57}"
+sht58="${R}"
+R="${sht58}"; ACTION=ret; return
 ;;
 3)
 eval "F$((FP+NP+0))=\"\${p0}\""
@@ -719,336 +735,362 @@ R="${sht3}"; ACTION=ret; return
 4)
 hp_car "${p0}"
 sht4="${R}"
-if [ "${sht4}" = "S:lambda" ]; then PC=5; else PC=6; fi
-ACTION=jump; return
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht4}\""
+CALLEE=runopzzQ
+RPC=5; ACTION=call; return
 ;;
 5)
-hp_cdr "${p0}"
 sht5="${R}"
-hp_car "${sht5}"
-sht6="${R}"
-sht7="${sht6}"
-hp_cdr "${p0}"
-sht8="${R}"
-hp_cdr "${sht8}"
-sht9="${R}"
-hp_car "${sht9}"
-sht10="${R}"
-hp_cdr "${p0}"
-sht11="${R}"
-hp_car "${sht11}"
-sht12="${R}"
-eval "F$((FP+NP+0))=\"\${sht10}\""
-eval "F$((FP+NP+1))=\"\${sht7}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht12}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=append
-RPC=7; ACTION=call; return
+if [ "${sht5}" != NIL ]; then PC=6; else PC=7; fi
+ACTION=jump; return
 ;;
 6)
+eval "F$((FP+NP+0))=\"\${p0}\""
+hp_cons "${p2}" "NIL"
+eval "p0=\"\$F$((FP+NP+0))\""
+sht6="${R}"
+eval "F$((FP+NP+0))=\"\${p0}\""
+hp_cons "NIL" "${sht6}"
+eval "p0=\"\$F$((FP+NP+0))\""
+sht7="${R}"
+hp_cons "${p0}" "${sht7}"
+sht8="${R}"
+R="${sht8}"; ACTION=ret; return
+;;
+7)
+hp_car "${p0}"
+sht9="${R}"
+if [ "${sht9}" = "S:lambda" ]; then PC=8; else PC=9; fi
+ACTION=jump; return
+;;
+8)
+hp_cdr "${p0}"
+sht10="${R}"
+hp_car "${sht10}"
+sht11="${R}"
+sht12="${sht11}"
+hp_cdr "${p0}"
+sht13="${R}"
+hp_cdr "${sht13}"
+sht14="${R}"
+hp_car "${sht14}"
+sht15="${R}"
+hp_cdr "${p0}"
+sht16="${R}"
+hp_car "${sht16}"
+sht17="${R}"
+eval "F$((FP+NP+0))=\"\${sht15}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht17}\""
+eval "F$((NFP+1))=\"\${p1}\""
+CALLEE=append
+RPC=10; ACTION=call; return
+;;
+9)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 CALLEE=lift_list
-RPC=12; ACTION=call; return
-;;
-7)
-eval "sht10=\"\$F$((FP+NP+0))\""
-eval "sht7=\"\$F$((FP+NP+1))\""
-sht13="${R}"
-eval "F$((FP+NP+0))=\"\${sht7}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht10}\""
-eval "F$((NFP+1))=\"\${sht13}\""
-eval "F$((NFP+2))=\"\${p2}\""
-CALLEE=lift
-RPC=8; ACTION=call; return
-;;
-8)
-eval "sht7=\"\$F$((FP+NP+0))\""
-sht14="${R}"
-sht15="${sht14}"
-hp_car "${sht15}"
-sht16="${R}"
-eval "F$((FP+NP+0))=\"\${sht15}\""
-eval "F$((FP+NP+1))=\"\${sht7}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht16}\""
-eval "F$((NFP+1))=\"\${sht7}\""
-STGV="NIL"
-eval "F$((NFP+2))=\"\$STGV\""
-CALLEE=fv
-RPC=9; ACTION=call; return
-;;
-9)
-eval "sht15=\"\$F$((FP+NP+0))\""
-eval "sht7=\"\$F$((FP+NP+1))\""
-sht17="${R}"
-eval "F$((FP+NP+0))=\"\${sht15}\""
-eval "F$((FP+NP+1))=\"\${sht7}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht17}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=keep_bound
-RPC=10; ACTION=call; return
+RPC=15; ACTION=call; return
 ;;
 10)
 eval "sht15=\"\$F$((FP+NP+0))\""
-eval "sht7=\"\$F$((FP+NP+1))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
 sht18="${R}"
-sht19="${sht18}"
-hp_cdr "${sht15}"
-sht20="${R}"
-hp_cdr "${sht20}"
-sht21="${R}"
-hp_car "${sht21}"
-sht22="${R}"
-sht23="T:${sht22#??}"
-sht24="T:__lam${sht23#??}"
-sht25="S:${sht24#??}"
-sht26="${sht25}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht19}\""
-eval "F$((FP+NP+2))=\"\${sht15}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-hp_cons "${sht26}" "NIL"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht19=\"\$F$((FP+NP+1))\""
-eval "sht15=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-sht27="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht19}\""
-eval "F$((FP+NP+2))=\"\${sht15}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-hp_cons "S:quote" "${sht27}"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht19=\"\$F$((FP+NP+1))\""
-eval "sht15=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-sht28="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht19}\""
-eval "F$((FP+NP+2))=\"\${sht15}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-hp_cons "${sht28}" "${sht19}"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht19=\"\$F$((FP+NP+1))\""
-eval "sht15=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-sht29="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht19}\""
-eval "F$((FP+NP+2))=\"\${sht15}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-hp_cons "S:make-closure" "${sht29}"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht19=\"\$F$((FP+NP+1))\""
-eval "sht15=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-sht30="${R}"
-hp_cdr "${sht15}"
-sht31="${R}"
-hp_car "${sht31}"
-sht32="${R}"
-hp_car "${sht15}"
-sht33="${R}"
-eval "F$((FP+NP+0))=\"\${sht19}\""
-eval "F$((FP+NP+1))=\"\${sht7}\""
-eval "F$((FP+NP+2))=\"\${sht26}\""
-eval "F$((FP+NP+3))=\"\${sht32}\""
-eval "F$((FP+NP+4))=\"\${sht30}\""
-eval "F$((FP+NP+5))=\"\${sht26}\""
-eval "F$((FP+NP+6))=\"\${sht19}\""
-eval "F$((FP+NP+7))=\"\${sht15}\""
-eval "F$((FP+NP+8))=\"\${sht7}\""
-hp_cons "${sht33}" "NIL"
-eval "sht19=\"\$F$((FP+NP+0))\""
-eval "sht7=\"\$F$((FP+NP+1))\""
-eval "sht26=\"\$F$((FP+NP+2))\""
-eval "sht32=\"\$F$((FP+NP+3))\""
-eval "sht30=\"\$F$((FP+NP+4))\""
-eval "sht26=\"\$F$((FP+NP+5))\""
-eval "sht19=\"\$F$((FP+NP+6))\""
-eval "sht15=\"\$F$((FP+NP+7))\""
-eval "sht7=\"\$F$((FP+NP+8))\""
-sht34="${R}"
-eval "F$((FP+NP+0))=\"\${sht7}\""
-eval "F$((FP+NP+1))=\"\${sht26}\""
-eval "F$((FP+NP+2))=\"\${sht32}\""
-eval "F$((FP+NP+3))=\"\${sht30}\""
-eval "F$((FP+NP+4))=\"\${sht26}\""
-eval "F$((FP+NP+5))=\"\${sht19}\""
-eval "F$((FP+NP+6))=\"\${sht15}\""
-eval "F$((FP+NP+7))=\"\${sht7}\""
-hp_cons "${sht19}" "${sht34}"
-eval "sht7=\"\$F$((FP+NP+0))\""
-eval "sht26=\"\$F$((FP+NP+1))\""
-eval "sht32=\"\$F$((FP+NP+2))\""
-eval "sht30=\"\$F$((FP+NP+3))\""
-eval "sht26=\"\$F$((FP+NP+4))\""
-eval "sht19=\"\$F$((FP+NP+5))\""
-eval "sht15=\"\$F$((FP+NP+6))\""
-eval "sht7=\"\$F$((FP+NP+7))\""
-sht35="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
-eval "F$((FP+NP+2))=\"\${sht30}\""
-eval "F$((FP+NP+3))=\"\${sht26}\""
-eval "F$((FP+NP+4))=\"\${sht19}\""
-eval "F$((FP+NP+5))=\"\${sht15}\""
-eval "F$((FP+NP+6))=\"\${sht7}\""
-hp_cons "${sht7}" "${sht35}"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
-eval "sht30=\"\$F$((FP+NP+2))\""
-eval "sht26=\"\$F$((FP+NP+3))\""
-eval "sht19=\"\$F$((FP+NP+4))\""
-eval "sht15=\"\$F$((FP+NP+5))\""
-eval "sht7=\"\$F$((FP+NP+6))\""
-sht36="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
-eval "F$((FP+NP+2))=\"\${sht30}\""
-eval "F$((FP+NP+3))=\"\${sht26}\""
-eval "F$((FP+NP+4))=\"\${sht19}\""
-eval "F$((FP+NP+5))=\"\${sht15}\""
-eval "F$((FP+NP+6))=\"\${sht7}\""
-hp_cons "S:clambda" "${sht36}"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
-eval "sht30=\"\$F$((FP+NP+2))\""
-eval "sht26=\"\$F$((FP+NP+3))\""
-eval "sht19=\"\$F$((FP+NP+4))\""
-eval "sht15=\"\$F$((FP+NP+5))\""
-eval "sht7=\"\$F$((FP+NP+6))\""
-sht37="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
-eval "F$((FP+NP+2))=\"\${sht30}\""
-eval "F$((FP+NP+3))=\"\${sht26}\""
-eval "F$((FP+NP+4))=\"\${sht19}\""
-eval "F$((FP+NP+5))=\"\${sht15}\""
-eval "F$((FP+NP+6))=\"\${sht7}\""
-hp_cons "${sht37}" "NIL"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
-eval "sht30=\"\$F$((FP+NP+2))\""
-eval "sht26=\"\$F$((FP+NP+3))\""
-eval "sht19=\"\$F$((FP+NP+4))\""
-eval "sht15=\"\$F$((FP+NP+5))\""
-eval "sht7=\"\$F$((FP+NP+6))\""
-sht38="${R}"
-eval "F$((FP+NP+0))=\"\${sht32}\""
-eval "F$((FP+NP+1))=\"\${sht30}\""
-eval "F$((FP+NP+2))=\"\${sht26}\""
-eval "F$((FP+NP+3))=\"\${sht19}\""
-eval "F$((FP+NP+4))=\"\${sht15}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-hp_cons "${sht26}" "${sht38}"
-eval "sht32=\"\$F$((FP+NP+0))\""
-eval "sht30=\"\$F$((FP+NP+1))\""
-eval "sht26=\"\$F$((FP+NP+2))\""
-eval "sht19=\"\$F$((FP+NP+3))\""
-eval "sht15=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-sht39="${R}"
-eval "F$((FP+NP+0))=\"\${sht32}\""
-eval "F$((FP+NP+1))=\"\${sht30}\""
-eval "F$((FP+NP+2))=\"\${sht26}\""
-eval "F$((FP+NP+3))=\"\${sht19}\""
-eval "F$((FP+NP+4))=\"\${sht15}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-hp_cons "S:define" "${sht39}"
-eval "sht32=\"\$F$((FP+NP+0))\""
-eval "sht30=\"\$F$((FP+NP+1))\""
-eval "sht26=\"\$F$((FP+NP+2))\""
-eval "sht19=\"\$F$((FP+NP+3))\""
-eval "sht15=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-sht40="${R}"
-eval "F$((FP+NP+0))=\"\${sht32}\""
-eval "F$((FP+NP+1))=\"\${sht30}\""
-eval "F$((FP+NP+2))=\"\${sht26}\""
-eval "F$((FP+NP+3))=\"\${sht19}\""
-eval "F$((FP+NP+4))=\"\${sht15}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-hp_cons "${sht40}" "NIL"
-eval "sht32=\"\$F$((FP+NP+0))\""
-eval "sht30=\"\$F$((FP+NP+1))\""
-eval "sht26=\"\$F$((FP+NP+2))\""
-eval "sht19=\"\$F$((FP+NP+3))\""
-eval "sht15=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-sht41="${R}"
-eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht26}\""
-eval "F$((FP+NP+2))=\"\${sht19}\""
-eval "F$((FP+NP+3))=\"\${sht15}\""
-eval "F$((FP+NP+4))=\"\${sht7}\""
+eval "F$((FP+NP+0))=\"\${sht12}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht32}\""
-eval "F$((NFP+1))=\"\${sht41}\""
-CALLEE=append
+eval "F$((NFP+0))=\"\${sht15}\""
+eval "F$((NFP+1))=\"\${sht18}\""
+eval "F$((NFP+2))=\"\${p2}\""
+CALLEE=lift
 RPC=11; ACTION=call; return
 ;;
 11)
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht26=\"\$F$((FP+NP+1))\""
-eval "sht19=\"\$F$((FP+NP+2))\""
-eval "sht15=\"\$F$((FP+NP+3))\""
-eval "sht7=\"\$F$((FP+NP+4))\""
-sht42="${R}"
-hp_cdr "${sht15}"
-sht43="${R}"
-hp_cdr "${sht43}"
-sht44="${R}"
-hp_car "${sht44}"
-sht45="${R}"
-sht46="I:$(( ${sht45#??} + 1 ))"
-eval "F$((FP+NP+0))=\"\${sht42}\""
-eval "F$((FP+NP+1))=\"\${sht30}\""
-eval "F$((FP+NP+2))=\"\${sht26}\""
-eval "F$((FP+NP+3))=\"\${sht19}\""
-eval "F$((FP+NP+4))=\"\${sht15}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-hp_cons "${sht46}" "NIL"
-eval "sht42=\"\$F$((FP+NP+0))\""
-eval "sht30=\"\$F$((FP+NP+1))\""
-eval "sht26=\"\$F$((FP+NP+2))\""
-eval "sht19=\"\$F$((FP+NP+3))\""
-eval "sht15=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-sht47="${R}"
-eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht26}\""
-eval "F$((FP+NP+2))=\"\${sht19}\""
-eval "F$((FP+NP+3))=\"\${sht15}\""
-eval "F$((FP+NP+4))=\"\${sht7}\""
-hp_cons "${sht42}" "${sht47}"
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht26=\"\$F$((FP+NP+1))\""
-eval "sht19=\"\$F$((FP+NP+2))\""
-eval "sht15=\"\$F$((FP+NP+3))\""
-eval "sht7=\"\$F$((FP+NP+4))\""
-sht48="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht19}\""
-eval "F$((FP+NP+2))=\"\${sht15}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-hp_cons "${sht30}" "${sht48}"
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht19=\"\$F$((FP+NP+1))\""
-eval "sht15=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-sht49="${R}"
-R="${sht49}"; ACTION=ret; return
+eval "sht12=\"\$F$((FP+NP+0))\""
+sht19="${R}"
+sht20="${sht19}"
+hp_car "${sht20}"
+sht21="${R}"
+eval "F$((FP+NP+0))=\"\${sht20}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht21}\""
+eval "F$((NFP+1))=\"\${sht12}\""
+STGV="NIL"
+eval "F$((NFP+2))=\"\$STGV\""
+CALLEE=fv
+RPC=12; ACTION=call; return
 ;;
 12)
+eval "sht20=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+sht22="${R}"
+eval "F$((FP+NP+0))=\"\${sht20}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht22}\""
+eval "F$((NFP+1))=\"\${p1}\""
+CALLEE=keep_bound
+RPC=13; ACTION=call; return
+;;
+13)
+eval "sht20=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+sht23="${R}"
+sht24="${sht23}"
+hp_cdr "${sht20}"
+sht25="${R}"
+hp_cdr "${sht25}"
+sht26="${R}"
+hp_car "${sht26}"
+sht27="${R}"
+sht28="T:${sht27#??}"
+sht29="T:__lam${sht28#??}"
+sht30="S:${sht29#??}"
+sht31="${sht30}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht20}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "${sht31}" "NIL"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht20=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht32="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht20}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "S:quote" "${sht32}"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht20=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht33="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht20}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "${sht33}" "${sht24}"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht20=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht34="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht20}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "S:make-closure" "${sht34}"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht20=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht35="${R}"
+hp_cdr "${sht20}"
+sht36="${R}"
+hp_car "${sht36}"
+sht37="${R}"
+hp_car "${sht20}"
+sht38="${R}"
+eval "F$((FP+NP+0))=\"\${sht24}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht37}\""
+eval "F$((FP+NP+4))=\"\${sht35}\""
+eval "F$((FP+NP+5))=\"\${sht31}\""
+eval "F$((FP+NP+6))=\"\${sht24}\""
+eval "F$((FP+NP+7))=\"\${sht20}\""
+eval "F$((FP+NP+8))=\"\${sht12}\""
+hp_cons "${sht38}" "NIL"
+eval "sht24=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht37=\"\$F$((FP+NP+3))\""
+eval "sht35=\"\$F$((FP+NP+4))\""
+eval "sht31=\"\$F$((FP+NP+5))\""
+eval "sht24=\"\$F$((FP+NP+6))\""
+eval "sht20=\"\$F$((FP+NP+7))\""
+eval "sht12=\"\$F$((FP+NP+8))\""
+sht39="${R}"
+eval "F$((FP+NP+0))=\"\${sht12}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht37}\""
+eval "F$((FP+NP+3))=\"\${sht35}\""
+eval "F$((FP+NP+4))=\"\${sht31}\""
+eval "F$((FP+NP+5))=\"\${sht24}\""
+eval "F$((FP+NP+6))=\"\${sht20}\""
+eval "F$((FP+NP+7))=\"\${sht12}\""
+hp_cons "${sht24}" "${sht39}"
+eval "sht12=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht37=\"\$F$((FP+NP+2))\""
+eval "sht35=\"\$F$((FP+NP+3))\""
+eval "sht31=\"\$F$((FP+NP+4))\""
+eval "sht24=\"\$F$((FP+NP+5))\""
+eval "sht20=\"\$F$((FP+NP+6))\""
+eval "sht12=\"\$F$((FP+NP+7))\""
+sht40="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht35}\""
+eval "F$((FP+NP+3))=\"\${sht31}\""
+eval "F$((FP+NP+4))=\"\${sht24}\""
+eval "F$((FP+NP+5))=\"\${sht20}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+hp_cons "${sht12}" "${sht40}"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht35=\"\$F$((FP+NP+2))\""
+eval "sht31=\"\$F$((FP+NP+3))\""
+eval "sht24=\"\$F$((FP+NP+4))\""
+eval "sht20=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+sht41="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht35}\""
+eval "F$((FP+NP+3))=\"\${sht31}\""
+eval "F$((FP+NP+4))=\"\${sht24}\""
+eval "F$((FP+NP+5))=\"\${sht20}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+hp_cons "S:clambda" "${sht41}"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht35=\"\$F$((FP+NP+2))\""
+eval "sht31=\"\$F$((FP+NP+3))\""
+eval "sht24=\"\$F$((FP+NP+4))\""
+eval "sht20=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+sht42="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht35}\""
+eval "F$((FP+NP+3))=\"\${sht31}\""
+eval "F$((FP+NP+4))=\"\${sht24}\""
+eval "F$((FP+NP+5))=\"\${sht20}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+hp_cons "${sht42}" "NIL"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht35=\"\$F$((FP+NP+2))\""
+eval "sht31=\"\$F$((FP+NP+3))\""
+eval "sht24=\"\$F$((FP+NP+4))\""
+eval "sht20=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+sht43="${R}"
+eval "F$((FP+NP+0))=\"\${sht37}\""
+eval "F$((FP+NP+1))=\"\${sht35}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht24}\""
+eval "F$((FP+NP+4))=\"\${sht20}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "${sht31}" "${sht43}"
+eval "sht37=\"\$F$((FP+NP+0))\""
+eval "sht35=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht24=\"\$F$((FP+NP+3))\""
+eval "sht20=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht44="${R}"
+eval "F$((FP+NP+0))=\"\${sht37}\""
+eval "F$((FP+NP+1))=\"\${sht35}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht24}\""
+eval "F$((FP+NP+4))=\"\${sht20}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "S:define" "${sht44}"
+eval "sht37=\"\$F$((FP+NP+0))\""
+eval "sht35=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht24=\"\$F$((FP+NP+3))\""
+eval "sht20=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht45="${R}"
+eval "F$((FP+NP+0))=\"\${sht37}\""
+eval "F$((FP+NP+1))=\"\${sht35}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht24}\""
+eval "F$((FP+NP+4))=\"\${sht20}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "${sht45}" "NIL"
+eval "sht37=\"\$F$((FP+NP+0))\""
+eval "sht35=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht24=\"\$F$((FP+NP+3))\""
+eval "sht20=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht46="${R}"
+eval "F$((FP+NP+0))=\"\${sht35}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht24}\""
+eval "F$((FP+NP+3))=\"\${sht20}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht37}\""
+eval "F$((NFP+1))=\"\${sht46}\""
+CALLEE=append
+RPC=14; ACTION=call; return
+;;
+14)
+eval "sht35=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht24=\"\$F$((FP+NP+2))\""
+eval "sht20=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
+sht47="${R}"
+hp_cdr "${sht20}"
+sht48="${R}"
+hp_cdr "${sht48}"
+sht49="${R}"
+hp_car "${sht49}"
 sht50="${R}"
-R="${sht50}"; ACTION=ret; return
+sht51="I:$(( ${sht50#??} + 1 ))"
+eval "F$((FP+NP+0))=\"\${sht47}\""
+eval "F$((FP+NP+1))=\"\${sht35}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht24}\""
+eval "F$((FP+NP+4))=\"\${sht20}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "${sht51}" "NIL"
+eval "sht47=\"\$F$((FP+NP+0))\""
+eval "sht35=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht24=\"\$F$((FP+NP+3))\""
+eval "sht20=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht52="${R}"
+eval "F$((FP+NP+0))=\"\${sht35}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht24}\""
+eval "F$((FP+NP+3))=\"\${sht20}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+hp_cons "${sht47}" "${sht52}"
+eval "sht35=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht24=\"\$F$((FP+NP+2))\""
+eval "sht20=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
+sht53="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht20}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "${sht35}" "${sht53}"
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht20=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht54="${R}"
+R="${sht54}"; ACTION=ret; return
+;;
+15)
+sht55="${R}"
+R="${sht55}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_arithzzQ=1
@@ -1257,7 +1299,61 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 12)
+if [ "${p0}" = "S:read" ]; then PC=13; else PC=14; fi
+ACTION=jump; return
+;;
+13)
+R="S:t"; ACTION=ret; return
+;;
+14)
 R="NIL"; ACTION=ret; return
+;;
+esac; }
+SIZE_brt=1
+brt() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_brt))
+NP=1
+case $PC in
+0)
+if [ "${p0}" = "S:read" ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+R="T:read_str"; ACTION=ret; return
+;;
+2)
+sht0="T:${p0#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht0}\""
+CALLEE=sh_mangle
+RPC=3; ACTION=call; return
+;;
+3)
+sht1="${R}"
+R="${sht1}"; ACTION=ret; return
+;;
+esac; }
+SIZE_runopzzQ=1
+runopzzQ() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_runopzzQ))
+NP=1
+case $PC in
+0)
+if [ "${p0}" = "S:run" ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+R="S:t"; ACTION=ret; return
+;;
+2)
+if [ "${p0}" = "S:run-capture" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_prim_wrap=1
@@ -4959,10 +5055,8 @@ RPC=157; ACTION=call; return
 156)
 hp_car "${p0}"
 sht357="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht357}\""
-CALLEE=builtinzzQ
-RPC=165; ACTION=call; return
+if [ "${sht357}" = "S:run" ]; then PC=165; else PC=166; fi
+ACTION=jump; return
 ;;
 157)
 sht332="${R}"
@@ -5083,1504 +5177,1730 @@ sht356="${R}"
 R="${sht356}"; ACTION=ret; return
 ;;
 165)
-sht358="${R}"
-if [ "${sht358}" != NIL ]; then PC=166; else PC=167; fi
-ACTION=jump; return
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p2}\""
+CALLEE=tmpn
+RPC=167; ACTION=call; return
 ;;
 166)
+hp_car "${p0}"
+sht375="${R}"
+if [ "${sht375}" = "S:run-capture" ]; then PC=173; else PC=174; fi
+ACTION=jump; return
+;;
+167)
+sht358="${R}"
+sht359="${sht358}"
 hp_cdr "${p0}"
-sht359="${R}"
+sht360="${R}"
+eval "F$((FP+NP+0))=\"\${G_DQ}\""
+eval "F$((FP+NP+1))=\"\${p2}\""
+eval "F$((FP+NP+2))=\"\${sht359}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht359}\""
+eval "F$((NFP+0))=\"\${sht360}\""
+CALLEE=join_toks
+RPC=168; ACTION=call; return
+;;
+168)
+eval "G_DQ=\"\$F$((FP+NP+0))\""
+eval "p2=\"\$F$((FP+NP+1))\""
+eval "sht359=\"\$F$((FP+NP+2))\""
+sht361="${R}"
+eval "F$((FP+NP+0))=\"\${G_DQ}\""
+eval "F$((FP+NP+1))=\"\${p2}\""
+eval "F$((FP+NP+2))=\"\${sht359}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht361}\""
+CALLEE=run_esc
+RPC=169; ACTION=call; return
+;;
+169)
+eval "G_DQ=\"\$F$((FP+NP+0))\""
+eval "p2=\"\$F$((FP+NP+1))\""
+eval "sht359=\"\$F$((FP+NP+2))\""
+sht362="${R}"
+sht363="T:${sht362#??}${G_DQ#??}"
+sht364="T:${G_DQ#??}${sht363#??}"
+sht365="T:run_cmd ${sht364#??}"
+eval "F$((FP+NP+0))=\"\${sht359}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p2}\""
+eval "F$((NFP+1))=\"\${sht365}\""
+CALLEE=emit
+RPC=170; ACTION=call; return
+;;
+170)
+eval "sht359=\"\$F$((FP+NP+0))\""
+sht366="${R}"
+sht367="T:\${R}${G_DQ#??}"
+sht368="T:${G_DQ#??}${sht367#??}"
+sht369="T:=${sht368#??}"
+sht370="T:${sht359#??}${sht369#??}"
+eval "F$((FP+NP+0))=\"\${sht359}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht366}\""
+eval "F$((NFP+1))=\"\${sht370}\""
+CALLEE=emit
+RPC=171; ACTION=call; return
+;;
+171)
+eval "sht359=\"\$F$((FP+NP+0))\""
+sht371="${R}"
+eval "F$((FP+NP+0))=\"\${sht359}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht371}\""
+CALLEE=bkzzP
+RPC=172; ACTION=call; return
+;;
+172)
+eval "sht359=\"\$F$((FP+NP+0))\""
+sht372="${R}"
+eval "F$((FP+NP+0))=\"\${sht372}\""
+eval "F$((FP+NP+1))=\"\${sht359}\""
+hp_cons "S:loc" "${sht359}"
+eval "sht372=\"\$F$((FP+NP+0))\""
+eval "sht359=\"\$F$((FP+NP+1))\""
+sht373="${R}"
+eval "F$((FP+NP+0))=\"\${sht359}\""
+hp_cons "${sht372}" "${sht373}"
+eval "sht359=\"\$F$((FP+NP+0))\""
+sht374="${R}"
+R="${sht374}"; ACTION=ret; return
+;;
+173)
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p2}\""
+CALLEE=tmpn
+RPC=175; ACTION=call; return
+;;
+174)
+hp_car "${p0}"
+sht397="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht397}\""
+CALLEE=builtinzzQ
+RPC=185; ACTION=call; return
+;;
+175)
+sht376="${R}"
+sht377="${sht376}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p2}\""
+eval "F$((NFP+1))=\"\${p3}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=spill
+RPC=176; ACTION=call; return
+;;
+176)
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht378="${R}"
+hp_cdr "${p0}"
+sht379="${R}"
+eval "F$((FP+NP+0))=\"\${G_DQ}\""
+eval "F$((FP+NP+1))=\"\${sht378}\""
+eval "F$((FP+NP+2))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht379}\""
+CALLEE=join_toks
+RPC=177; ACTION=call; return
+;;
+177)
+eval "G_DQ=\"\$F$((FP+NP+0))\""
+eval "sht378=\"\$F$((FP+NP+1))\""
+eval "sht377=\"\$F$((FP+NP+2))\""
+sht380="${R}"
+eval "F$((FP+NP+0))=\"\${G_DQ}\""
+eval "F$((FP+NP+1))=\"\${sht378}\""
+eval "F$((FP+NP+2))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht380}\""
+CALLEE=run_esc
+RPC=178; ACTION=call; return
+;;
+178)
+eval "G_DQ=\"\$F$((FP+NP+0))\""
+eval "sht378=\"\$F$((FP+NP+1))\""
+eval "sht377=\"\$F$((FP+NP+2))\""
+sht381="${R}"
+sht382="T:${sht381#??}${G_DQ#??}"
+sht383="T:${G_DQ#??}${sht382#??}"
+sht384="T:run_capture ${sht383#??}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht378}\""
+eval "F$((NFP+1))=\"\${sht384}\""
+CALLEE=emit
+RPC=179; ACTION=call; return
+;;
+179)
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht385="${R}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht385}\""
+eval "F$((NFP+1))=\"\${p3}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=unspill
+RPC=180; ACTION=call; return
+;;
+180)
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht386="${R}"
+sht387="T:\${R}${G_DQ#??}"
+sht388="T:${G_DQ#??}${sht387#??}"
+sht389="T:=${sht388#??}"
+sht390="T:${sht377#??}${sht389#??}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht386}\""
+eval "F$((NFP+1))=\"\${sht390}\""
+CALLEE=emit
+RPC=181; ACTION=call; return
+;;
+181)
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht391="${R}"
+eval "F$((FP+NP+0))=\"\${sht391}\""
+eval "F$((FP+NP+1))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p3}\""
+CALLEE=lenl
+RPC=182; ACTION=call; return
+;;
+182)
+eval "sht391=\"\$F$((FP+NP+0))\""
+eval "sht377=\"\$F$((FP+NP+1))\""
+sht392="${R}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht391}\""
+eval "F$((NFP+1))=\"\${sht392}\""
+CALLEE=bsm
+RPC=183; ACTION=call; return
+;;
+183)
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht393="${R}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht393}\""
+CALLEE=bkzzP
+RPC=184; ACTION=call; return
+;;
+184)
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht394="${R}"
+eval "F$((FP+NP+0))=\"\${sht394}\""
+eval "F$((FP+NP+1))=\"\${sht377}\""
+hp_cons "S:loc" "${sht377}"
+eval "sht394=\"\$F$((FP+NP+0))\""
+eval "sht377=\"\$F$((FP+NP+1))\""
+sht395="${R}"
+eval "F$((FP+NP+0))=\"\${sht377}\""
+hp_cons "${sht394}" "${sht395}"
+eval "sht377=\"\$F$((FP+NP+0))\""
+sht396="${R}"
+R="${sht396}"; ACTION=ret; return
+;;
+185)
+sht398="${R}"
+if [ "${sht398}" != NIL ]; then PC=186; else PC=187; fi
+ACTION=jump; return
+;;
+186)
+hp_cdr "${p0}"
+sht399="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht399}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
 CALLEE=largs
-RPC=168; ACTION=call; return
-;;
-167)
-hp_car "${p0}"
-sht386="${R}"
-if [ "${sht386}" = "S:make-closure" ]; then PC=179; else PC=180; fi
-ACTION=jump; return
-;;
-168)
-sht360="${R}"
-sht361="${sht360}"
-hp_car "${p0}"
-sht362="${R}"
-sht363="T:${sht362#??}"
-eval "F$((FP+NP+0))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht363}\""
-CALLEE=sh_mangle
-RPC=169; ACTION=call; return
-;;
-169)
-eval "sht361=\"\$F$((FP+NP+0))\""
-sht364="${R}"
-sht365="${sht364}"
-hp_car "${sht361}"
-sht366="${R}"
-eval "F$((FP+NP+0))=\"\${sht365}\""
-eval "F$((FP+NP+1))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht366}\""
-CALLEE=tmpn
-RPC=170; ACTION=call; return
-;;
-170)
-eval "sht365=\"\$F$((FP+NP+0))\""
-eval "sht361=\"\$F$((FP+NP+1))\""
-sht367="${R}"
-sht368="${sht367}"
-hp_car "${sht361}"
-sht369="${R}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht369}\""
-eval "F$((NFP+1))=\"\${p3}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=spill
-RPC=171; ACTION=call; return
-;;
-171)
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht370="${R}"
-hp_cdr "${sht361}"
-sht371="${R}"
-eval "F$((FP+NP+0))=\"\${sht365}\""
-eval "F$((FP+NP+1))=\"\${sht370}\""
-eval "F$((FP+NP+2))=\"\${sht368}\""
-eval "F$((FP+NP+3))=\"\${sht365}\""
-eval "F$((FP+NP+4))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht371}\""
-CALLEE=bargs
-RPC=172; ACTION=call; return
-;;
-172)
-eval "sht365=\"\$F$((FP+NP+0))\""
-eval "sht370=\"\$F$((FP+NP+1))\""
-eval "sht368=\"\$F$((FP+NP+2))\""
-eval "sht365=\"\$F$((FP+NP+3))\""
-eval "sht361=\"\$F$((FP+NP+4))\""
-sht372="${R}"
-sht373="T:${sht365#??}${sht372#??}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht370}\""
-eval "F$((NFP+1))=\"\${sht373}\""
-CALLEE=emit
-RPC=173; ACTION=call; return
-;;
-173)
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht374="${R}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht374}\""
-eval "F$((NFP+1))=\"\${p3}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=unspill
-RPC=174; ACTION=call; return
-;;
-174)
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht375="${R}"
-sht376="T:\${R}${G_DQ#??}"
-sht377="T:${G_DQ#??}${sht376#??}"
-sht378="T:=${sht377#??}"
-sht379="T:${sht368#??}${sht378#??}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht375}\""
-eval "F$((NFP+1))=\"\${sht379}\""
-CALLEE=emit
-RPC=175; ACTION=call; return
-;;
-175)
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht380="${R}"
-eval "F$((FP+NP+0))=\"\${sht380}\""
-eval "F$((FP+NP+1))=\"\${sht368}\""
-eval "F$((FP+NP+2))=\"\${sht365}\""
-eval "F$((FP+NP+3))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p3}\""
-CALLEE=lenl
-RPC=176; ACTION=call; return
-;;
-176)
-eval "sht380=\"\$F$((FP+NP+0))\""
-eval "sht368=\"\$F$((FP+NP+1))\""
-eval "sht365=\"\$F$((FP+NP+2))\""
-eval "sht361=\"\$F$((FP+NP+3))\""
-sht381="${R}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht380}\""
-eval "F$((NFP+1))=\"\${sht381}\""
-CALLEE=bsm
-RPC=177; ACTION=call; return
-;;
-177)
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht382="${R}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht382}\""
-CALLEE=bkzzP
-RPC=178; ACTION=call; return
-;;
-178)
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht383="${R}"
-eval "F$((FP+NP+0))=\"\${sht383}\""
-eval "F$((FP+NP+1))=\"\${sht368}\""
-eval "F$((FP+NP+2))=\"\${sht365}\""
-eval "F$((FP+NP+3))=\"\${sht361}\""
-hp_cons "S:loc" "${sht368}"
-eval "sht383=\"\$F$((FP+NP+0))\""
-eval "sht368=\"\$F$((FP+NP+1))\""
-eval "sht365=\"\$F$((FP+NP+2))\""
-eval "sht361=\"\$F$((FP+NP+3))\""
-sht384="${R}"
-eval "F$((FP+NP+0))=\"\${sht368}\""
-eval "F$((FP+NP+1))=\"\${sht365}\""
-eval "F$((FP+NP+2))=\"\${sht361}\""
-hp_cons "${sht383}" "${sht384}"
-eval "sht368=\"\$F$((FP+NP+0))\""
-eval "sht365=\"\$F$((FP+NP+1))\""
-eval "sht361=\"\$F$((FP+NP+2))\""
-sht385="${R}"
-R="${sht385}"; ACTION=ret; return
-;;
-179)
-hp_cdr "${p0}"
-sht387="${R}"
-hp_car "${sht387}"
-sht388="${R}"
-hp_cdr "${p0}"
-sht389="${R}"
-hp_cdr "${sht389}"
-sht390="${R}"
-eval "F$((FP+NP+0))=\"\${sht388}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht390}\""
-CALLEE=mkclo_caps
-RPC=181; ACTION=call; return
-;;
-180)
-hp_car "${p0}"
-sht413="${R}"
-if [ "${sht413}" = "S:apply" ]; then PC=186; else PC=187; fi
-ACTION=jump; return
-;;
-181)
-eval "sht388=\"\$F$((FP+NP+0))\""
-sht391="${R}"
-eval "F$((FP+NP+0))=\"\${sht388}\""
-hp_cons "${sht391}" "NIL"
-eval "sht388=\"\$F$((FP+NP+0))\""
-sht392="${R}"
-hp_cons "${sht388}" "${sht392}"
-sht393="${R}"
-hp_cons "S:cons" "${sht393}"
-sht394="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht394}\""
-eval "F$((NFP+1))=\"\${p1}\""
-eval "F$((NFP+2))=\"\${p2}\""
-eval "F$((NFP+3))=\"\${p3}\""
-CALLEE=lval
-RPC=182; ACTION=call; return
-;;
-182)
-sht395="${R}"
-sht396="${sht395}"
-hp_car "${sht396}"
-sht397="${R}"
-eval "F$((FP+NP+0))=\"\${sht396}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht397}\""
-CALLEE=tmpn
-RPC=183; ACTION=call; return
-;;
-183)
-eval "sht396=\"\$F$((FP+NP+0))\""
-sht398="${R}"
-sht399="${sht398}"
-hp_car "${sht396}"
-sht400="${R}"
-hp_cdr "${sht396}"
-sht401="${R}"
-hp_cdr "${sht401}"
-sht402="${R}"
-sht403="T:#P:}${G_DQ#??}"
-sht404="T:${sht402#??}${sht403#??}"
-sht405="T:K:\${${sht404#??}"
-sht406="T:${G_DQ#??}${sht405#??}"
-sht407="T:=${sht406#??}"
-sht408="T:${sht399#??}${sht407#??}"
-eval "F$((FP+NP+0))=\"\${sht399}\""
-eval "F$((FP+NP+1))=\"\${sht396}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht400}\""
-eval "F$((NFP+1))=\"\${sht408}\""
-CALLEE=emit
-RPC=184; ACTION=call; return
-;;
-184)
-eval "sht399=\"\$F$((FP+NP+0))\""
-eval "sht396=\"\$F$((FP+NP+1))\""
-sht409="${R}"
-eval "F$((FP+NP+0))=\"\${sht399}\""
-eval "F$((FP+NP+1))=\"\${sht396}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht409}\""
-CALLEE=bkzzP
-RPC=185; ACTION=call; return
-;;
-185)
-eval "sht399=\"\$F$((FP+NP+0))\""
-eval "sht396=\"\$F$((FP+NP+1))\""
-sht410="${R}"
-eval "F$((FP+NP+0))=\"\${sht410}\""
-eval "F$((FP+NP+1))=\"\${sht399}\""
-eval "F$((FP+NP+2))=\"\${sht396}\""
-hp_cons "S:loc" "${sht399}"
-eval "sht410=\"\$F$((FP+NP+0))\""
-eval "sht399=\"\$F$((FP+NP+1))\""
-eval "sht396=\"\$F$((FP+NP+2))\""
-sht411="${R}"
-eval "F$((FP+NP+0))=\"\${sht399}\""
-eval "F$((FP+NP+1))=\"\${sht396}\""
-hp_cons "${sht410}" "${sht411}"
-eval "sht399=\"\$F$((FP+NP+0))\""
-eval "sht396=\"\$F$((FP+NP+1))\""
-sht412="${R}"
-R="${sht412}"; ACTION=ret; return
-;;
-186)
-hp_cdr "${p0}"
-sht414="${R}"
-hp_car "${sht414}"
-sht415="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht415}\""
-eval "F$((NFP+1))=\"\${p1}\""
-eval "F$((NFP+2))=\"\${p2}\""
-eval "F$((NFP+3))=\"\${p3}\""
-CALLEE=lval
 RPC=188; ACTION=call; return
 ;;
 187)
 hp_car "${p0}"
-sht465="${R}"
-if [ "${sht465#S:}" != "${sht465}" ]; then PC=208; else PC=209; fi
+sht425="${R}"
+if [ "${sht425}" = "S:make-closure" ]; then PC=199; else PC=200; fi
 ACTION=jump; return
 ;;
 188)
-sht416="${R}"
-sht417="${sht416}"
-hp_cdr "${sht417}"
-sht418="${R}"
-eval "F$((FP+NP+0))=\"\${sht417}\""
+sht400="${R}"
+sht401="${sht400}"
+hp_car "${p0}"
+sht402="${R}"
+eval "F$((FP+NP+0))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht418}\""
-eval "F$((NFP+1))=\"\${p3}\""
-CALLEE=addlive
+eval "F$((NFP+0))=\"\${sht402}\""
+CALLEE=brt
 RPC=189; ACTION=call; return
 ;;
 189)
-eval "sht417=\"\$F$((FP+NP+0))\""
-sht419="${R}"
-sht420="${sht419}"
-hp_cdr "${p0}"
-sht421="${R}"
-hp_cdr "${sht421}"
-sht422="${R}"
-hp_car "${sht422}"
-sht423="${R}"
-hp_car "${sht417}"
-sht424="${R}"
-eval "F$((FP+NP+0))=\"\${sht420}\""
-eval "F$((FP+NP+1))=\"\${sht417}\""
+eval "sht401=\"\$F$((FP+NP+0))\""
+sht403="${R}"
+sht404="${sht403}"
+hp_car "${sht401}"
+sht405="${R}"
+eval "F$((FP+NP+0))=\"\${sht404}\""
+eval "F$((FP+NP+1))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht423}\""
-eval "F$((NFP+1))=\"\${p1}\""
-eval "F$((NFP+2))=\"\${sht424}\""
-eval "F$((NFP+3))=\"\${sht420}\""
-CALLEE=lval
+eval "F$((NFP+0))=\"\${sht405}\""
+CALLEE=tmpn
 RPC=190; ACTION=call; return
 ;;
 190)
-eval "sht420=\"\$F$((FP+NP+0))\""
-eval "sht417=\"\$F$((FP+NP+1))\""
-sht425="${R}"
-sht426="${sht425}"
-hp_cdr "${sht426}"
-sht427="${R}"
-eval "F$((FP+NP+0))=\"\${sht426}\""
-eval "F$((FP+NP+1))=\"\${sht420}\""
-eval "F$((FP+NP+2))=\"\${sht417}\""
+eval "sht404=\"\$F$((FP+NP+0))\""
+eval "sht401=\"\$F$((FP+NP+1))\""
+sht406="${R}"
+sht407="${sht406}"
+hp_car "${sht401}"
+sht408="${R}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht427}\""
-eval "F$((NFP+1))=\"\${sht420}\""
-CALLEE=addlive
+eval "F$((NFP+0))=\"\${sht408}\""
+eval "F$((NFP+1))=\"\${p3}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=spill
 RPC=191; ACTION=call; return
 ;;
 191)
-eval "sht426=\"\$F$((FP+NP+0))\""
-eval "sht420=\"\$F$((FP+NP+1))\""
-eval "sht417=\"\$F$((FP+NP+2))\""
-sht428="${R}"
-sht429="${sht428}"
-hp_car "${sht426}"
-sht430="${R}"
-eval "F$((FP+NP+0))=\"\${sht429}\""
-eval "F$((FP+NP+1))=\"\${sht426}\""
-eval "F$((FP+NP+2))=\"\${sht420}\""
-eval "F$((FP+NP+3))=\"\${sht417}\""
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht409="${R}"
+hp_cdr "${sht401}"
+sht410="${R}"
+eval "F$((FP+NP+0))=\"\${sht404}\""
+eval "F$((FP+NP+1))=\"\${sht409}\""
+eval "F$((FP+NP+2))=\"\${sht407}\""
+eval "F$((FP+NP+3))=\"\${sht404}\""
+eval "F$((FP+NP+4))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht430}\""
-CALLEE=b_npc
+eval "F$((NFP+0))=\"\${sht410}\""
+CALLEE=bargs
 RPC=192; ACTION=call; return
 ;;
 192)
-eval "sht429=\"\$F$((FP+NP+0))\""
-eval "sht426=\"\$F$((FP+NP+1))\""
-eval "sht420=\"\$F$((FP+NP+2))\""
-eval "sht417=\"\$F$((FP+NP+3))\""
-sht431="${R}"
-sht432="${sht431}"
-hp_car "${sht426}"
-sht433="${R}"
-eval "F$((FP+NP+0))=\"\${sht432}\""
-eval "F$((FP+NP+1))=\"\${sht429}\""
-eval "F$((FP+NP+2))=\"\${sht426}\""
-eval "F$((FP+NP+3))=\"\${sht420}\""
-eval "F$((FP+NP+4))=\"\${sht417}\""
+eval "sht404=\"\$F$((FP+NP+0))\""
+eval "sht409=\"\$F$((FP+NP+1))\""
+eval "sht407=\"\$F$((FP+NP+2))\""
+eval "sht404=\"\$F$((FP+NP+3))\""
+eval "sht401=\"\$F$((FP+NP+4))\""
+sht411="${R}"
+sht412="T:${sht404#??}${sht411#??}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht433}\""
-CALLEE=bnpczzP
+eval "F$((NFP+0))=\"\${sht409}\""
+eval "F$((NFP+1))=\"\${sht412}\""
+CALLEE=emit
 RPC=193; ACTION=call; return
 ;;
 193)
-eval "sht432=\"\$F$((FP+NP+0))\""
-eval "sht429=\"\$F$((FP+NP+1))\""
-eval "sht426=\"\$F$((FP+NP+2))\""
-eval "sht420=\"\$F$((FP+NP+3))\""
-eval "sht417=\"\$F$((FP+NP+4))\""
-sht434="${R}"
-eval "F$((FP+NP+0))=\"\${sht432}\""
-eval "F$((FP+NP+1))=\"\${sht429}\""
-eval "F$((FP+NP+2))=\"\${sht426}\""
-eval "F$((FP+NP+3))=\"\${sht420}\""
-eval "F$((FP+NP+4))=\"\${sht417}\""
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht413="${R}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht434}\""
-eval "F$((NFP+1))=\"\${sht429}\""
+eval "F$((NFP+0))=\"\${sht413}\""
+eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
-CALLEE=spill
+CALLEE=unspill
 RPC=194; ACTION=call; return
 ;;
 194)
-eval "sht432=\"\$F$((FP+NP+0))\""
-eval "sht429=\"\$F$((FP+NP+1))\""
-eval "sht426=\"\$F$((FP+NP+2))\""
-eval "sht420=\"\$F$((FP+NP+3))\""
-eval "sht417=\"\$F$((FP+NP+4))\""
-sht435="${R}"
-eval "F$((FP+NP+0))=\"\${sht432}\""
-eval "F$((FP+NP+1))=\"\${sht429}\""
-eval "F$((FP+NP+2))=\"\${sht426}\""
-eval "F$((FP+NP+3))=\"\${sht420}\""
-eval "F$((FP+NP+4))=\"\${sht417}\""
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht414="${R}"
+sht415="T:\${R}${G_DQ#??}"
+sht416="T:${G_DQ#??}${sht415#??}"
+sht417="T:=${sht416#??}"
+sht418="T:${sht407#??}${sht417#??}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht435}\""
-STGV="T:NFP=\$FTOP"
-eval "F$((NFP+1))=\"\$STGV\""
+eval "F$((NFP+0))=\"\${sht414}\""
+eval "F$((NFP+1))=\"\${sht418}\""
 CALLEE=emit
 RPC=195; ACTION=call; return
 ;;
 195)
-eval "sht432=\"\$F$((FP+NP+0))\""
-eval "sht429=\"\$F$((FP+NP+1))\""
-eval "sht426=\"\$F$((FP+NP+2))\""
-eval "sht420=\"\$F$((FP+NP+3))\""
-eval "sht417=\"\$F$((FP+NP+4))\""
-sht436="${R}"
-hp_cdr "${sht417}"
-sht437="${R}"
-eval "F$((FP+NP+0))=\"\${sht436}\""
-eval "F$((FP+NP+1))=\"\${sht432}\""
-eval "F$((FP+NP+2))=\"\${sht429}\""
-eval "F$((FP+NP+3))=\"\${sht426}\""
-eval "F$((FP+NP+4))=\"\${sht420}\""
-eval "F$((FP+NP+5))=\"\${sht417}\""
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht419="${R}"
+eval "F$((FP+NP+0))=\"\${sht419}\""
+eval "F$((FP+NP+1))=\"\${sht407}\""
+eval "F$((FP+NP+2))=\"\${sht404}\""
+eval "F$((FP+NP+3))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht437}\""
-CALLEE=refrhs
+eval "F$((NFP+0))=\"\${p3}\""
+CALLEE=lenl
 RPC=196; ACTION=call; return
 ;;
 196)
-eval "sht436=\"\$F$((FP+NP+0))\""
-eval "sht432=\"\$F$((FP+NP+1))\""
-eval "sht429=\"\$F$((FP+NP+2))\""
-eval "sht426=\"\$F$((FP+NP+3))\""
-eval "sht420=\"\$F$((FP+NP+4))\""
-eval "sht417=\"\$F$((FP+NP+5))\""
-sht438="${R}"
-sht439="T:CALLEE=${sht438#??}"
-eval "F$((FP+NP+0))=\"\${sht432}\""
-eval "F$((FP+NP+1))=\"\${sht429}\""
-eval "F$((FP+NP+2))=\"\${sht426}\""
-eval "F$((FP+NP+3))=\"\${sht420}\""
-eval "F$((FP+NP+4))=\"\${sht417}\""
+eval "sht419=\"\$F$((FP+NP+0))\""
+eval "sht407=\"\$F$((FP+NP+1))\""
+eval "sht404=\"\$F$((FP+NP+2))\""
+eval "sht401=\"\$F$((FP+NP+3))\""
+sht420="${R}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht436}\""
-eval "F$((NFP+1))=\"\${sht439}\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht419}\""
+eval "F$((NFP+1))=\"\${sht420}\""
+CALLEE=bsm
 RPC=197; ACTION=call; return
 ;;
 197)
-eval "sht432=\"\$F$((FP+NP+0))\""
-eval "sht429=\"\$F$((FP+NP+1))\""
-eval "sht426=\"\$F$((FP+NP+2))\""
-eval "sht420=\"\$F$((FP+NP+3))\""
-eval "sht417=\"\$F$((FP+NP+4))\""
-sht440="${R}"
-hp_cdr "${sht426}"
-sht441="${R}"
-eval "F$((FP+NP+0))=\"\${sht440}\""
-eval "F$((FP+NP+1))=\"\${sht432}\""
-eval "F$((FP+NP+2))=\"\${sht429}\""
-eval "F$((FP+NP+3))=\"\${sht426}\""
-eval "F$((FP+NP+4))=\"\${sht420}\""
-eval "F$((FP+NP+5))=\"\${sht417}\""
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht421="${R}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht441}\""
-CALLEE=refrhs
+eval "F$((NFP+0))=\"\${sht421}\""
+CALLEE=bkzzP
 RPC=198; ACTION=call; return
 ;;
 198)
-eval "sht440=\"\$F$((FP+NP+0))\""
-eval "sht432=\"\$F$((FP+NP+1))\""
-eval "sht429=\"\$F$((FP+NP+2))\""
-eval "sht426=\"\$F$((FP+NP+3))\""
-eval "sht420=\"\$F$((FP+NP+4))\""
-eval "sht417=\"\$F$((FP+NP+5))\""
-sht442="${R}"
-sht443="T:APLIST=${sht442#??}"
-eval "F$((FP+NP+0))=\"\${sht432}\""
-eval "F$((FP+NP+1))=\"\${sht429}\""
-eval "F$((FP+NP+2))=\"\${sht426}\""
-eval "F$((FP+NP+3))=\"\${sht420}\""
-eval "F$((FP+NP+4))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht440}\""
-eval "F$((NFP+1))=\"\${sht443}\""
-CALLEE=emit
-RPC=199; ACTION=call; return
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht422="${R}"
+eval "F$((FP+NP+0))=\"\${sht422}\""
+eval "F$((FP+NP+1))=\"\${sht407}\""
+eval "F$((FP+NP+2))=\"\${sht404}\""
+eval "F$((FP+NP+3))=\"\${sht401}\""
+hp_cons "S:loc" "${sht407}"
+eval "sht422=\"\$F$((FP+NP+0))\""
+eval "sht407=\"\$F$((FP+NP+1))\""
+eval "sht404=\"\$F$((FP+NP+2))\""
+eval "sht401=\"\$F$((FP+NP+3))\""
+sht423="${R}"
+eval "F$((FP+NP+0))=\"\${sht407}\""
+eval "F$((FP+NP+1))=\"\${sht404}\""
+eval "F$((FP+NP+2))=\"\${sht401}\""
+hp_cons "${sht422}" "${sht423}"
+eval "sht407=\"\$F$((FP+NP+0))\""
+eval "sht404=\"\$F$((FP+NP+1))\""
+eval "sht401=\"\$F$((FP+NP+2))\""
+sht424="${R}"
+R="${sht424}"; ACTION=ret; return
 ;;
 199)
-eval "sht432=\"\$F$((FP+NP+0))\""
-eval "sht429=\"\$F$((FP+NP+1))\""
-eval "sht426=\"\$F$((FP+NP+2))\""
-eval "sht420=\"\$F$((FP+NP+3))\""
-eval "sht417=\"\$F$((FP+NP+4))\""
-sht444="${R}"
-sht445="T:${sht432#??}"
-sht446="T:${sht445#??}; ACTION=apply; return"
-sht447="T:RPC=${sht446#??}"
-eval "F$((FP+NP+0))=\"\${sht432}\""
-eval "F$((FP+NP+1))=\"\${sht429}\""
-eval "F$((FP+NP+2))=\"\${sht426}\""
-eval "F$((FP+NP+3))=\"\${sht420}\""
-eval "F$((FP+NP+4))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht444}\""
-eval "F$((NFP+1))=\"\${sht447}\""
-CALLEE=emit
-RPC=200; ACTION=call; return
-;;
-200)
-eval "sht432=\"\$F$((FP+NP+0))\""
-eval "sht429=\"\$F$((FP+NP+1))\""
-eval "sht426=\"\$F$((FP+NP+2))\""
-eval "sht420=\"\$F$((FP+NP+3))\""
-eval "sht417=\"\$F$((FP+NP+4))\""
-sht448="${R}"
-sht449="${sht448}"
-eval "F$((FP+NP+0))=\"\${sht449}\""
-eval "F$((FP+NP+1))=\"\${sht432}\""
-eval "F$((FP+NP+2))=\"\${sht429}\""
-eval "F$((FP+NP+3))=\"\${sht426}\""
-eval "F$((FP+NP+4))=\"\${sht420}\""
-eval "F$((FP+NP+5))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht449}\""
-eval "F$((NFP+1))=\"\${sht432}\""
-CALLEE=switch
-RPC=201; ACTION=call; return
-;;
-201)
-eval "sht449=\"\$F$((FP+NP+0))\""
-eval "sht432=\"\$F$((FP+NP+1))\""
-eval "sht429=\"\$F$((FP+NP+2))\""
-eval "sht426=\"\$F$((FP+NP+3))\""
-eval "sht420=\"\$F$((FP+NP+4))\""
-eval "sht417=\"\$F$((FP+NP+5))\""
-sht450="${R}"
-sht451="${sht450}"
-eval "F$((FP+NP+0))=\"\${sht451}\""
-eval "F$((FP+NP+1))=\"\${sht449}\""
-eval "F$((FP+NP+2))=\"\${sht432}\""
-eval "F$((FP+NP+3))=\"\${sht429}\""
-eval "F$((FP+NP+4))=\"\${sht426}\""
-eval "F$((FP+NP+5))=\"\${sht420}\""
-eval "F$((FP+NP+6))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht451}\""
-CALLEE=tmpn
-RPC=202; ACTION=call; return
-;;
-202)
-eval "sht451=\"\$F$((FP+NP+0))\""
-eval "sht449=\"\$F$((FP+NP+1))\""
-eval "sht432=\"\$F$((FP+NP+2))\""
-eval "sht429=\"\$F$((FP+NP+3))\""
-eval "sht426=\"\$F$((FP+NP+4))\""
-eval "sht420=\"\$F$((FP+NP+5))\""
-eval "sht417=\"\$F$((FP+NP+6))\""
-sht452="${R}"
-sht453="${sht452}"
-eval "F$((FP+NP+0))=\"\${sht453}\""
-eval "F$((FP+NP+1))=\"\${sht451}\""
-eval "F$((FP+NP+2))=\"\${sht449}\""
-eval "F$((FP+NP+3))=\"\${sht432}\""
-eval "F$((FP+NP+4))=\"\${sht429}\""
-eval "F$((FP+NP+5))=\"\${sht426}\""
-eval "F$((FP+NP+6))=\"\${sht420}\""
-eval "F$((FP+NP+7))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht451}\""
-eval "F$((NFP+1))=\"\${sht429}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=unspill
-RPC=203; ACTION=call; return
-;;
-203)
-eval "sht453=\"\$F$((FP+NP+0))\""
-eval "sht451=\"\$F$((FP+NP+1))\""
-eval "sht449=\"\$F$((FP+NP+2))\""
-eval "sht432=\"\$F$((FP+NP+3))\""
-eval "sht429=\"\$F$((FP+NP+4))\""
-eval "sht426=\"\$F$((FP+NP+5))\""
-eval "sht420=\"\$F$((FP+NP+6))\""
-eval "sht417=\"\$F$((FP+NP+7))\""
-sht454="${R}"
-sht455="T:\${R}${G_DQ#??}"
-sht456="T:${G_DQ#??}${sht455#??}"
-sht457="T:=${sht456#??}"
-sht458="T:${sht453#??}${sht457#??}"
-eval "F$((FP+NP+0))=\"\${sht453}\""
-eval "F$((FP+NP+1))=\"\${sht451}\""
-eval "F$((FP+NP+2))=\"\${sht449}\""
-eval "F$((FP+NP+3))=\"\${sht432}\""
-eval "F$((FP+NP+4))=\"\${sht429}\""
-eval "F$((FP+NP+5))=\"\${sht426}\""
-eval "F$((FP+NP+6))=\"\${sht420}\""
-eval "F$((FP+NP+7))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht454}\""
-eval "F$((NFP+1))=\"\${sht458}\""
-CALLEE=emit
-RPC=204; ACTION=call; return
-;;
-204)
-eval "sht453=\"\$F$((FP+NP+0))\""
-eval "sht451=\"\$F$((FP+NP+1))\""
-eval "sht449=\"\$F$((FP+NP+2))\""
-eval "sht432=\"\$F$((FP+NP+3))\""
-eval "sht429=\"\$F$((FP+NP+4))\""
-eval "sht426=\"\$F$((FP+NP+5))\""
-eval "sht420=\"\$F$((FP+NP+6))\""
-eval "sht417=\"\$F$((FP+NP+7))\""
-sht459="${R}"
-eval "F$((FP+NP+0))=\"\${sht459}\""
-eval "F$((FP+NP+1))=\"\${sht453}\""
-eval "F$((FP+NP+2))=\"\${sht451}\""
-eval "F$((FP+NP+3))=\"\${sht449}\""
-eval "F$((FP+NP+4))=\"\${sht432}\""
-eval "F$((FP+NP+5))=\"\${sht429}\""
-eval "F$((FP+NP+6))=\"\${sht426}\""
-eval "F$((FP+NP+7))=\"\${sht420}\""
-eval "F$((FP+NP+8))=\"\${sht417}\""
+hp_cdr "${p0}"
+sht426="${R}"
+hp_car "${sht426}"
+sht427="${R}"
+hp_cdr "${p0}"
+sht428="${R}"
+hp_cdr "${sht428}"
+sht429="${R}"
+eval "F$((FP+NP+0))=\"\${sht427}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht429}\""
-CALLEE=lenl
-RPC=205; ACTION=call; return
+CALLEE=mkclo_caps
+RPC=201; ACTION=call; return
 ;;
-205)
-eval "sht459=\"\$F$((FP+NP+0))\""
-eval "sht453=\"\$F$((FP+NP+1))\""
-eval "sht451=\"\$F$((FP+NP+2))\""
-eval "sht449=\"\$F$((FP+NP+3))\""
-eval "sht432=\"\$F$((FP+NP+4))\""
-eval "sht429=\"\$F$((FP+NP+5))\""
-eval "sht426=\"\$F$((FP+NP+6))\""
-eval "sht420=\"\$F$((FP+NP+7))\""
-eval "sht417=\"\$F$((FP+NP+8))\""
-sht460="${R}"
-eval "F$((FP+NP+0))=\"\${sht453}\""
-eval "F$((FP+NP+1))=\"\${sht451}\""
-eval "F$((FP+NP+2))=\"\${sht449}\""
-eval "F$((FP+NP+3))=\"\${sht432}\""
-eval "F$((FP+NP+4))=\"\${sht429}\""
-eval "F$((FP+NP+5))=\"\${sht426}\""
-eval "F$((FP+NP+6))=\"\${sht420}\""
-eval "F$((FP+NP+7))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht459}\""
-eval "F$((NFP+1))=\"\${sht460}\""
-CALLEE=bsm
-RPC=206; ACTION=call; return
-;;
-206)
-eval "sht453=\"\$F$((FP+NP+0))\""
-eval "sht451=\"\$F$((FP+NP+1))\""
-eval "sht449=\"\$F$((FP+NP+2))\""
-eval "sht432=\"\$F$((FP+NP+3))\""
-eval "sht429=\"\$F$((FP+NP+4))\""
-eval "sht426=\"\$F$((FP+NP+5))\""
-eval "sht420=\"\$F$((FP+NP+6))\""
-eval "sht417=\"\$F$((FP+NP+7))\""
-sht461="${R}"
-eval "F$((FP+NP+0))=\"\${sht453}\""
-eval "F$((FP+NP+1))=\"\${sht451}\""
-eval "F$((FP+NP+2))=\"\${sht449}\""
-eval "F$((FP+NP+3))=\"\${sht432}\""
-eval "F$((FP+NP+4))=\"\${sht429}\""
-eval "F$((FP+NP+5))=\"\${sht426}\""
-eval "F$((FP+NP+6))=\"\${sht420}\""
-eval "F$((FP+NP+7))=\"\${sht417}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht461}\""
-CALLEE=bkzzP
-RPC=207; ACTION=call; return
-;;
-207)
-eval "sht453=\"\$F$((FP+NP+0))\""
-eval "sht451=\"\$F$((FP+NP+1))\""
-eval "sht449=\"\$F$((FP+NP+2))\""
-eval "sht432=\"\$F$((FP+NP+3))\""
-eval "sht429=\"\$F$((FP+NP+4))\""
-eval "sht426=\"\$F$((FP+NP+5))\""
-eval "sht420=\"\$F$((FP+NP+6))\""
-eval "sht417=\"\$F$((FP+NP+7))\""
-sht462="${R}"
-eval "F$((FP+NP+0))=\"\${sht462}\""
-eval "F$((FP+NP+1))=\"\${sht453}\""
-eval "F$((FP+NP+2))=\"\${sht451}\""
-eval "F$((FP+NP+3))=\"\${sht449}\""
-eval "F$((FP+NP+4))=\"\${sht432}\""
-eval "F$((FP+NP+5))=\"\${sht429}\""
-eval "F$((FP+NP+6))=\"\${sht426}\""
-eval "F$((FP+NP+7))=\"\${sht420}\""
-eval "F$((FP+NP+8))=\"\${sht417}\""
-hp_cons "S:loc" "${sht453}"
-eval "sht462=\"\$F$((FP+NP+0))\""
-eval "sht453=\"\$F$((FP+NP+1))\""
-eval "sht451=\"\$F$((FP+NP+2))\""
-eval "sht449=\"\$F$((FP+NP+3))\""
-eval "sht432=\"\$F$((FP+NP+4))\""
-eval "sht429=\"\$F$((FP+NP+5))\""
-eval "sht426=\"\$F$((FP+NP+6))\""
-eval "sht420=\"\$F$((FP+NP+7))\""
-eval "sht417=\"\$F$((FP+NP+8))\""
-sht463="${R}"
-eval "F$((FP+NP+0))=\"\${sht453}\""
-eval "F$((FP+NP+1))=\"\${sht451}\""
-eval "F$((FP+NP+2))=\"\${sht449}\""
-eval "F$((FP+NP+3))=\"\${sht432}\""
-eval "F$((FP+NP+4))=\"\${sht429}\""
-eval "F$((FP+NP+5))=\"\${sht426}\""
-eval "F$((FP+NP+6))=\"\${sht420}\""
-eval "F$((FP+NP+7))=\"\${sht417}\""
-hp_cons "${sht462}" "${sht463}"
-eval "sht453=\"\$F$((FP+NP+0))\""
-eval "sht451=\"\$F$((FP+NP+1))\""
-eval "sht449=\"\$F$((FP+NP+2))\""
-eval "sht432=\"\$F$((FP+NP+3))\""
-eval "sht429=\"\$F$((FP+NP+4))\""
-eval "sht426=\"\$F$((FP+NP+5))\""
-eval "sht420=\"\$F$((FP+NP+6))\""
-eval "sht417=\"\$F$((FP+NP+7))\""
-sht464="${R}"
-R="${sht464}"; ACTION=ret; return
-;;
-208)
+200)
 hp_car "${p0}"
-sht467="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht467}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=lookup
-RPC=211; ACTION=call; return
-;;
-209)
-sht466="NIL"
-PC=210; ACTION=jump; return
-;;
-210)
-if [ "${sht466}" != NIL ]; then PC=212; else PC=213; fi
+sht452="${R}"
+if [ "${sht452}" = "S:apply" ]; then PC=206; else PC=207; fi
 ACTION=jump; return
 ;;
-211)
-sht468="${R}"
-if [ "${sht468}" = NIL ]; then
-sht469="S:t"
-else
-sht469="NIL"
-fi
-sht466="${sht469}"
-PC=210; ACTION=jump; return
-;;
-212)
-hp_cdr "${p0}"
-sht470="${R}"
+201)
+eval "sht427=\"\$F$((FP+NP+0))\""
+sht430="${R}"
+eval "F$((FP+NP+0))=\"\${sht427}\""
+hp_cons "${sht430}" "NIL"
+eval "sht427=\"\$F$((FP+NP+0))\""
+sht431="${R}"
+hp_cons "${sht427}" "${sht431}"
+sht432="${R}"
+hp_cons "S:cons" "${sht432}"
+sht433="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht470}\""
-eval "F$((NFP+1))=\"\${p1}\""
-eval "F$((NFP+2))=\"\${p2}\""
-eval "F$((NFP+3))=\"\${p3}\""
-CALLEE=largs
-RPC=214; ACTION=call; return
-;;
-213)
-hp_car "${p0}"
-sht508="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht508}\""
+eval "F$((NFP+0))=\"\${sht433}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
 CALLEE=lval
-RPC=230; ACTION=call; return
+RPC=202; ACTION=call; return
 ;;
-214)
-sht471="${R}"
-sht472="${sht471}"
-hp_car "${sht472}"
+202)
+sht434="${R}"
+sht435="${sht434}"
+hp_car "${sht435}"
+sht436="${R}"
+eval "F$((FP+NP+0))=\"\${sht435}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht436}\""
+CALLEE=tmpn
+RPC=203; ACTION=call; return
+;;
+203)
+eval "sht435=\"\$F$((FP+NP+0))\""
+sht437="${R}"
+sht438="${sht437}"
+hp_car "${sht435}"
+sht439="${R}"
+hp_cdr "${sht435}"
+sht440="${R}"
+hp_cdr "${sht440}"
+sht441="${R}"
+sht442="T:#P:}${G_DQ#??}"
+sht443="T:${sht441#??}${sht442#??}"
+sht444="T:K:\${${sht443#??}"
+sht445="T:${G_DQ#??}${sht444#??}"
+sht446="T:=${sht445#??}"
+sht447="T:${sht438#??}${sht446#??}"
+eval "F$((FP+NP+0))=\"\${sht438}\""
+eval "F$((FP+NP+1))=\"\${sht435}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht439}\""
+eval "F$((NFP+1))=\"\${sht447}\""
+CALLEE=emit
+RPC=204; ACTION=call; return
+;;
+204)
+eval "sht438=\"\$F$((FP+NP+0))\""
+eval "sht435=\"\$F$((FP+NP+1))\""
+sht448="${R}"
+eval "F$((FP+NP+0))=\"\${sht438}\""
+eval "F$((FP+NP+1))=\"\${sht435}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht448}\""
+CALLEE=bkzzP
+RPC=205; ACTION=call; return
+;;
+205)
+eval "sht438=\"\$F$((FP+NP+0))\""
+eval "sht435=\"\$F$((FP+NP+1))\""
+sht449="${R}"
+eval "F$((FP+NP+0))=\"\${sht449}\""
+eval "F$((FP+NP+1))=\"\${sht438}\""
+eval "F$((FP+NP+2))=\"\${sht435}\""
+hp_cons "S:loc" "${sht438}"
+eval "sht449=\"\$F$((FP+NP+0))\""
+eval "sht438=\"\$F$((FP+NP+1))\""
+eval "sht435=\"\$F$((FP+NP+2))\""
+sht450="${R}"
+eval "F$((FP+NP+0))=\"\${sht438}\""
+eval "F$((FP+NP+1))=\"\${sht435}\""
+hp_cons "${sht449}" "${sht450}"
+eval "sht438=\"\$F$((FP+NP+0))\""
+eval "sht435=\"\$F$((FP+NP+1))\""
+sht451="${R}"
+R="${sht451}"; ACTION=ret; return
+;;
+206)
+hp_cdr "${p0}"
+sht453="${R}"
+hp_car "${sht453}"
+sht454="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht454}\""
+eval "F$((NFP+1))=\"\${p1}\""
+eval "F$((NFP+2))=\"\${p2}\""
+eval "F$((NFP+3))=\"\${p3}\""
+CALLEE=lval
+RPC=208; ACTION=call; return
+;;
+207)
+hp_car "${p0}"
+sht504="${R}"
+if [ "${sht504#S:}" != "${sht504}" ]; then PC=228; else PC=229; fi
+ACTION=jump; return
+;;
+208)
+sht455="${R}"
+sht456="${sht455}"
+hp_cdr "${sht456}"
+sht457="${R}"
+eval "F$((FP+NP+0))=\"\${sht456}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht457}\""
+eval "F$((NFP+1))=\"\${p3}\""
+CALLEE=addlive
+RPC=209; ACTION=call; return
+;;
+209)
+eval "sht456=\"\$F$((FP+NP+0))\""
+sht458="${R}"
+sht459="${sht458}"
+hp_cdr "${p0}"
+sht460="${R}"
+hp_cdr "${sht460}"
+sht461="${R}"
+hp_car "${sht461}"
+sht462="${R}"
+hp_car "${sht456}"
+sht463="${R}"
+eval "F$((FP+NP+0))=\"\${sht459}\""
+eval "F$((FP+NP+1))=\"\${sht456}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht462}\""
+eval "F$((NFP+1))=\"\${p1}\""
+eval "F$((NFP+2))=\"\${sht463}\""
+eval "F$((NFP+3))=\"\${sht459}\""
+CALLEE=lval
+RPC=210; ACTION=call; return
+;;
+210)
+eval "sht459=\"\$F$((FP+NP+0))\""
+eval "sht456=\"\$F$((FP+NP+1))\""
+sht464="${R}"
+sht465="${sht464}"
+hp_cdr "${sht465}"
+sht466="${R}"
+eval "F$((FP+NP+0))=\"\${sht465}\""
+eval "F$((FP+NP+1))=\"\${sht459}\""
+eval "F$((FP+NP+2))=\"\${sht456}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht466}\""
+eval "F$((NFP+1))=\"\${sht459}\""
+CALLEE=addlive
+RPC=211; ACTION=call; return
+;;
+211)
+eval "sht465=\"\$F$((FP+NP+0))\""
+eval "sht459=\"\$F$((FP+NP+1))\""
+eval "sht456=\"\$F$((FP+NP+2))\""
+sht467="${R}"
+sht468="${sht467}"
+hp_car "${sht465}"
+sht469="${R}"
+eval "F$((FP+NP+0))=\"\${sht468}\""
+eval "F$((FP+NP+1))=\"\${sht465}\""
+eval "F$((FP+NP+2))=\"\${sht459}\""
+eval "F$((FP+NP+3))=\"\${sht456}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht469}\""
+CALLEE=b_npc
+RPC=212; ACTION=call; return
+;;
+212)
+eval "sht468=\"\$F$((FP+NP+0))\""
+eval "sht465=\"\$F$((FP+NP+1))\""
+eval "sht459=\"\$F$((FP+NP+2))\""
+eval "sht456=\"\$F$((FP+NP+3))\""
+sht470="${R}"
+sht471="${sht470}"
+hp_car "${sht465}"
+sht472="${R}"
+eval "F$((FP+NP+0))=\"\${sht471}\""
+eval "F$((FP+NP+1))=\"\${sht468}\""
+eval "F$((FP+NP+2))=\"\${sht465}\""
+eval "F$((FP+NP+3))=\"\${sht459}\""
+eval "F$((FP+NP+4))=\"\${sht456}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht472}\""
+CALLEE=bnpczzP
+RPC=213; ACTION=call; return
+;;
+213)
+eval "sht471=\"\$F$((FP+NP+0))\""
+eval "sht468=\"\$F$((FP+NP+1))\""
+eval "sht465=\"\$F$((FP+NP+2))\""
+eval "sht459=\"\$F$((FP+NP+3))\""
+eval "sht456=\"\$F$((FP+NP+4))\""
 sht473="${R}"
-eval "F$((FP+NP+0))=\"\${sht472}\""
+eval "F$((FP+NP+0))=\"\${sht471}\""
+eval "F$((FP+NP+1))=\"\${sht468}\""
+eval "F$((FP+NP+2))=\"\${sht465}\""
+eval "F$((FP+NP+3))=\"\${sht459}\""
+eval "F$((FP+NP+4))=\"\${sht456}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht473}\""
-CALLEE=b_npc
+eval "F$((NFP+1))=\"\${sht468}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=spill
+RPC=214; ACTION=call; return
+;;
+214)
+eval "sht471=\"\$F$((FP+NP+0))\""
+eval "sht468=\"\$F$((FP+NP+1))\""
+eval "sht465=\"\$F$((FP+NP+2))\""
+eval "sht459=\"\$F$((FP+NP+3))\""
+eval "sht456=\"\$F$((FP+NP+4))\""
+sht474="${R}"
+eval "F$((FP+NP+0))=\"\${sht471}\""
+eval "F$((FP+NP+1))=\"\${sht468}\""
+eval "F$((FP+NP+2))=\"\${sht465}\""
+eval "F$((FP+NP+3))=\"\${sht459}\""
+eval "F$((FP+NP+4))=\"\${sht456}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht474}\""
+STGV="T:NFP=\$FTOP"
+eval "F$((NFP+1))=\"\$STGV\""
+CALLEE=emit
 RPC=215; ACTION=call; return
 ;;
 215)
-eval "sht472=\"\$F$((FP+NP+0))\""
-sht474="${R}"
-sht475="${sht474}"
-hp_car "${p0}"
+eval "sht471=\"\$F$((FP+NP+0))\""
+eval "sht468=\"\$F$((FP+NP+1))\""
+eval "sht465=\"\$F$((FP+NP+2))\""
+eval "sht459=\"\$F$((FP+NP+3))\""
+eval "sht456=\"\$F$((FP+NP+4))\""
+sht475="${R}"
+hp_cdr "${sht456}"
 sht476="${R}"
-sht477="T:${sht476#??}"
 eval "F$((FP+NP+0))=\"\${sht475}\""
-eval "F$((FP+NP+1))=\"\${sht472}\""
+eval "F$((FP+NP+1))=\"\${sht471}\""
+eval "F$((FP+NP+2))=\"\${sht468}\""
+eval "F$((FP+NP+3))=\"\${sht465}\""
+eval "F$((FP+NP+4))=\"\${sht459}\""
+eval "F$((FP+NP+5))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht477}\""
-CALLEE=sh_mangle
+eval "F$((NFP+0))=\"\${sht476}\""
+CALLEE=refrhs
 RPC=216; ACTION=call; return
 ;;
 216)
 eval "sht475=\"\$F$((FP+NP+0))\""
-eval "sht472=\"\$F$((FP+NP+1))\""
-sht478="${R}"
-sht479="${sht478}"
-hp_car "${sht472}"
-sht480="${R}"
-eval "F$((FP+NP+0))=\"\${sht479}\""
-eval "F$((FP+NP+1))=\"\${sht475}\""
-eval "F$((FP+NP+2))=\"\${sht472}\""
+eval "sht471=\"\$F$((FP+NP+1))\""
+eval "sht468=\"\$F$((FP+NP+2))\""
+eval "sht465=\"\$F$((FP+NP+3))\""
+eval "sht459=\"\$F$((FP+NP+4))\""
+eval "sht456=\"\$F$((FP+NP+5))\""
+sht477="${R}"
+sht478="T:CALLEE=${sht477#??}"
+eval "F$((FP+NP+0))=\"\${sht471}\""
+eval "F$((FP+NP+1))=\"\${sht468}\""
+eval "F$((FP+NP+2))=\"\${sht465}\""
+eval "F$((FP+NP+3))=\"\${sht459}\""
+eval "F$((FP+NP+4))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht480}\""
-CALLEE=bnpczzP
+eval "F$((NFP+0))=\"\${sht475}\""
+eval "F$((NFP+1))=\"\${sht478}\""
+CALLEE=emit
 RPC=217; ACTION=call; return
 ;;
 217)
-eval "sht479=\"\$F$((FP+NP+0))\""
-eval "sht475=\"\$F$((FP+NP+1))\""
-eval "sht472=\"\$F$((FP+NP+2))\""
-sht481="${R}"
+eval "sht471=\"\$F$((FP+NP+0))\""
+eval "sht468=\"\$F$((FP+NP+1))\""
+eval "sht465=\"\$F$((FP+NP+2))\""
+eval "sht459=\"\$F$((FP+NP+3))\""
+eval "sht456=\"\$F$((FP+NP+4))\""
+sht479="${R}"
+hp_cdr "${sht465}"
+sht480="${R}"
 eval "F$((FP+NP+0))=\"\${sht479}\""
-eval "F$((FP+NP+1))=\"\${sht475}\""
-eval "F$((FP+NP+2))=\"\${sht472}\""
+eval "F$((FP+NP+1))=\"\${sht471}\""
+eval "F$((FP+NP+2))=\"\${sht468}\""
+eval "F$((FP+NP+3))=\"\${sht465}\""
+eval "F$((FP+NP+4))=\"\${sht459}\""
+eval "F$((FP+NP+5))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht481}\""
-eval "F$((NFP+1))=\"\${p3}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=spill
+eval "F$((NFP+0))=\"\${sht480}\""
+CALLEE=refrhs
 RPC=218; ACTION=call; return
 ;;
 218)
 eval "sht479=\"\$F$((FP+NP+0))\""
-eval "sht475=\"\$F$((FP+NP+1))\""
-eval "sht472=\"\$F$((FP+NP+2))\""
-sht482="${R}"
-eval "F$((FP+NP+0))=\"\${sht479}\""
-eval "F$((FP+NP+1))=\"\${sht475}\""
-eval "F$((FP+NP+2))=\"\${sht472}\""
+eval "sht471=\"\$F$((FP+NP+1))\""
+eval "sht468=\"\$F$((FP+NP+2))\""
+eval "sht465=\"\$F$((FP+NP+3))\""
+eval "sht459=\"\$F$((FP+NP+4))\""
+eval "sht456=\"\$F$((FP+NP+5))\""
+sht481="${R}"
+sht482="T:APLIST=${sht481#??}"
+eval "F$((FP+NP+0))=\"\${sht471}\""
+eval "F$((FP+NP+1))=\"\${sht468}\""
+eval "F$((FP+NP+2))=\"\${sht465}\""
+eval "F$((FP+NP+3))=\"\${sht459}\""
+eval "F$((FP+NP+4))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht482}\""
-STGV="T:NFP=\$FTOP"
-eval "F$((NFP+1))=\"\$STGV\""
+eval "F$((NFP+0))=\"\${sht479}\""
+eval "F$((NFP+1))=\"\${sht482}\""
 CALLEE=emit
 RPC=219; ACTION=call; return
 ;;
 219)
-eval "sht479=\"\$F$((FP+NP+0))\""
-eval "sht475=\"\$F$((FP+NP+1))\""
-eval "sht472=\"\$F$((FP+NP+2))\""
+eval "sht471=\"\$F$((FP+NP+0))\""
+eval "sht468=\"\$F$((FP+NP+1))\""
+eval "sht465=\"\$F$((FP+NP+2))\""
+eval "sht459=\"\$F$((FP+NP+3))\""
+eval "sht456=\"\$F$((FP+NP+4))\""
 sht483="${R}"
-hp_cdr "${sht472}"
-sht484="${R}"
-eval "F$((FP+NP+0))=\"\${sht479}\""
-eval "F$((FP+NP+1))=\"\${sht475}\""
-eval "F$((FP+NP+2))=\"\${sht472}\""
+sht484="T:${sht471#??}"
+sht485="T:${sht484#??}; ACTION=apply; return"
+sht486="T:RPC=${sht485#??}"
+eval "F$((FP+NP+0))=\"\${sht471}\""
+eval "F$((FP+NP+1))=\"\${sht468}\""
+eval "F$((FP+NP+2))=\"\${sht465}\""
+eval "F$((FP+NP+3))=\"\${sht459}\""
+eval "F$((FP+NP+4))=\"\${sht456}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht483}\""
-eval "F$((NFP+1))=\"\${sht484}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=stage
+eval "F$((NFP+1))=\"\${sht486}\""
+CALLEE=emit
 RPC=220; ACTION=call; return
 ;;
 220)
-eval "sht479=\"\$F$((FP+NP+0))\""
-eval "sht475=\"\$F$((FP+NP+1))\""
-eval "sht472=\"\$F$((FP+NP+2))\""
-sht485="${R}"
-sht486="T:CALLEE=${sht479#??}"
-eval "F$((FP+NP+0))=\"\${sht479}\""
-eval "F$((FP+NP+1))=\"\${sht475}\""
-eval "F$((FP+NP+2))=\"\${sht472}\""
+eval "sht471=\"\$F$((FP+NP+0))\""
+eval "sht468=\"\$F$((FP+NP+1))\""
+eval "sht465=\"\$F$((FP+NP+2))\""
+eval "sht459=\"\$F$((FP+NP+3))\""
+eval "sht456=\"\$F$((FP+NP+4))\""
+sht487="${R}"
+sht488="${sht487}"
+eval "F$((FP+NP+0))=\"\${sht488}\""
+eval "F$((FP+NP+1))=\"\${sht471}\""
+eval "F$((FP+NP+2))=\"\${sht468}\""
+eval "F$((FP+NP+3))=\"\${sht465}\""
+eval "F$((FP+NP+4))=\"\${sht459}\""
+eval "F$((FP+NP+5))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht485}\""
-eval "F$((NFP+1))=\"\${sht486}\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht488}\""
+eval "F$((NFP+1))=\"\${sht471}\""
+CALLEE=switch
 RPC=221; ACTION=call; return
 ;;
 221)
-eval "sht479=\"\$F$((FP+NP+0))\""
-eval "sht475=\"\$F$((FP+NP+1))\""
-eval "sht472=\"\$F$((FP+NP+2))\""
-sht487="${R}"
-sht488="T:${sht475#??}"
-sht489="T:${sht488#??}; ACTION=call; return"
-sht490="T:RPC=${sht489#??}"
-eval "F$((FP+NP+0))=\"\${sht479}\""
-eval "F$((FP+NP+1))=\"\${sht475}\""
-eval "F$((FP+NP+2))=\"\${sht472}\""
+eval "sht488=\"\$F$((FP+NP+0))\""
+eval "sht471=\"\$F$((FP+NP+1))\""
+eval "sht468=\"\$F$((FP+NP+2))\""
+eval "sht465=\"\$F$((FP+NP+3))\""
+eval "sht459=\"\$F$((FP+NP+4))\""
+eval "sht456=\"\$F$((FP+NP+5))\""
+sht489="${R}"
+sht490="${sht489}"
+eval "F$((FP+NP+0))=\"\${sht490}\""
+eval "F$((FP+NP+1))=\"\${sht488}\""
+eval "F$((FP+NP+2))=\"\${sht471}\""
+eval "F$((FP+NP+3))=\"\${sht468}\""
+eval "F$((FP+NP+4))=\"\${sht465}\""
+eval "F$((FP+NP+5))=\"\${sht459}\""
+eval "F$((FP+NP+6))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht487}\""
-eval "F$((NFP+1))=\"\${sht490}\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht490}\""
+CALLEE=tmpn
 RPC=222; ACTION=call; return
 ;;
 222)
-eval "sht479=\"\$F$((FP+NP+0))\""
-eval "sht475=\"\$F$((FP+NP+1))\""
-eval "sht472=\"\$F$((FP+NP+2))\""
+eval "sht490=\"\$F$((FP+NP+0))\""
+eval "sht488=\"\$F$((FP+NP+1))\""
+eval "sht471=\"\$F$((FP+NP+2))\""
+eval "sht468=\"\$F$((FP+NP+3))\""
+eval "sht465=\"\$F$((FP+NP+4))\""
+eval "sht459=\"\$F$((FP+NP+5))\""
+eval "sht456=\"\$F$((FP+NP+6))\""
 sht491="${R}"
 sht492="${sht491}"
 eval "F$((FP+NP+0))=\"\${sht492}\""
-eval "F$((FP+NP+1))=\"\${sht479}\""
-eval "F$((FP+NP+2))=\"\${sht475}\""
-eval "F$((FP+NP+3))=\"\${sht472}\""
+eval "F$((FP+NP+1))=\"\${sht490}\""
+eval "F$((FP+NP+2))=\"\${sht488}\""
+eval "F$((FP+NP+3))=\"\${sht471}\""
+eval "F$((FP+NP+4))=\"\${sht468}\""
+eval "F$((FP+NP+5))=\"\${sht465}\""
+eval "F$((FP+NP+6))=\"\${sht459}\""
+eval "F$((FP+NP+7))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht492}\""
-eval "F$((NFP+1))=\"\${sht475}\""
-CALLEE=switch
+eval "F$((NFP+0))=\"\${sht490}\""
+eval "F$((NFP+1))=\"\${sht468}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=unspill
 RPC=223; ACTION=call; return
 ;;
 223)
 eval "sht492=\"\$F$((FP+NP+0))\""
-eval "sht479=\"\$F$((FP+NP+1))\""
-eval "sht475=\"\$F$((FP+NP+2))\""
-eval "sht472=\"\$F$((FP+NP+3))\""
+eval "sht490=\"\$F$((FP+NP+1))\""
+eval "sht488=\"\$F$((FP+NP+2))\""
+eval "sht471=\"\$F$((FP+NP+3))\""
+eval "sht468=\"\$F$((FP+NP+4))\""
+eval "sht465=\"\$F$((FP+NP+5))\""
+eval "sht459=\"\$F$((FP+NP+6))\""
+eval "sht456=\"\$F$((FP+NP+7))\""
 sht493="${R}"
-sht494="${sht493}"
-eval "F$((FP+NP+0))=\"\${sht494}\""
-eval "F$((FP+NP+1))=\"\${sht492}\""
-eval "F$((FP+NP+2))=\"\${sht479}\""
-eval "F$((FP+NP+3))=\"\${sht475}\""
-eval "F$((FP+NP+4))=\"\${sht472}\""
+sht494="T:\${R}${G_DQ#??}"
+sht495="T:${G_DQ#??}${sht494#??}"
+sht496="T:=${sht495#??}"
+sht497="T:${sht492#??}${sht496#??}"
+eval "F$((FP+NP+0))=\"\${sht492}\""
+eval "F$((FP+NP+1))=\"\${sht490}\""
+eval "F$((FP+NP+2))=\"\${sht488}\""
+eval "F$((FP+NP+3))=\"\${sht471}\""
+eval "F$((FP+NP+4))=\"\${sht468}\""
+eval "F$((FP+NP+5))=\"\${sht465}\""
+eval "F$((FP+NP+6))=\"\${sht459}\""
+eval "F$((FP+NP+7))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht494}\""
-CALLEE=tmpn
+eval "F$((NFP+0))=\"\${sht493}\""
+eval "F$((NFP+1))=\"\${sht497}\""
+CALLEE=emit
 RPC=224; ACTION=call; return
 ;;
 224)
-eval "sht494=\"\$F$((FP+NP+0))\""
-eval "sht492=\"\$F$((FP+NP+1))\""
-eval "sht479=\"\$F$((FP+NP+2))\""
-eval "sht475=\"\$F$((FP+NP+3))\""
-eval "sht472=\"\$F$((FP+NP+4))\""
-sht495="${R}"
-sht496="${sht495}"
-eval "F$((FP+NP+0))=\"\${sht496}\""
-eval "F$((FP+NP+1))=\"\${sht494}\""
-eval "F$((FP+NP+2))=\"\${sht492}\""
-eval "F$((FP+NP+3))=\"\${sht479}\""
-eval "F$((FP+NP+4))=\"\${sht475}\""
-eval "F$((FP+NP+5))=\"\${sht472}\""
+eval "sht492=\"\$F$((FP+NP+0))\""
+eval "sht490=\"\$F$((FP+NP+1))\""
+eval "sht488=\"\$F$((FP+NP+2))\""
+eval "sht471=\"\$F$((FP+NP+3))\""
+eval "sht468=\"\$F$((FP+NP+4))\""
+eval "sht465=\"\$F$((FP+NP+5))\""
+eval "sht459=\"\$F$((FP+NP+6))\""
+eval "sht456=\"\$F$((FP+NP+7))\""
+sht498="${R}"
+eval "F$((FP+NP+0))=\"\${sht498}\""
+eval "F$((FP+NP+1))=\"\${sht492}\""
+eval "F$((FP+NP+2))=\"\${sht490}\""
+eval "F$((FP+NP+3))=\"\${sht488}\""
+eval "F$((FP+NP+4))=\"\${sht471}\""
+eval "F$((FP+NP+5))=\"\${sht468}\""
+eval "F$((FP+NP+6))=\"\${sht465}\""
+eval "F$((FP+NP+7))=\"\${sht459}\""
+eval "F$((FP+NP+8))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht494}\""
-eval "F$((NFP+1))=\"\${p3}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=unspill
+eval "F$((NFP+0))=\"\${sht468}\""
+CALLEE=lenl
 RPC=225; ACTION=call; return
 ;;
 225)
-eval "sht496=\"\$F$((FP+NP+0))\""
-eval "sht494=\"\$F$((FP+NP+1))\""
-eval "sht492=\"\$F$((FP+NP+2))\""
-eval "sht479=\"\$F$((FP+NP+3))\""
-eval "sht475=\"\$F$((FP+NP+4))\""
-eval "sht472=\"\$F$((FP+NP+5))\""
-sht497="${R}"
-sht498="T:\${R}${G_DQ#??}"
-sht499="T:${G_DQ#??}${sht498#??}"
-sht500="T:=${sht499#??}"
-sht501="T:${sht496#??}${sht500#??}"
-eval "F$((FP+NP+0))=\"\${sht496}\""
-eval "F$((FP+NP+1))=\"\${sht494}\""
-eval "F$((FP+NP+2))=\"\${sht492}\""
-eval "F$((FP+NP+3))=\"\${sht479}\""
-eval "F$((FP+NP+4))=\"\${sht475}\""
-eval "F$((FP+NP+5))=\"\${sht472}\""
+eval "sht498=\"\$F$((FP+NP+0))\""
+eval "sht492=\"\$F$((FP+NP+1))\""
+eval "sht490=\"\$F$((FP+NP+2))\""
+eval "sht488=\"\$F$((FP+NP+3))\""
+eval "sht471=\"\$F$((FP+NP+4))\""
+eval "sht468=\"\$F$((FP+NP+5))\""
+eval "sht465=\"\$F$((FP+NP+6))\""
+eval "sht459=\"\$F$((FP+NP+7))\""
+eval "sht456=\"\$F$((FP+NP+8))\""
+sht499="${R}"
+eval "F$((FP+NP+0))=\"\${sht492}\""
+eval "F$((FP+NP+1))=\"\${sht490}\""
+eval "F$((FP+NP+2))=\"\${sht488}\""
+eval "F$((FP+NP+3))=\"\${sht471}\""
+eval "F$((FP+NP+4))=\"\${sht468}\""
+eval "F$((FP+NP+5))=\"\${sht465}\""
+eval "F$((FP+NP+6))=\"\${sht459}\""
+eval "F$((FP+NP+7))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht497}\""
-eval "F$((NFP+1))=\"\${sht501}\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht498}\""
+eval "F$((NFP+1))=\"\${sht499}\""
+CALLEE=bsm
 RPC=226; ACTION=call; return
 ;;
 226)
-eval "sht496=\"\$F$((FP+NP+0))\""
-eval "sht494=\"\$F$((FP+NP+1))\""
-eval "sht492=\"\$F$((FP+NP+2))\""
-eval "sht479=\"\$F$((FP+NP+3))\""
-eval "sht475=\"\$F$((FP+NP+4))\""
-eval "sht472=\"\$F$((FP+NP+5))\""
-sht502="${R}"
-eval "F$((FP+NP+0))=\"\${sht502}\""
-eval "F$((FP+NP+1))=\"\${sht496}\""
-eval "F$((FP+NP+2))=\"\${sht494}\""
-eval "F$((FP+NP+3))=\"\${sht492}\""
-eval "F$((FP+NP+4))=\"\${sht479}\""
-eval "F$((FP+NP+5))=\"\${sht475}\""
-eval "F$((FP+NP+6))=\"\${sht472}\""
+eval "sht492=\"\$F$((FP+NP+0))\""
+eval "sht490=\"\$F$((FP+NP+1))\""
+eval "sht488=\"\$F$((FP+NP+2))\""
+eval "sht471=\"\$F$((FP+NP+3))\""
+eval "sht468=\"\$F$((FP+NP+4))\""
+eval "sht465=\"\$F$((FP+NP+5))\""
+eval "sht459=\"\$F$((FP+NP+6))\""
+eval "sht456=\"\$F$((FP+NP+7))\""
+sht500="${R}"
+eval "F$((FP+NP+0))=\"\${sht492}\""
+eval "F$((FP+NP+1))=\"\${sht490}\""
+eval "F$((FP+NP+2))=\"\${sht488}\""
+eval "F$((FP+NP+3))=\"\${sht471}\""
+eval "F$((FP+NP+4))=\"\${sht468}\""
+eval "F$((FP+NP+5))=\"\${sht465}\""
+eval "F$((FP+NP+6))=\"\${sht459}\""
+eval "F$((FP+NP+7))=\"\${sht456}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p3}\""
-CALLEE=lenl
+eval "F$((NFP+0))=\"\${sht500}\""
+CALLEE=bkzzP
 RPC=227; ACTION=call; return
 ;;
 227)
-eval "sht502=\"\$F$((FP+NP+0))\""
-eval "sht496=\"\$F$((FP+NP+1))\""
-eval "sht494=\"\$F$((FP+NP+2))\""
-eval "sht492=\"\$F$((FP+NP+3))\""
-eval "sht479=\"\$F$((FP+NP+4))\""
-eval "sht475=\"\$F$((FP+NP+5))\""
-eval "sht472=\"\$F$((FP+NP+6))\""
+eval "sht492=\"\$F$((FP+NP+0))\""
+eval "sht490=\"\$F$((FP+NP+1))\""
+eval "sht488=\"\$F$((FP+NP+2))\""
+eval "sht471=\"\$F$((FP+NP+3))\""
+eval "sht468=\"\$F$((FP+NP+4))\""
+eval "sht465=\"\$F$((FP+NP+5))\""
+eval "sht459=\"\$F$((FP+NP+6))\""
+eval "sht456=\"\$F$((FP+NP+7))\""
+sht501="${R}"
+eval "F$((FP+NP+0))=\"\${sht501}\""
+eval "F$((FP+NP+1))=\"\${sht492}\""
+eval "F$((FP+NP+2))=\"\${sht490}\""
+eval "F$((FP+NP+3))=\"\${sht488}\""
+eval "F$((FP+NP+4))=\"\${sht471}\""
+eval "F$((FP+NP+5))=\"\${sht468}\""
+eval "F$((FP+NP+6))=\"\${sht465}\""
+eval "F$((FP+NP+7))=\"\${sht459}\""
+eval "F$((FP+NP+8))=\"\${sht456}\""
+hp_cons "S:loc" "${sht492}"
+eval "sht501=\"\$F$((FP+NP+0))\""
+eval "sht492=\"\$F$((FP+NP+1))\""
+eval "sht490=\"\$F$((FP+NP+2))\""
+eval "sht488=\"\$F$((FP+NP+3))\""
+eval "sht471=\"\$F$((FP+NP+4))\""
+eval "sht468=\"\$F$((FP+NP+5))\""
+eval "sht465=\"\$F$((FP+NP+6))\""
+eval "sht459=\"\$F$((FP+NP+7))\""
+eval "sht456=\"\$F$((FP+NP+8))\""
+sht502="${R}"
+eval "F$((FP+NP+0))=\"\${sht492}\""
+eval "F$((FP+NP+1))=\"\${sht490}\""
+eval "F$((FP+NP+2))=\"\${sht488}\""
+eval "F$((FP+NP+3))=\"\${sht471}\""
+eval "F$((FP+NP+4))=\"\${sht468}\""
+eval "F$((FP+NP+5))=\"\${sht465}\""
+eval "F$((FP+NP+6))=\"\${sht459}\""
+eval "F$((FP+NP+7))=\"\${sht456}\""
+hp_cons "${sht501}" "${sht502}"
+eval "sht492=\"\$F$((FP+NP+0))\""
+eval "sht490=\"\$F$((FP+NP+1))\""
+eval "sht488=\"\$F$((FP+NP+2))\""
+eval "sht471=\"\$F$((FP+NP+3))\""
+eval "sht468=\"\$F$((FP+NP+4))\""
+eval "sht465=\"\$F$((FP+NP+5))\""
+eval "sht459=\"\$F$((FP+NP+6))\""
+eval "sht456=\"\$F$((FP+NP+7))\""
 sht503="${R}"
-eval "F$((FP+NP+0))=\"\${sht496}\""
-eval "F$((FP+NP+1))=\"\${sht494}\""
-eval "F$((FP+NP+2))=\"\${sht492}\""
-eval "F$((FP+NP+3))=\"\${sht479}\""
-eval "F$((FP+NP+4))=\"\${sht475}\""
-eval "F$((FP+NP+5))=\"\${sht472}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht502}\""
-eval "F$((NFP+1))=\"\${sht503}\""
-CALLEE=bsm
-RPC=228; ACTION=call; return
+R="${sht503}"; ACTION=ret; return
 ;;
 228)
-eval "sht496=\"\$F$((FP+NP+0))\""
-eval "sht494=\"\$F$((FP+NP+1))\""
-eval "sht492=\"\$F$((FP+NP+2))\""
-eval "sht479=\"\$F$((FP+NP+3))\""
-eval "sht475=\"\$F$((FP+NP+4))\""
-eval "sht472=\"\$F$((FP+NP+5))\""
-sht504="${R}"
-eval "F$((FP+NP+0))=\"\${sht496}\""
-eval "F$((FP+NP+1))=\"\${sht494}\""
-eval "F$((FP+NP+2))=\"\${sht492}\""
-eval "F$((FP+NP+3))=\"\${sht479}\""
-eval "F$((FP+NP+4))=\"\${sht475}\""
-eval "F$((FP+NP+5))=\"\${sht472}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht504}\""
-CALLEE=bkzzP
-RPC=229; ACTION=call; return
-;;
-229)
-eval "sht496=\"\$F$((FP+NP+0))\""
-eval "sht494=\"\$F$((FP+NP+1))\""
-eval "sht492=\"\$F$((FP+NP+2))\""
-eval "sht479=\"\$F$((FP+NP+3))\""
-eval "sht475=\"\$F$((FP+NP+4))\""
-eval "sht472=\"\$F$((FP+NP+5))\""
-sht505="${R}"
-eval "F$((FP+NP+0))=\"\${sht505}\""
-eval "F$((FP+NP+1))=\"\${sht496}\""
-eval "F$((FP+NP+2))=\"\${sht494}\""
-eval "F$((FP+NP+3))=\"\${sht492}\""
-eval "F$((FP+NP+4))=\"\${sht479}\""
-eval "F$((FP+NP+5))=\"\${sht475}\""
-eval "F$((FP+NP+6))=\"\${sht472}\""
-hp_cons "S:loc" "${sht496}"
-eval "sht505=\"\$F$((FP+NP+0))\""
-eval "sht496=\"\$F$((FP+NP+1))\""
-eval "sht494=\"\$F$((FP+NP+2))\""
-eval "sht492=\"\$F$((FP+NP+3))\""
-eval "sht479=\"\$F$((FP+NP+4))\""
-eval "sht475=\"\$F$((FP+NP+5))\""
-eval "sht472=\"\$F$((FP+NP+6))\""
+hp_car "${p0}"
 sht506="${R}"
-eval "F$((FP+NP+0))=\"\${sht496}\""
-eval "F$((FP+NP+1))=\"\${sht494}\""
-eval "F$((FP+NP+2))=\"\${sht492}\""
-eval "F$((FP+NP+3))=\"\${sht479}\""
-eval "F$((FP+NP+4))=\"\${sht475}\""
-eval "F$((FP+NP+5))=\"\${sht472}\""
-hp_cons "${sht505}" "${sht506}"
-eval "sht496=\"\$F$((FP+NP+0))\""
-eval "sht494=\"\$F$((FP+NP+1))\""
-eval "sht492=\"\$F$((FP+NP+2))\""
-eval "sht479=\"\$F$((FP+NP+3))\""
-eval "sht475=\"\$F$((FP+NP+4))\""
-eval "sht472=\"\$F$((FP+NP+5))\""
-sht507="${R}"
-R="${sht507}"; ACTION=ret; return
-;;
-230)
-sht509="${R}"
-sht510="${sht509}"
-hp_cdr "${sht510}"
-sht511="${R}"
-hp_cdr "${sht511}"
-sht512="${R}"
-sht513="${sht512}"
-hp_cdr "${sht510}"
-sht514="${R}"
-eval "F$((FP+NP+0))=\"\${sht513}\""
-eval "F$((FP+NP+1))=\"\${sht510}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht514}\""
-eval "F$((NFP+1))=\"\${p3}\""
-CALLEE=addlive
+eval "F$((NFP+0))=\"\${sht506}\""
+eval "F$((NFP+1))=\"\${p1}\""
+CALLEE=lookup
 RPC=231; ACTION=call; return
 ;;
+229)
+sht505="NIL"
+PC=230; ACTION=jump; return
+;;
+230)
+if [ "${sht505}" != NIL ]; then PC=232; else PC=233; fi
+ACTION=jump; return
+;;
 231)
-eval "sht513=\"\$F$((FP+NP+0))\""
-eval "sht510=\"\$F$((FP+NP+1))\""
-sht515="${R}"
-sht516="${sht515}"
-hp_cdr "${p0}"
-sht517="${R}"
-hp_car "${sht510}"
-sht518="${R}"
-eval "F$((FP+NP+0))=\"\${sht516}\""
-eval "F$((FP+NP+1))=\"\${sht513}\""
-eval "F$((FP+NP+2))=\"\${sht510}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht517}\""
-eval "F$((NFP+1))=\"\${p1}\""
-eval "F$((NFP+2))=\"\${sht518}\""
-eval "F$((NFP+3))=\"\${sht516}\""
-CALLEE=largs
-RPC=232; ACTION=call; return
+sht507="${R}"
+if [ "${sht507}" = NIL ]; then
+sht508="S:t"
+else
+sht508="NIL"
+fi
+sht505="${sht508}"
+PC=230; ACTION=jump; return
 ;;
 232)
-eval "sht516=\"\$F$((FP+NP+0))\""
-eval "sht513=\"\$F$((FP+NP+1))\""
-eval "sht510=\"\$F$((FP+NP+2))\""
-sht519="${R}"
-sht520="${sht519}"
-hp_car "${sht520}"
-sht521="${R}"
-eval "F$((FP+NP+0))=\"\${sht520}\""
-eval "F$((FP+NP+1))=\"\${sht516}\""
-eval "F$((FP+NP+2))=\"\${sht513}\""
-eval "F$((FP+NP+3))=\"\${sht510}\""
+hp_cdr "${p0}"
+sht509="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht521}\""
-CALLEE=b_npc
-RPC=233; ACTION=call; return
-;;
-233)
-eval "sht520=\"\$F$((FP+NP+0))\""
-eval "sht516=\"\$F$((FP+NP+1))\""
-eval "sht513=\"\$F$((FP+NP+2))\""
-eval "sht510=\"\$F$((FP+NP+3))\""
-sht522="${R}"
-sht523="${sht522}"
-hp_car "${sht520}"
-sht524="${R}"
-eval "F$((FP+NP+0))=\"\${sht523}\""
-eval "F$((FP+NP+1))=\"\${sht520}\""
-eval "F$((FP+NP+2))=\"\${sht516}\""
-eval "F$((FP+NP+3))=\"\${sht513}\""
-eval "F$((FP+NP+4))=\"\${sht510}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht524}\""
-CALLEE=bnpczzP
+eval "F$((NFP+0))=\"\${sht509}\""
+eval "F$((NFP+1))=\"\${p1}\""
+eval "F$((NFP+2))=\"\${p2}\""
+eval "F$((NFP+3))=\"\${p3}\""
+CALLEE=largs
 RPC=234; ACTION=call; return
 ;;
-234)
-eval "sht523=\"\$F$((FP+NP+0))\""
-eval "sht520=\"\$F$((FP+NP+1))\""
-eval "sht516=\"\$F$((FP+NP+2))\""
-eval "sht513=\"\$F$((FP+NP+3))\""
-eval "sht510=\"\$F$((FP+NP+4))\""
-sht525="${R}"
-eval "F$((FP+NP+0))=\"\${sht523}\""
-eval "F$((FP+NP+1))=\"\${sht520}\""
-eval "F$((FP+NP+2))=\"\${sht516}\""
-eval "F$((FP+NP+3))=\"\${sht513}\""
-eval "F$((FP+NP+4))=\"\${sht510}\""
+233)
+hp_car "${p0}"
+sht547="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht525}\""
-eval "F$((NFP+1))=\"\${sht516}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=spill
+eval "F$((NFP+0))=\"\${sht547}\""
+eval "F$((NFP+1))=\"\${p1}\""
+eval "F$((NFP+2))=\"\${p2}\""
+eval "F$((NFP+3))=\"\${p3}\""
+CALLEE=lval
+RPC=250; ACTION=call; return
+;;
+234)
+sht510="${R}"
+sht511="${sht510}"
+hp_car "${sht511}"
+sht512="${R}"
+eval "F$((FP+NP+0))=\"\${sht511}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht512}\""
+CALLEE=b_npc
 RPC=235; ACTION=call; return
 ;;
 235)
-eval "sht523=\"\$F$((FP+NP+0))\""
-eval "sht520=\"\$F$((FP+NP+1))\""
-eval "sht516=\"\$F$((FP+NP+2))\""
-eval "sht513=\"\$F$((FP+NP+3))\""
-eval "sht510=\"\$F$((FP+NP+4))\""
-sht526="${R}"
-eval "F$((FP+NP+0))=\"\${sht523}\""
-eval "F$((FP+NP+1))=\"\${sht520}\""
-eval "F$((FP+NP+2))=\"\${sht516}\""
-eval "F$((FP+NP+3))=\"\${sht513}\""
-eval "F$((FP+NP+4))=\"\${sht510}\""
+eval "sht511=\"\$F$((FP+NP+0))\""
+sht513="${R}"
+sht514="${sht513}"
+hp_car "${p0}"
+sht515="${R}"
+sht516="T:${sht515#??}"
+eval "F$((FP+NP+0))=\"\${sht514}\""
+eval "F$((FP+NP+1))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht526}\""
-STGV="T:NFP=\$FTOP"
-eval "F$((NFP+1))=\"\$STGV\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht516}\""
+CALLEE=sh_mangle
 RPC=236; ACTION=call; return
 ;;
 236)
-eval "sht523=\"\$F$((FP+NP+0))\""
-eval "sht520=\"\$F$((FP+NP+1))\""
-eval "sht516=\"\$F$((FP+NP+2))\""
-eval "sht513=\"\$F$((FP+NP+3))\""
-eval "sht510=\"\$F$((FP+NP+4))\""
-sht527="${R}"
-hp_cdr "${sht520}"
-sht528="${R}"
-eval "F$((FP+NP+0))=\"\${sht523}\""
-eval "F$((FP+NP+1))=\"\${sht520}\""
-eval "F$((FP+NP+2))=\"\${sht516}\""
-eval "F$((FP+NP+3))=\"\${sht513}\""
-eval "F$((FP+NP+4))=\"\${sht510}\""
+eval "sht514=\"\$F$((FP+NP+0))\""
+eval "sht511=\"\$F$((FP+NP+1))\""
+sht517="${R}"
+sht518="${sht517}"
+hp_car "${sht511}"
+sht519="${R}"
+eval "F$((FP+NP+0))=\"\${sht518}\""
+eval "F$((FP+NP+1))=\"\${sht514}\""
+eval "F$((FP+NP+2))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht527}\""
-eval "F$((NFP+1))=\"\${sht528}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=stage
+eval "F$((NFP+0))=\"\${sht519}\""
+CALLEE=bnpczzP
 RPC=237; ACTION=call; return
 ;;
 237)
-eval "sht523=\"\$F$((FP+NP+0))\""
-eval "sht520=\"\$F$((FP+NP+1))\""
-eval "sht516=\"\$F$((FP+NP+2))\""
-eval "sht513=\"\$F$((FP+NP+3))\""
-eval "sht510=\"\$F$((FP+NP+4))\""
-sht529="${R}"
-sht530="T:${sht513#??}}"
-sht531="T:CALLEE=\${${sht530#??}"
-eval "F$((FP+NP+0))=\"\${sht523}\""
-eval "F$((FP+NP+1))=\"\${sht520}\""
-eval "F$((FP+NP+2))=\"\${sht516}\""
-eval "F$((FP+NP+3))=\"\${sht513}\""
-eval "F$((FP+NP+4))=\"\${sht510}\""
+eval "sht518=\"\$F$((FP+NP+0))\""
+eval "sht514=\"\$F$((FP+NP+1))\""
+eval "sht511=\"\$F$((FP+NP+2))\""
+sht520="${R}"
+eval "F$((FP+NP+0))=\"\${sht518}\""
+eval "F$((FP+NP+1))=\"\${sht514}\""
+eval "F$((FP+NP+2))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht529}\""
-eval "F$((NFP+1))=\"\${sht531}\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht520}\""
+eval "F$((NFP+1))=\"\${p3}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=spill
 RPC=238; ACTION=call; return
 ;;
 238)
-eval "sht523=\"\$F$((FP+NP+0))\""
-eval "sht520=\"\$F$((FP+NP+1))\""
-eval "sht516=\"\$F$((FP+NP+2))\""
-eval "sht513=\"\$F$((FP+NP+3))\""
-eval "sht510=\"\$F$((FP+NP+4))\""
-sht532="${R}"
-sht533="T:${sht523#??}"
-sht534="T:${sht533#??}; ACTION=call; return"
-sht535="T:RPC=${sht534#??}"
-eval "F$((FP+NP+0))=\"\${sht523}\""
-eval "F$((FP+NP+1))=\"\${sht520}\""
-eval "F$((FP+NP+2))=\"\${sht516}\""
-eval "F$((FP+NP+3))=\"\${sht513}\""
-eval "F$((FP+NP+4))=\"\${sht510}\""
+eval "sht518=\"\$F$((FP+NP+0))\""
+eval "sht514=\"\$F$((FP+NP+1))\""
+eval "sht511=\"\$F$((FP+NP+2))\""
+sht521="${R}"
+eval "F$((FP+NP+0))=\"\${sht518}\""
+eval "F$((FP+NP+1))=\"\${sht514}\""
+eval "F$((FP+NP+2))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht532}\""
-eval "F$((NFP+1))=\"\${sht535}\""
+eval "F$((NFP+0))=\"\${sht521}\""
+STGV="T:NFP=\$FTOP"
+eval "F$((NFP+1))=\"\$STGV\""
 CALLEE=emit
 RPC=239; ACTION=call; return
 ;;
 239)
-eval "sht523=\"\$F$((FP+NP+0))\""
-eval "sht520=\"\$F$((FP+NP+1))\""
-eval "sht516=\"\$F$((FP+NP+2))\""
-eval "sht513=\"\$F$((FP+NP+3))\""
-eval "sht510=\"\$F$((FP+NP+4))\""
-sht536="${R}"
-sht537="${sht536}"
-eval "F$((FP+NP+0))=\"\${sht537}\""
-eval "F$((FP+NP+1))=\"\${sht523}\""
-eval "F$((FP+NP+2))=\"\${sht520}\""
-eval "F$((FP+NP+3))=\"\${sht516}\""
-eval "F$((FP+NP+4))=\"\${sht513}\""
-eval "F$((FP+NP+5))=\"\${sht510}\""
+eval "sht518=\"\$F$((FP+NP+0))\""
+eval "sht514=\"\$F$((FP+NP+1))\""
+eval "sht511=\"\$F$((FP+NP+2))\""
+sht522="${R}"
+hp_cdr "${sht511}"
+sht523="${R}"
+eval "F$((FP+NP+0))=\"\${sht518}\""
+eval "F$((FP+NP+1))=\"\${sht514}\""
+eval "F$((FP+NP+2))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht537}\""
+eval "F$((NFP+0))=\"\${sht522}\""
 eval "F$((NFP+1))=\"\${sht523}\""
-CALLEE=switch
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=stage
 RPC=240; ACTION=call; return
 ;;
 240)
-eval "sht537=\"\$F$((FP+NP+0))\""
-eval "sht523=\"\$F$((FP+NP+1))\""
-eval "sht520=\"\$F$((FP+NP+2))\""
-eval "sht516=\"\$F$((FP+NP+3))\""
-eval "sht513=\"\$F$((FP+NP+4))\""
-eval "sht510=\"\$F$((FP+NP+5))\""
-sht538="${R}"
-sht539="${sht538}"
-eval "F$((FP+NP+0))=\"\${sht539}\""
-eval "F$((FP+NP+1))=\"\${sht537}\""
-eval "F$((FP+NP+2))=\"\${sht523}\""
-eval "F$((FP+NP+3))=\"\${sht520}\""
-eval "F$((FP+NP+4))=\"\${sht516}\""
-eval "F$((FP+NP+5))=\"\${sht513}\""
-eval "F$((FP+NP+6))=\"\${sht510}\""
+eval "sht518=\"\$F$((FP+NP+0))\""
+eval "sht514=\"\$F$((FP+NP+1))\""
+eval "sht511=\"\$F$((FP+NP+2))\""
+sht524="${R}"
+sht525="T:CALLEE=${sht518#??}"
+eval "F$((FP+NP+0))=\"\${sht518}\""
+eval "F$((FP+NP+1))=\"\${sht514}\""
+eval "F$((FP+NP+2))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht539}\""
-CALLEE=tmpn
+eval "F$((NFP+0))=\"\${sht524}\""
+eval "F$((NFP+1))=\"\${sht525}\""
+CALLEE=emit
 RPC=241; ACTION=call; return
 ;;
 241)
-eval "sht539=\"\$F$((FP+NP+0))\""
-eval "sht537=\"\$F$((FP+NP+1))\""
-eval "sht523=\"\$F$((FP+NP+2))\""
-eval "sht520=\"\$F$((FP+NP+3))\""
-eval "sht516=\"\$F$((FP+NP+4))\""
-eval "sht513=\"\$F$((FP+NP+5))\""
-eval "sht510=\"\$F$((FP+NP+6))\""
-sht540="${R}"
-sht541="${sht540}"
-eval "F$((FP+NP+0))=\"\${sht541}\""
-eval "F$((FP+NP+1))=\"\${sht539}\""
-eval "F$((FP+NP+2))=\"\${sht537}\""
-eval "F$((FP+NP+3))=\"\${sht523}\""
-eval "F$((FP+NP+4))=\"\${sht520}\""
-eval "F$((FP+NP+5))=\"\${sht516}\""
-eval "F$((FP+NP+6))=\"\${sht513}\""
-eval "F$((FP+NP+7))=\"\${sht510}\""
+eval "sht518=\"\$F$((FP+NP+0))\""
+eval "sht514=\"\$F$((FP+NP+1))\""
+eval "sht511=\"\$F$((FP+NP+2))\""
+sht526="${R}"
+sht527="T:${sht514#??}"
+sht528="T:${sht527#??}; ACTION=call; return"
+sht529="T:RPC=${sht528#??}"
+eval "F$((FP+NP+0))=\"\${sht518}\""
+eval "F$((FP+NP+1))=\"\${sht514}\""
+eval "F$((FP+NP+2))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht539}\""
-eval "F$((NFP+1))=\"\${sht516}\""
-eval "F$((NFP+2))=\"I:0\""
-CALLEE=unspill
+eval "F$((NFP+0))=\"\${sht526}\""
+eval "F$((NFP+1))=\"\${sht529}\""
+CALLEE=emit
 RPC=242; ACTION=call; return
 ;;
 242)
-eval "sht541=\"\$F$((FP+NP+0))\""
-eval "sht539=\"\$F$((FP+NP+1))\""
-eval "sht537=\"\$F$((FP+NP+2))\""
-eval "sht523=\"\$F$((FP+NP+3))\""
-eval "sht520=\"\$F$((FP+NP+4))\""
-eval "sht516=\"\$F$((FP+NP+5))\""
-eval "sht513=\"\$F$((FP+NP+6))\""
-eval "sht510=\"\$F$((FP+NP+7))\""
-sht542="${R}"
-sht543="T:\${R}${G_DQ#??}"
-sht544="T:${G_DQ#??}${sht543#??}"
-sht545="T:=${sht544#??}"
-sht546="T:${sht541#??}${sht545#??}"
-eval "F$((FP+NP+0))=\"\${sht541}\""
-eval "F$((FP+NP+1))=\"\${sht539}\""
-eval "F$((FP+NP+2))=\"\${sht537}\""
-eval "F$((FP+NP+3))=\"\${sht523}\""
-eval "F$((FP+NP+4))=\"\${sht520}\""
-eval "F$((FP+NP+5))=\"\${sht516}\""
-eval "F$((FP+NP+6))=\"\${sht513}\""
-eval "F$((FP+NP+7))=\"\${sht510}\""
+eval "sht518=\"\$F$((FP+NP+0))\""
+eval "sht514=\"\$F$((FP+NP+1))\""
+eval "sht511=\"\$F$((FP+NP+2))\""
+sht530="${R}"
+sht531="${sht530}"
+eval "F$((FP+NP+0))=\"\${sht531}\""
+eval "F$((FP+NP+1))=\"\${sht518}\""
+eval "F$((FP+NP+2))=\"\${sht514}\""
+eval "F$((FP+NP+3))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht542}\""
-eval "F$((NFP+1))=\"\${sht546}\""
-CALLEE=emit
+eval "F$((NFP+0))=\"\${sht531}\""
+eval "F$((NFP+1))=\"\${sht514}\""
+CALLEE=switch
 RPC=243; ACTION=call; return
 ;;
 243)
-eval "sht541=\"\$F$((FP+NP+0))\""
-eval "sht539=\"\$F$((FP+NP+1))\""
-eval "sht537=\"\$F$((FP+NP+2))\""
-eval "sht523=\"\$F$((FP+NP+3))\""
-eval "sht520=\"\$F$((FP+NP+4))\""
-eval "sht516=\"\$F$((FP+NP+5))\""
-eval "sht513=\"\$F$((FP+NP+6))\""
-eval "sht510=\"\$F$((FP+NP+7))\""
-sht547="${R}"
-eval "F$((FP+NP+0))=\"\${sht547}\""
-eval "F$((FP+NP+1))=\"\${sht541}\""
-eval "F$((FP+NP+2))=\"\${sht539}\""
-eval "F$((FP+NP+3))=\"\${sht537}\""
-eval "F$((FP+NP+4))=\"\${sht523}\""
-eval "F$((FP+NP+5))=\"\${sht520}\""
-eval "F$((FP+NP+6))=\"\${sht516}\""
-eval "F$((FP+NP+7))=\"\${sht513}\""
-eval "F$((FP+NP+8))=\"\${sht510}\""
+eval "sht531=\"\$F$((FP+NP+0))\""
+eval "sht518=\"\$F$((FP+NP+1))\""
+eval "sht514=\"\$F$((FP+NP+2))\""
+eval "sht511=\"\$F$((FP+NP+3))\""
+sht532="${R}"
+sht533="${sht532}"
+eval "F$((FP+NP+0))=\"\${sht533}\""
+eval "F$((FP+NP+1))=\"\${sht531}\""
+eval "F$((FP+NP+2))=\"\${sht518}\""
+eval "F$((FP+NP+3))=\"\${sht514}\""
+eval "F$((FP+NP+4))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht516}\""
-CALLEE=lenl
+eval "F$((NFP+0))=\"\${sht533}\""
+CALLEE=tmpn
 RPC=244; ACTION=call; return
 ;;
 244)
-eval "sht547=\"\$F$((FP+NP+0))\""
-eval "sht541=\"\$F$((FP+NP+1))\""
-eval "sht539=\"\$F$((FP+NP+2))\""
-eval "sht537=\"\$F$((FP+NP+3))\""
-eval "sht523=\"\$F$((FP+NP+4))\""
-eval "sht520=\"\$F$((FP+NP+5))\""
-eval "sht516=\"\$F$((FP+NP+6))\""
-eval "sht513=\"\$F$((FP+NP+7))\""
-eval "sht510=\"\$F$((FP+NP+8))\""
-sht548="${R}"
-eval "F$((FP+NP+0))=\"\${sht541}\""
-eval "F$((FP+NP+1))=\"\${sht539}\""
-eval "F$((FP+NP+2))=\"\${sht537}\""
-eval "F$((FP+NP+3))=\"\${sht523}\""
-eval "F$((FP+NP+4))=\"\${sht520}\""
-eval "F$((FP+NP+5))=\"\${sht516}\""
-eval "F$((FP+NP+6))=\"\${sht513}\""
-eval "F$((FP+NP+7))=\"\${sht510}\""
+eval "sht533=\"\$F$((FP+NP+0))\""
+eval "sht531=\"\$F$((FP+NP+1))\""
+eval "sht518=\"\$F$((FP+NP+2))\""
+eval "sht514=\"\$F$((FP+NP+3))\""
+eval "sht511=\"\$F$((FP+NP+4))\""
+sht534="${R}"
+sht535="${sht534}"
+eval "F$((FP+NP+0))=\"\${sht535}\""
+eval "F$((FP+NP+1))=\"\${sht533}\""
+eval "F$((FP+NP+2))=\"\${sht531}\""
+eval "F$((FP+NP+3))=\"\${sht518}\""
+eval "F$((FP+NP+4))=\"\${sht514}\""
+eval "F$((FP+NP+5))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht547}\""
-eval "F$((NFP+1))=\"\${sht548}\""
-CALLEE=bsm
+eval "F$((NFP+0))=\"\${sht533}\""
+eval "F$((NFP+1))=\"\${p3}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=unspill
 RPC=245; ACTION=call; return
 ;;
 245)
-eval "sht541=\"\$F$((FP+NP+0))\""
-eval "sht539=\"\$F$((FP+NP+1))\""
-eval "sht537=\"\$F$((FP+NP+2))\""
-eval "sht523=\"\$F$((FP+NP+3))\""
-eval "sht520=\"\$F$((FP+NP+4))\""
-eval "sht516=\"\$F$((FP+NP+5))\""
-eval "sht513=\"\$F$((FP+NP+6))\""
-eval "sht510=\"\$F$((FP+NP+7))\""
-sht549="${R}"
-eval "F$((FP+NP+0))=\"\${sht541}\""
-eval "F$((FP+NP+1))=\"\${sht539}\""
-eval "F$((FP+NP+2))=\"\${sht537}\""
-eval "F$((FP+NP+3))=\"\${sht523}\""
-eval "F$((FP+NP+4))=\"\${sht520}\""
-eval "F$((FP+NP+5))=\"\${sht516}\""
-eval "F$((FP+NP+6))=\"\${sht513}\""
-eval "F$((FP+NP+7))=\"\${sht510}\""
+eval "sht535=\"\$F$((FP+NP+0))\""
+eval "sht533=\"\$F$((FP+NP+1))\""
+eval "sht531=\"\$F$((FP+NP+2))\""
+eval "sht518=\"\$F$((FP+NP+3))\""
+eval "sht514=\"\$F$((FP+NP+4))\""
+eval "sht511=\"\$F$((FP+NP+5))\""
+sht536="${R}"
+sht537="T:\${R}${G_DQ#??}"
+sht538="T:${G_DQ#??}${sht537#??}"
+sht539="T:=${sht538#??}"
+sht540="T:${sht535#??}${sht539#??}"
+eval "F$((FP+NP+0))=\"\${sht535}\""
+eval "F$((FP+NP+1))=\"\${sht533}\""
+eval "F$((FP+NP+2))=\"\${sht531}\""
+eval "F$((FP+NP+3))=\"\${sht518}\""
+eval "F$((FP+NP+4))=\"\${sht514}\""
+eval "F$((FP+NP+5))=\"\${sht511}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht549}\""
-CALLEE=bkzzP
+eval "F$((NFP+0))=\"\${sht536}\""
+eval "F$((NFP+1))=\"\${sht540}\""
+CALLEE=emit
 RPC=246; ACTION=call; return
 ;;
 246)
-eval "sht541=\"\$F$((FP+NP+0))\""
-eval "sht539=\"\$F$((FP+NP+1))\""
-eval "sht537=\"\$F$((FP+NP+2))\""
-eval "sht523=\"\$F$((FP+NP+3))\""
-eval "sht520=\"\$F$((FP+NP+4))\""
-eval "sht516=\"\$F$((FP+NP+5))\""
-eval "sht513=\"\$F$((FP+NP+6))\""
-eval "sht510=\"\$F$((FP+NP+7))\""
-sht550="${R}"
-eval "F$((FP+NP+0))=\"\${sht550}\""
-eval "F$((FP+NP+1))=\"\${sht541}\""
-eval "F$((FP+NP+2))=\"\${sht539}\""
-eval "F$((FP+NP+3))=\"\${sht537}\""
-eval "F$((FP+NP+4))=\"\${sht523}\""
-eval "F$((FP+NP+5))=\"\${sht520}\""
-eval "F$((FP+NP+6))=\"\${sht516}\""
-eval "F$((FP+NP+7))=\"\${sht513}\""
-eval "F$((FP+NP+8))=\"\${sht510}\""
-hp_cons "S:loc" "${sht541}"
-eval "sht550=\"\$F$((FP+NP+0))\""
-eval "sht541=\"\$F$((FP+NP+1))\""
-eval "sht539=\"\$F$((FP+NP+2))\""
-eval "sht537=\"\$F$((FP+NP+3))\""
-eval "sht523=\"\$F$((FP+NP+4))\""
-eval "sht520=\"\$F$((FP+NP+5))\""
-eval "sht516=\"\$F$((FP+NP+6))\""
-eval "sht513=\"\$F$((FP+NP+7))\""
-eval "sht510=\"\$F$((FP+NP+8))\""
-sht551="${R}"
+eval "sht535=\"\$F$((FP+NP+0))\""
+eval "sht533=\"\$F$((FP+NP+1))\""
+eval "sht531=\"\$F$((FP+NP+2))\""
+eval "sht518=\"\$F$((FP+NP+3))\""
+eval "sht514=\"\$F$((FP+NP+4))\""
+eval "sht511=\"\$F$((FP+NP+5))\""
+sht541="${R}"
 eval "F$((FP+NP+0))=\"\${sht541}\""
-eval "F$((FP+NP+1))=\"\${sht539}\""
-eval "F$((FP+NP+2))=\"\${sht537}\""
-eval "F$((FP+NP+3))=\"\${sht523}\""
-eval "F$((FP+NP+4))=\"\${sht520}\""
-eval "F$((FP+NP+5))=\"\${sht516}\""
-eval "F$((FP+NP+6))=\"\${sht513}\""
-eval "F$((FP+NP+7))=\"\${sht510}\""
-hp_cons "${sht550}" "${sht551}"
+eval "F$((FP+NP+1))=\"\${sht535}\""
+eval "F$((FP+NP+2))=\"\${sht533}\""
+eval "F$((FP+NP+3))=\"\${sht531}\""
+eval "F$((FP+NP+4))=\"\${sht518}\""
+eval "F$((FP+NP+5))=\"\${sht514}\""
+eval "F$((FP+NP+6))=\"\${sht511}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p3}\""
+CALLEE=lenl
+RPC=247; ACTION=call; return
+;;
+247)
 eval "sht541=\"\$F$((FP+NP+0))\""
-eval "sht539=\"\$F$((FP+NP+1))\""
-eval "sht537=\"\$F$((FP+NP+2))\""
-eval "sht523=\"\$F$((FP+NP+3))\""
-eval "sht520=\"\$F$((FP+NP+4))\""
-eval "sht516=\"\$F$((FP+NP+5))\""
-eval "sht513=\"\$F$((FP+NP+6))\""
-eval "sht510=\"\$F$((FP+NP+7))\""
-sht552="${R}"
-R="${sht552}"; ACTION=ret; return
+eval "sht535=\"\$F$((FP+NP+1))\""
+eval "sht533=\"\$F$((FP+NP+2))\""
+eval "sht531=\"\$F$((FP+NP+3))\""
+eval "sht518=\"\$F$((FP+NP+4))\""
+eval "sht514=\"\$F$((FP+NP+5))\""
+eval "sht511=\"\$F$((FP+NP+6))\""
+sht542="${R}"
+eval "F$((FP+NP+0))=\"\${sht535}\""
+eval "F$((FP+NP+1))=\"\${sht533}\""
+eval "F$((FP+NP+2))=\"\${sht531}\""
+eval "F$((FP+NP+3))=\"\${sht518}\""
+eval "F$((FP+NP+4))=\"\${sht514}\""
+eval "F$((FP+NP+5))=\"\${sht511}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht541}\""
+eval "F$((NFP+1))=\"\${sht542}\""
+CALLEE=bsm
+RPC=248; ACTION=call; return
+;;
+248)
+eval "sht535=\"\$F$((FP+NP+0))\""
+eval "sht533=\"\$F$((FP+NP+1))\""
+eval "sht531=\"\$F$((FP+NP+2))\""
+eval "sht518=\"\$F$((FP+NP+3))\""
+eval "sht514=\"\$F$((FP+NP+4))\""
+eval "sht511=\"\$F$((FP+NP+5))\""
+sht543="${R}"
+eval "F$((FP+NP+0))=\"\${sht535}\""
+eval "F$((FP+NP+1))=\"\${sht533}\""
+eval "F$((FP+NP+2))=\"\${sht531}\""
+eval "F$((FP+NP+3))=\"\${sht518}\""
+eval "F$((FP+NP+4))=\"\${sht514}\""
+eval "F$((FP+NP+5))=\"\${sht511}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht543}\""
+CALLEE=bkzzP
+RPC=249; ACTION=call; return
+;;
+249)
+eval "sht535=\"\$F$((FP+NP+0))\""
+eval "sht533=\"\$F$((FP+NP+1))\""
+eval "sht531=\"\$F$((FP+NP+2))\""
+eval "sht518=\"\$F$((FP+NP+3))\""
+eval "sht514=\"\$F$((FP+NP+4))\""
+eval "sht511=\"\$F$((FP+NP+5))\""
+sht544="${R}"
+eval "F$((FP+NP+0))=\"\${sht544}\""
+eval "F$((FP+NP+1))=\"\${sht535}\""
+eval "F$((FP+NP+2))=\"\${sht533}\""
+eval "F$((FP+NP+3))=\"\${sht531}\""
+eval "F$((FP+NP+4))=\"\${sht518}\""
+eval "F$((FP+NP+5))=\"\${sht514}\""
+eval "F$((FP+NP+6))=\"\${sht511}\""
+hp_cons "S:loc" "${sht535}"
+eval "sht544=\"\$F$((FP+NP+0))\""
+eval "sht535=\"\$F$((FP+NP+1))\""
+eval "sht533=\"\$F$((FP+NP+2))\""
+eval "sht531=\"\$F$((FP+NP+3))\""
+eval "sht518=\"\$F$((FP+NP+4))\""
+eval "sht514=\"\$F$((FP+NP+5))\""
+eval "sht511=\"\$F$((FP+NP+6))\""
+sht545="${R}"
+eval "F$((FP+NP+0))=\"\${sht535}\""
+eval "F$((FP+NP+1))=\"\${sht533}\""
+eval "F$((FP+NP+2))=\"\${sht531}\""
+eval "F$((FP+NP+3))=\"\${sht518}\""
+eval "F$((FP+NP+4))=\"\${sht514}\""
+eval "F$((FP+NP+5))=\"\${sht511}\""
+hp_cons "${sht544}" "${sht545}"
+eval "sht535=\"\$F$((FP+NP+0))\""
+eval "sht533=\"\$F$((FP+NP+1))\""
+eval "sht531=\"\$F$((FP+NP+2))\""
+eval "sht518=\"\$F$((FP+NP+3))\""
+eval "sht514=\"\$F$((FP+NP+4))\""
+eval "sht511=\"\$F$((FP+NP+5))\""
+sht546="${R}"
+R="${sht546}"; ACTION=ret; return
+;;
+250)
+sht548="${R}"
+sht549="${sht548}"
+hp_cdr "${sht549}"
+sht550="${R}"
+hp_cdr "${sht550}"
+sht551="${R}"
+sht552="${sht551}"
+hp_cdr "${sht549}"
+sht553="${R}"
+eval "F$((FP+NP+0))=\"\${sht552}\""
+eval "F$((FP+NP+1))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht553}\""
+eval "F$((NFP+1))=\"\${p3}\""
+CALLEE=addlive
+RPC=251; ACTION=call; return
+;;
+251)
+eval "sht552=\"\$F$((FP+NP+0))\""
+eval "sht549=\"\$F$((FP+NP+1))\""
+sht554="${R}"
+sht555="${sht554}"
+hp_cdr "${p0}"
+sht556="${R}"
+hp_car "${sht549}"
+sht557="${R}"
+eval "F$((FP+NP+0))=\"\${sht555}\""
+eval "F$((FP+NP+1))=\"\${sht552}\""
+eval "F$((FP+NP+2))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht556}\""
+eval "F$((NFP+1))=\"\${p1}\""
+eval "F$((NFP+2))=\"\${sht557}\""
+eval "F$((NFP+3))=\"\${sht555}\""
+CALLEE=largs
+RPC=252; ACTION=call; return
+;;
+252)
+eval "sht555=\"\$F$((FP+NP+0))\""
+eval "sht552=\"\$F$((FP+NP+1))\""
+eval "sht549=\"\$F$((FP+NP+2))\""
+sht558="${R}"
+sht559="${sht558}"
+hp_car "${sht559}"
+sht560="${R}"
+eval "F$((FP+NP+0))=\"\${sht559}\""
+eval "F$((FP+NP+1))=\"\${sht555}\""
+eval "F$((FP+NP+2))=\"\${sht552}\""
+eval "F$((FP+NP+3))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht560}\""
+CALLEE=b_npc
+RPC=253; ACTION=call; return
+;;
+253)
+eval "sht559=\"\$F$((FP+NP+0))\""
+eval "sht555=\"\$F$((FP+NP+1))\""
+eval "sht552=\"\$F$((FP+NP+2))\""
+eval "sht549=\"\$F$((FP+NP+3))\""
+sht561="${R}"
+sht562="${sht561}"
+hp_car "${sht559}"
+sht563="${R}"
+eval "F$((FP+NP+0))=\"\${sht562}\""
+eval "F$((FP+NP+1))=\"\${sht559}\""
+eval "F$((FP+NP+2))=\"\${sht555}\""
+eval "F$((FP+NP+3))=\"\${sht552}\""
+eval "F$((FP+NP+4))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht563}\""
+CALLEE=bnpczzP
+RPC=254; ACTION=call; return
+;;
+254)
+eval "sht562=\"\$F$((FP+NP+0))\""
+eval "sht559=\"\$F$((FP+NP+1))\""
+eval "sht555=\"\$F$((FP+NP+2))\""
+eval "sht552=\"\$F$((FP+NP+3))\""
+eval "sht549=\"\$F$((FP+NP+4))\""
+sht564="${R}"
+eval "F$((FP+NP+0))=\"\${sht562}\""
+eval "F$((FP+NP+1))=\"\${sht559}\""
+eval "F$((FP+NP+2))=\"\${sht555}\""
+eval "F$((FP+NP+3))=\"\${sht552}\""
+eval "F$((FP+NP+4))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht564}\""
+eval "F$((NFP+1))=\"\${sht555}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=spill
+RPC=255; ACTION=call; return
+;;
+255)
+eval "sht562=\"\$F$((FP+NP+0))\""
+eval "sht559=\"\$F$((FP+NP+1))\""
+eval "sht555=\"\$F$((FP+NP+2))\""
+eval "sht552=\"\$F$((FP+NP+3))\""
+eval "sht549=\"\$F$((FP+NP+4))\""
+sht565="${R}"
+eval "F$((FP+NP+0))=\"\${sht562}\""
+eval "F$((FP+NP+1))=\"\${sht559}\""
+eval "F$((FP+NP+2))=\"\${sht555}\""
+eval "F$((FP+NP+3))=\"\${sht552}\""
+eval "F$((FP+NP+4))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht565}\""
+STGV="T:NFP=\$FTOP"
+eval "F$((NFP+1))=\"\$STGV\""
+CALLEE=emit
+RPC=256; ACTION=call; return
+;;
+256)
+eval "sht562=\"\$F$((FP+NP+0))\""
+eval "sht559=\"\$F$((FP+NP+1))\""
+eval "sht555=\"\$F$((FP+NP+2))\""
+eval "sht552=\"\$F$((FP+NP+3))\""
+eval "sht549=\"\$F$((FP+NP+4))\""
+sht566="${R}"
+hp_cdr "${sht559}"
+sht567="${R}"
+eval "F$((FP+NP+0))=\"\${sht562}\""
+eval "F$((FP+NP+1))=\"\${sht559}\""
+eval "F$((FP+NP+2))=\"\${sht555}\""
+eval "F$((FP+NP+3))=\"\${sht552}\""
+eval "F$((FP+NP+4))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht566}\""
+eval "F$((NFP+1))=\"\${sht567}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=stage
+RPC=257; ACTION=call; return
+;;
+257)
+eval "sht562=\"\$F$((FP+NP+0))\""
+eval "sht559=\"\$F$((FP+NP+1))\""
+eval "sht555=\"\$F$((FP+NP+2))\""
+eval "sht552=\"\$F$((FP+NP+3))\""
+eval "sht549=\"\$F$((FP+NP+4))\""
+sht568="${R}"
+sht569="T:${sht552#??}}"
+sht570="T:CALLEE=\${${sht569#??}"
+eval "F$((FP+NP+0))=\"\${sht562}\""
+eval "F$((FP+NP+1))=\"\${sht559}\""
+eval "F$((FP+NP+2))=\"\${sht555}\""
+eval "F$((FP+NP+3))=\"\${sht552}\""
+eval "F$((FP+NP+4))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht568}\""
+eval "F$((NFP+1))=\"\${sht570}\""
+CALLEE=emit
+RPC=258; ACTION=call; return
+;;
+258)
+eval "sht562=\"\$F$((FP+NP+0))\""
+eval "sht559=\"\$F$((FP+NP+1))\""
+eval "sht555=\"\$F$((FP+NP+2))\""
+eval "sht552=\"\$F$((FP+NP+3))\""
+eval "sht549=\"\$F$((FP+NP+4))\""
+sht571="${R}"
+sht572="T:${sht562#??}"
+sht573="T:${sht572#??}; ACTION=call; return"
+sht574="T:RPC=${sht573#??}"
+eval "F$((FP+NP+0))=\"\${sht562}\""
+eval "F$((FP+NP+1))=\"\${sht559}\""
+eval "F$((FP+NP+2))=\"\${sht555}\""
+eval "F$((FP+NP+3))=\"\${sht552}\""
+eval "F$((FP+NP+4))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht571}\""
+eval "F$((NFP+1))=\"\${sht574}\""
+CALLEE=emit
+RPC=259; ACTION=call; return
+;;
+259)
+eval "sht562=\"\$F$((FP+NP+0))\""
+eval "sht559=\"\$F$((FP+NP+1))\""
+eval "sht555=\"\$F$((FP+NP+2))\""
+eval "sht552=\"\$F$((FP+NP+3))\""
+eval "sht549=\"\$F$((FP+NP+4))\""
+sht575="${R}"
+sht576="${sht575}"
+eval "F$((FP+NP+0))=\"\${sht576}\""
+eval "F$((FP+NP+1))=\"\${sht562}\""
+eval "F$((FP+NP+2))=\"\${sht559}\""
+eval "F$((FP+NP+3))=\"\${sht555}\""
+eval "F$((FP+NP+4))=\"\${sht552}\""
+eval "F$((FP+NP+5))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht576}\""
+eval "F$((NFP+1))=\"\${sht562}\""
+CALLEE=switch
+RPC=260; ACTION=call; return
+;;
+260)
+eval "sht576=\"\$F$((FP+NP+0))\""
+eval "sht562=\"\$F$((FP+NP+1))\""
+eval "sht559=\"\$F$((FP+NP+2))\""
+eval "sht555=\"\$F$((FP+NP+3))\""
+eval "sht552=\"\$F$((FP+NP+4))\""
+eval "sht549=\"\$F$((FP+NP+5))\""
+sht577="${R}"
+sht578="${sht577}"
+eval "F$((FP+NP+0))=\"\${sht578}\""
+eval "F$((FP+NP+1))=\"\${sht576}\""
+eval "F$((FP+NP+2))=\"\${sht562}\""
+eval "F$((FP+NP+3))=\"\${sht559}\""
+eval "F$((FP+NP+4))=\"\${sht555}\""
+eval "F$((FP+NP+5))=\"\${sht552}\""
+eval "F$((FP+NP+6))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht578}\""
+CALLEE=tmpn
+RPC=261; ACTION=call; return
+;;
+261)
+eval "sht578=\"\$F$((FP+NP+0))\""
+eval "sht576=\"\$F$((FP+NP+1))\""
+eval "sht562=\"\$F$((FP+NP+2))\""
+eval "sht559=\"\$F$((FP+NP+3))\""
+eval "sht555=\"\$F$((FP+NP+4))\""
+eval "sht552=\"\$F$((FP+NP+5))\""
+eval "sht549=\"\$F$((FP+NP+6))\""
+sht579="${R}"
+sht580="${sht579}"
+eval "F$((FP+NP+0))=\"\${sht580}\""
+eval "F$((FP+NP+1))=\"\${sht578}\""
+eval "F$((FP+NP+2))=\"\${sht576}\""
+eval "F$((FP+NP+3))=\"\${sht562}\""
+eval "F$((FP+NP+4))=\"\${sht559}\""
+eval "F$((FP+NP+5))=\"\${sht555}\""
+eval "F$((FP+NP+6))=\"\${sht552}\""
+eval "F$((FP+NP+7))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht578}\""
+eval "F$((NFP+1))=\"\${sht555}\""
+eval "F$((NFP+2))=\"I:0\""
+CALLEE=unspill
+RPC=262; ACTION=call; return
+;;
+262)
+eval "sht580=\"\$F$((FP+NP+0))\""
+eval "sht578=\"\$F$((FP+NP+1))\""
+eval "sht576=\"\$F$((FP+NP+2))\""
+eval "sht562=\"\$F$((FP+NP+3))\""
+eval "sht559=\"\$F$((FP+NP+4))\""
+eval "sht555=\"\$F$((FP+NP+5))\""
+eval "sht552=\"\$F$((FP+NP+6))\""
+eval "sht549=\"\$F$((FP+NP+7))\""
+sht581="${R}"
+sht582="T:\${R}${G_DQ#??}"
+sht583="T:${G_DQ#??}${sht582#??}"
+sht584="T:=${sht583#??}"
+sht585="T:${sht580#??}${sht584#??}"
+eval "F$((FP+NP+0))=\"\${sht580}\""
+eval "F$((FP+NP+1))=\"\${sht578}\""
+eval "F$((FP+NP+2))=\"\${sht576}\""
+eval "F$((FP+NP+3))=\"\${sht562}\""
+eval "F$((FP+NP+4))=\"\${sht559}\""
+eval "F$((FP+NP+5))=\"\${sht555}\""
+eval "F$((FP+NP+6))=\"\${sht552}\""
+eval "F$((FP+NP+7))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht581}\""
+eval "F$((NFP+1))=\"\${sht585}\""
+CALLEE=emit
+RPC=263; ACTION=call; return
+;;
+263)
+eval "sht580=\"\$F$((FP+NP+0))\""
+eval "sht578=\"\$F$((FP+NP+1))\""
+eval "sht576=\"\$F$((FP+NP+2))\""
+eval "sht562=\"\$F$((FP+NP+3))\""
+eval "sht559=\"\$F$((FP+NP+4))\""
+eval "sht555=\"\$F$((FP+NP+5))\""
+eval "sht552=\"\$F$((FP+NP+6))\""
+eval "sht549=\"\$F$((FP+NP+7))\""
+sht586="${R}"
+eval "F$((FP+NP+0))=\"\${sht586}\""
+eval "F$((FP+NP+1))=\"\${sht580}\""
+eval "F$((FP+NP+2))=\"\${sht578}\""
+eval "F$((FP+NP+3))=\"\${sht576}\""
+eval "F$((FP+NP+4))=\"\${sht562}\""
+eval "F$((FP+NP+5))=\"\${sht559}\""
+eval "F$((FP+NP+6))=\"\${sht555}\""
+eval "F$((FP+NP+7))=\"\${sht552}\""
+eval "F$((FP+NP+8))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht555}\""
+CALLEE=lenl
+RPC=264; ACTION=call; return
+;;
+264)
+eval "sht586=\"\$F$((FP+NP+0))\""
+eval "sht580=\"\$F$((FP+NP+1))\""
+eval "sht578=\"\$F$((FP+NP+2))\""
+eval "sht576=\"\$F$((FP+NP+3))\""
+eval "sht562=\"\$F$((FP+NP+4))\""
+eval "sht559=\"\$F$((FP+NP+5))\""
+eval "sht555=\"\$F$((FP+NP+6))\""
+eval "sht552=\"\$F$((FP+NP+7))\""
+eval "sht549=\"\$F$((FP+NP+8))\""
+sht587="${R}"
+eval "F$((FP+NP+0))=\"\${sht580}\""
+eval "F$((FP+NP+1))=\"\${sht578}\""
+eval "F$((FP+NP+2))=\"\${sht576}\""
+eval "F$((FP+NP+3))=\"\${sht562}\""
+eval "F$((FP+NP+4))=\"\${sht559}\""
+eval "F$((FP+NP+5))=\"\${sht555}\""
+eval "F$((FP+NP+6))=\"\${sht552}\""
+eval "F$((FP+NP+7))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht586}\""
+eval "F$((NFP+1))=\"\${sht587}\""
+CALLEE=bsm
+RPC=265; ACTION=call; return
+;;
+265)
+eval "sht580=\"\$F$((FP+NP+0))\""
+eval "sht578=\"\$F$((FP+NP+1))\""
+eval "sht576=\"\$F$((FP+NP+2))\""
+eval "sht562=\"\$F$((FP+NP+3))\""
+eval "sht559=\"\$F$((FP+NP+4))\""
+eval "sht555=\"\$F$((FP+NP+5))\""
+eval "sht552=\"\$F$((FP+NP+6))\""
+eval "sht549=\"\$F$((FP+NP+7))\""
+sht588="${R}"
+eval "F$((FP+NP+0))=\"\${sht580}\""
+eval "F$((FP+NP+1))=\"\${sht578}\""
+eval "F$((FP+NP+2))=\"\${sht576}\""
+eval "F$((FP+NP+3))=\"\${sht562}\""
+eval "F$((FP+NP+4))=\"\${sht559}\""
+eval "F$((FP+NP+5))=\"\${sht555}\""
+eval "F$((FP+NP+6))=\"\${sht552}\""
+eval "F$((FP+NP+7))=\"\${sht549}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht588}\""
+CALLEE=bkzzP
+RPC=266; ACTION=call; return
+;;
+266)
+eval "sht580=\"\$F$((FP+NP+0))\""
+eval "sht578=\"\$F$((FP+NP+1))\""
+eval "sht576=\"\$F$((FP+NP+2))\""
+eval "sht562=\"\$F$((FP+NP+3))\""
+eval "sht559=\"\$F$((FP+NP+4))\""
+eval "sht555=\"\$F$((FP+NP+5))\""
+eval "sht552=\"\$F$((FP+NP+6))\""
+eval "sht549=\"\$F$((FP+NP+7))\""
+sht589="${R}"
+eval "F$((FP+NP+0))=\"\${sht589}\""
+eval "F$((FP+NP+1))=\"\${sht580}\""
+eval "F$((FP+NP+2))=\"\${sht578}\""
+eval "F$((FP+NP+3))=\"\${sht576}\""
+eval "F$((FP+NP+4))=\"\${sht562}\""
+eval "F$((FP+NP+5))=\"\${sht559}\""
+eval "F$((FP+NP+6))=\"\${sht555}\""
+eval "F$((FP+NP+7))=\"\${sht552}\""
+eval "F$((FP+NP+8))=\"\${sht549}\""
+hp_cons "S:loc" "${sht580}"
+eval "sht589=\"\$F$((FP+NP+0))\""
+eval "sht580=\"\$F$((FP+NP+1))\""
+eval "sht578=\"\$F$((FP+NP+2))\""
+eval "sht576=\"\$F$((FP+NP+3))\""
+eval "sht562=\"\$F$((FP+NP+4))\""
+eval "sht559=\"\$F$((FP+NP+5))\""
+eval "sht555=\"\$F$((FP+NP+6))\""
+eval "sht552=\"\$F$((FP+NP+7))\""
+eval "sht549=\"\$F$((FP+NP+8))\""
+sht590="${R}"
+eval "F$((FP+NP+0))=\"\${sht580}\""
+eval "F$((FP+NP+1))=\"\${sht578}\""
+eval "F$((FP+NP+2))=\"\${sht576}\""
+eval "F$((FP+NP+3))=\"\${sht562}\""
+eval "F$((FP+NP+4))=\"\${sht559}\""
+eval "F$((FP+NP+5))=\"\${sht555}\""
+eval "F$((FP+NP+6))=\"\${sht552}\""
+eval "F$((FP+NP+7))=\"\${sht549}\""
+hp_cons "${sht589}" "${sht590}"
+eval "sht580=\"\$F$((FP+NP+0))\""
+eval "sht578=\"\$F$((FP+NP+1))\""
+eval "sht576=\"\$F$((FP+NP+2))\""
+eval "sht562=\"\$F$((FP+NP+3))\""
+eval "sht559=\"\$F$((FP+NP+4))\""
+eval "sht555=\"\$F$((FP+NP+5))\""
+eval "sht552=\"\$F$((FP+NP+6))\""
+eval "sht549=\"\$F$((FP+NP+7))\""
+sht591="${R}"
+R="${sht591}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_sh_esc_at=2
@@ -6685,6 +7005,200 @@ eval "F$((NFP+2))=\"\${sht0}\""
 STGV="T:"
 eval "F$((NFP+3))=\"\$STGV\""
 CALLEE=sh_esc_go
+RPC=1; ACTION=call; return
+;;
+1)
+sht1="${R}"
+R="${sht1}"; ACTION=ret; return
+;;
+esac; }
+SIZE_tok_text=1
+tok_text() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_tok_text))
+NP=1
+case $PC in
+0)
+if [ "${p0#S:}" != "${p0}" ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+sht0="T:${p0#??}"
+R="${sht0}"; ACTION=ret; return
+;;
+2)
+if [ "${p0#T:}" != "${p0}" ]; then PC=3; else PC=4; fi
+ACTION=jump; return
+;;
+3)
+R="${p0}"; ACTION=ret; return
+;;
+4)
+if [ "${p0#I:}" != "${p0}" ]; then PC=5; else PC=6; fi
+ACTION=jump; return
+;;
+5)
+sht1="T:${p0#??}"
+R="${sht1}"; ACTION=ret; return
+;;
+6)
+R="T:"; ACTION=ret; return
+;;
+esac; }
+SIZE_join_toks=2
+join_toks() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_join_toks))
+NP=1
+case $PC in
+0)
+if [ "${p0}" = NIL ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+R="T:"; ACTION=ret; return
+;;
+2)
+hp_car "${p0}"
+sht0="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht0}\""
+CALLEE=tok_text
+RPC=3; ACTION=call; return
+;;
+3)
+sht1="${R}"
+hp_cdr "${p0}"
+sht2="${R}"
+eval "F$((FP+NP+0))=\"\${sht1}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht2}\""
+CALLEE=join_toks
+RPC=4; ACTION=call; return
+;;
+4)
+eval "sht1=\"\$F$((FP+NP+0))\""
+sht3="${R}"
+sht4="T:${sht1#??}${sht3#??}"
+sht5="T: ${sht4#??}"
+R="${sht5}"; ACTION=ret; return
+;;
+esac; }
+SIZE_run_esc_at=2
+run_esc_at() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_run_esc_at))
+NP=1
+case $PC in
+0)
+NFP=$FTOP
+CALLEE=bsl
+RPC=1; ACTION=call; return
+;;
+1)
+sht0="${R}"
+if [ "${p0}" = "${sht0}" ]; then PC=2; else PC=3; fi
+ACTION=jump; return
+;;
+2)
+NFP=$FTOP
+CALLEE=bsl
+RPC=4; ACTION=call; return
+;;
+3)
+if [ "${p0}" = "T:\$" ]; then PC=6; else PC=7; fi
+ACTION=jump; return
+;;
+4)
+sht1="${R}"
+eval "F$((FP+NP+0))=\"\${sht1}\""
+NFP=$FTOP
+CALLEE=bsl
+RPC=5; ACTION=call; return
+;;
+5)
+eval "sht1=\"\$F$((FP+NP+0))\""
+sht2="${R}"
+sht3="T:${sht1#??}${sht2#??}"
+R="${sht3}"; ACTION=ret; return
+;;
+6)
+R="T:\\\$"; ACTION=ret; return
+;;
+7)
+if [ "${p0}" = "${G_DQ}" ]; then PC=8; else PC=9; fi
+ACTION=jump; return
+;;
+8)
+NFP=$FTOP
+CALLEE=eqt
+RPC=10; ACTION=call; return
+;;
+9)
+R="${p0}"; ACTION=ret; return
+;;
+10)
+sht4="${R}"
+R="${sht4}"; ACTION=ret; return
+;;
+esac; }
+SIZE_run_esc_go=8
+run_esc_go() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+eval "p2=\"\$F$((FP+2))\""
+eval "p3=\"\$F$((FP+3))\""
+FTOP=$((FP + SIZE_run_esc_go))
+NP=4
+case $PC in
+0)
+if [ ${p1#??} -eq ${p2#??} ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+R="${p3}"; ACTION=ret; return
+;;
+2)
+sht0="I:$(( ${p1#??} + 1 ))"
+sht1="T:$(printf '%s' "${p0#??}" | cut -c$(( ${p1#??} + 1 ))-$(( ${p1#??} + 1 )))"
+eval "F$((FP+NP+0))=\"\${p3}\""
+eval "F$((FP+NP+1))=\"\${p2}\""
+eval "F$((FP+NP+2))=\"\${sht0}\""
+eval "F$((FP+NP+3))=\"\${p0}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht1}\""
+CALLEE=run_esc_at
+RPC=3; ACTION=call; return
+;;
+3)
+eval "p3=\"\$F$((FP+NP+0))\""
+eval "p2=\"\$F$((FP+NP+1))\""
+eval "sht0=\"\$F$((FP+NP+2))\""
+eval "p0=\"\$F$((FP+NP+3))\""
+sht2="${R}"
+sht3="T:${p3#??}${sht2#??}"
+eval "F$((FP+0))=\"\${p0}\""
+eval "F$((FP+1))=\"\${sht0}\""
+eval "F$((FP+2))=\"\${p2}\""
+eval "F$((FP+3))=\"\${sht3}\""
+PC=0; ACTION=tail; return
+;;
+esac; }
+SIZE_run_esc=1
+run_esc() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_run_esc))
+NP=1
+case $PC in
+0)
+sht0="I:$(( ${#p0} - 2 ))"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"I:0\""
+eval "F$((NFP+2))=\"\${sht0}\""
+STGV="T:"
+eval "F$((NFP+3))=\"\$STGV\""
+CALLEE=run_esc_go
 RPC=1; ACTION=call; return
 ;;
 1)
