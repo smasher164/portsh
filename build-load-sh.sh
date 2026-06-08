@@ -25,6 +25,11 @@ G_DQ='T:"'
 write_lines()  { _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
 append_lines() { _f=${1#T:}; _l=$2;          while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
 gc()           { gc_run; R="S:t"; }
+# I/O primitives the JIT lacked (script semantics; mirror the interpreter's prim_app).
+print()          { _relem "$1"; printf '\n'; R=NIL; }
+read_lines()     { _f=${1#T:}; _acc=NIL; while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
+                   _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; }
+file_existszzQ() { [ -e "${1#T:}" ] && R="S:t" || R=NIL; }
 drive() {
   while [ "$CURFN" != HALT ]; do
     ACTION=; eval "$CURFN"

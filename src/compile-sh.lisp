@@ -50,7 +50,7 @@
 (define shop (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
 (define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote =)) "-eq") (t "?"))))
 (define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote =)) t) (t nil))))
-(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) (t nil))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) (t nil))))
 ;; primitives inlined in CALL position have no fn value; in VALUE position (e.g. (foldr + 0 xs)) they
 ;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp, compiled into the
 ;; runtime) named __p_<op>. nil = not a wrappable primitive.
