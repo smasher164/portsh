@@ -26,6 +26,7 @@ gc()           { gc_run; R="S:t"; }
 drive() {
   while [ "$CURFN" != HALT ]; do
     ACTION=; eval "$CURFN"
+    [ -n "$ACTION" ] || { printf 'drive: %s yielded no ACTION (unbound global / first-class named fn?)\n' "$CURFN" >&2; return 1; }
     case $ACTION in
       call) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO"; RSP=$((RSP+1)); FP=$NFP; PC=0; CLO=""
             case $CALLEE in

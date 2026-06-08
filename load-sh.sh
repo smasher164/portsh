@@ -11647,38 +11647,41 @@ drive() {
     [ -n "$ACTION" ] || { printf 'drive: %s yielded no ACTION (unbound global / first-class named fn?)\n' "$CURFN" >&2; return 1; }
     case $ACTION in
       call) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO"; RSP=$((RSP+1)); FP=$NFP; PC=0; CLO=""
-            case $CALLEE in
-              K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CURFN=${R#S:}; CLO=$_ri ;;
-              *)   CURFN=$CALLEE ;;
-            esac ;;
+            case $CALLEE in K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CURFN=${R#S:}; CLO=$_ri ;; *) CURFN=$CALLEE ;; esac ;;
       ret)  if [ "$RSP" -eq 0 ]; then CURFN=HALT; else RSP=$((RSP-1)); eval "FP=\$RSB$RSP; CURFN=\$RSF$RSP; PC=\$RSC$RSP; CLO=\$RSL$RSP"; fi ;;
       tail|jump) ;;
     esac
   done
 }
-
-# ---- eval keystone: eval(expr) = run(compile((lambda () expr))) ---------------------------
-eval_form() {   # $1 = a heap ref to the form to eval
-  _tmp=$(mktemp)
-  # wrap: build (define __ev (lambda () <expr>)) on the heap, then [that] as a 1-form program.
-  hp_cons "$1" NIL;            _body=$R          # (<expr>)
-  hp_cons NIL "$_body";        _ll=$R            # (() <expr>)
-  hp_cons "S:lambda" "$_ll";   _lam=$R           # (lambda () <expr>)
-  hp_cons "$_lam" NIL;         _d3=$R
-  hp_cons "S:__ev" "$_d3";     _d2=$R            # (__ev (lambda () <expr>))
-  hp_cons "S:define" "$_d2";   _def=$R           # (define __ev (lambda () <expr>))
-  hp_cons "$_def" NIL;         _forms=$R         # ((define __ev ...))
-  # compile in-process via the embedded comp -> _tmp holds __ev() (+ any lifted __lamN()).
-  FP=0; RSP=0; PC=0; CLO=""; F0=$_forms; F1="T:$_tmp"; CURFN=compile_program_sh; drive
-  . "$_tmp"                                       # define __ev() in this shell
-  # run the thunk.
-  FP=0; RSP=0; PC=0; CLO=""; CURFN=__ev; drive
-  rm -f "$_tmp"
-}
-
-# render a runtime value (I:n -> n, T:str -> str, S:sym -> sym, P:/K: -> as-is) for display.
 show_val() { case $1 in NIL) printf 'nil\n' ;; I:*) printf '%s\n' "${1#I:}" ;; T:*) printf '%s\n' "${1#T:}" ;; S:*) printf '%s\n' "${1#S:}" ;; *) printf '%s\n' "$1" ;; esac; }
 
-SRC=$(cat "$1"); rd_expr; _expr=$R
-eval_form "$_expr"
-show_val "$R"
+# ---- loader: partition forms (defines kept; exprs -> thunks), compile all, source, run thunks ----
+SRC="($(cat "$1"))"; rd_expr; _forms=$R
+_xf=NIL; _thunks=""; _n=0; _cur=$_forms
+while [ "$_cur" != NIL ]; do
+  hp_car "$_cur"; _form=$R
+  hp_cdr "$_cur"; _cur=$R
+  _hd=NIL; case $_form in P:*) hp_car "$_form"; _hd=$R ;; esac
+  if [ "$_hd" = "S:define" ]; then
+    hp_cons "$_form" "$_xf"; _xf=$R                       # keep the define
+  else
+    hp_cons "$_form" NIL;          _b=$R                  # wrap expr as (define __evN (lambda () expr))
+    hp_cons NIL "$_b";             _ll=$R
+    hp_cons "S:lambda" "$_ll";     _lam=$R
+    hp_cons "$_lam" NIL;           _d3=$R
+    hp_cons "S:__ev$_n" "$_d3";    _d2=$R
+    hp_cons "S:define" "$_d2";     _def=$R
+    hp_cons "$_def" "$_xf";        _xf=$R
+    _thunks="$_thunks __ev$_n"; _n=$((_n+1))
+  fi
+done
+# compile ALL forms (defines + thunk-defines) in-process; source so every fn is live.
+_tmp=$(mktemp)
+FP=0; RSP=0; PC=0; CLO=""; F0=$_xf; F1="T:$_tmp"; CURFN=compile_program_sh; drive
+. "$_tmp"
+# run each top-level expression's thunk in program order.
+for _th in $_thunks; do
+  FP=0; RSP=0; PC=0; CLO=""; CURFN=$_th; drive
+  show_val "$R"
+done
+rm -f "$_tmp"
