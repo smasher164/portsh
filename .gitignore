@@ -8,3 +8,4 @@ tests/.work-xshell/
 tests/.work-native/
 comp-cmd/
 compile-cmd-tramp.dev.lisp
+comp-cmd.selfx.cmd

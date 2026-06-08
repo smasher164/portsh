@@ -54,7 +54,7 @@ rem ---- value renderer: byte-identical to eval-sh's _relem/_rlist (sets ELR) --
 :el_relem
 rem %1 = recursion depth (for unique scratch names), %2 = tagged value -> ELR
 set "ev=%~2"
-if "!ev!"=="NIL" set "ELR=nil" & goto :eof
+if "!ev!"=="NIL" set "ELR=()" & goto :eof
 set "ep=!ev:~0,2!"
 if "!ep!"=="I:" set "ELR=!ev:~2!" & goto :eof
 if "!ep!"=="S:" set "ELR=!ev:~2!" & goto :eof
