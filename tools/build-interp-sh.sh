@@ -51,11 +51,16 @@ ilen() { il_n=0; il_l=$1; while [ "$il_l" != NIL ]; do il_n=$((il_n+1)); hp_cdr 
 # iresolve S:name -> R = value: local frame slot | global-fn I:<name> | global-var G_<name> value
 iresolve() {
   ir_v=${1#S:}
-  eval "ir_l=\${ILAM_${ICUR}_vars:-}"; ir_i=0; ir_hit=
+  ir_s=$SCOPE                                           # let-bound vars (innermost first) shadow params
+  while [ "$ir_s" != NIL ]; do
+    hp_car "$ir_s"; ir_p=$R; hp_car "$ir_p"; [ "${R#S:}" = "$ir_v" ] && { hp_cdr "$ir_p"; eval "R=\$F$((FP+${R#I:}))"; return; }
+    hp_cdr "$ir_s"; ir_s=$R
+  done
+  eval "ir_l=\${ILAM_${ICUR}_vars:-}"; ir_i=0; ir_hit=  # params + captures (static)
   for ir_w in $ir_l; do [ "$ir_w" = "$ir_v" ] && { ir_hit=$ir_i; break; }; ir_i=$((ir_i+1)); done
   if [ -n "$ir_hit" ]; then eval "R=\$F$((FP+ir_hit))"; return; fi
-  case " $GFNS " in *" $ir_v "*) R="I:$ir_v"; return ;; esac
-  eval "R=\${G_${ir_v}:-NIL}"
+  case " $GFNS " in *" $ir_v "*) R="I:$ir_v"; return ;; esac   # global fn
+  eval "R=\${G_${ir_v}:-NIL}"                           # global var
 }
 isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:+|S:-|'S:*'|'S:<'|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
@@ -94,15 +99,16 @@ iprim() {  # apply prim $1 to ip_args (1 or 2 values); push result
 interp() {
   ip_ret=$R                                            # save incoming call result before clobbering R
   eval "NP=\$ILAM_${ICUR}_np; ip_nc=\${ILAM_${ICUR}_ncap:-0}"
-  FTOP=$((FP + NP + ip_nc + 2))                        # params + captures + saved ICS/IVS
   if [ "$PC" = 0 ]; then
+    ITOP=$((NP + ip_nc)); [ "$ITOP" -ge 1 ] || ITOP=1  # >=1 so NFP=FP+ITOP > FP: frame bases (and the
+    SCOPE=NIL                                          # per-activation IS*_<FP> state) stay strictly distinct
     if [ "$ip_nc" -gt 0 ]; then                        # clambda: load captures from the record (CLO)
       hp_cdr "P:$CLO"; ld_l=$R; ld_i=$NP
       while [ "$ld_l" != NIL ]; do hp_car "$ld_l"; eval "F$((FP+ld_i))=\$R"; hp_cdr "$ld_l"; ld_l=$R; ld_i=$((ld_i+1)); done
     fi
     eval "ip_b=\$ILAM_${ICUR}_body"; ICS=NIL; IVS=NIL; hp_cons "S:EVAL" "$ip_b"; ics "$R"
-  else
-    eval "ICS=\$F$((FP+NP+ip_nc)); IVS=\$F$((FP+NP+ip_nc+1))"
+  else                                                 # resume: per-activation state lives in IS*_<FP> globals
+    eval "ICS=\$ISCS_$FP; IVS=\$ISVS_$FP; SCOPE=\$ISSCOPE_$FP; ITOP=\$ISTOP_$FP"
     ips "$ip_ret"
   fi
   while [ "$ICS" != NIL ]; do
@@ -124,7 +130,35 @@ interp() {
                 hp_car "$ip_r2"; ip_then=$R; hp_cdr "$ip_r2"; hp_car "$R"; ip_else=$R
                 hp_cons "$ip_then" "$ip_else"; ip_te=$R; hp_cons "S:IFK" "$ip_te"; ics "$R"
                 hp_cons "S:EVAL" "$ip_c"; ics "$R" ;;
-              S:begin) ipush_args "$ip_rest" ;;          # eval each; last value remains (others discarded by BEGK? -> see note)
+              S:begin)                                   # eval each expr; discard all but the last
+                bg_rev=NIL; bg_l=$ip_rest
+                while [ "$bg_l" != NIL ]; do hp_car "$bg_l"; hp_cons "$R" "$bg_rev"; bg_rev=$R; hp_cdr "$bg_l"; bg_l=$R; done
+                bg_first=1
+                while [ "$bg_rev" != NIL ]; do
+                  hp_car "$bg_rev"; bg_e=$R; hp_cdr "$bg_rev"; bg_rev=$R
+                  [ "$bg_first" = 1 ] || { hp_cons "S:POPK" "NIL"; ics "$R"; }
+                  hp_cons "S:EVAL" "$bg_e"; ics "$R"; bg_first=0
+                done ;;
+              S:let)                                     # sequential (let*-style) binding, matching the comp's lbinds
+                hp_car "$ip_rest"; lt_binds=$R; hp_cdr "$ip_rest"; hp_car "$R"; lt_body=$R
+                hp_cons "S:LETK" "$SCOPE"; ics "$R"       # LETK restores the pre-let scope after the body
+                hp_cons "S:EVAL" "$lt_body"; ics "$R"
+                lt_rev=NIL; lt_l=$lt_binds
+                while [ "$lt_l" != NIL ]; do hp_car "$lt_l"; hp_cons "$R" "$lt_rev"; lt_rev=$R; hp_cdr "$lt_l"; lt_l=$R; done
+                while [ "$lt_rev" != NIL ]; do
+                  hp_car "$lt_rev"; lt_b=$R; hp_cdr "$lt_rev"; lt_rev=$R
+                  hp_car "$lt_b"; lt_nm=$R; hp_cdr "$lt_b"; hp_car "$R"; lt_v=$R
+                  hp_cons "S:BINDK" "$lt_nm"; ics "$R"
+                  hp_cons "S:EVAL" "$lt_v"; ics "$R"
+                done ;;
+              S:cond)                                    # (cond (c e)...): eval c, CONDK picks e or recurses on the rest
+                if [ "$ip_rest" = NIL ]; then ips "NIL"
+                else
+                  hp_car "$ip_rest"; cd_cl=$R; hp_cdr "$ip_rest"; cd_rest=$R
+                  hp_car "$cd_cl"; cd_c=$R; hp_cdr "$cd_cl"; hp_car "$R"; cd_e=$R
+                  hp_cons "$cd_e" "$cd_rest"; hp_cons "S:CONDK" "$R"; ics "$R"
+                  hp_cons "S:EVAL" "$cd_c"; ics "$R"
+                fi ;;
               S:make-closure)
                 hp_car "$ip_rest"; hp_cdr "$R"; hp_car "$R"; mc_lbl=$R   # (quote __lamN) -> __lamN
                 hp_cdr "$ip_rest"; mc_caps=$R
@@ -157,10 +191,20 @@ interp() {
         ip_n=${ip_pl#I:}
         ipop_n "$ip_n"; ip_av=$ip_args                  # args (source order)
         hp_car "$IVS"; ip_fv=$R; hp_cdr "$IVS"; IVS=$R   # operator value (C:/I:/K:)
-        NFP=$FTOP; ip_i=0; ip_a=$ip_av
+        NFP=$((FP+ITOP)); ip_i=0; ip_a=$ip_av             # callee frame above this activation's let-vars
         while [ "$ip_a" != NIL ]; do hp_car "$ip_a"; eval "F$((NFP+ip_i))=\$R"; hp_cdr "$ip_a"; ip_a=$R; ip_i=$((ip_i+1)); done
-        eval "F$((FP+NP+ip_nc))=\$ICS; F$((FP+NP+ip_nc+1))=\$IVS"
+        eval "ISCS_$FP=\$ICS; ISVS_$FP=\$IVS; ISSCOPE_$FP=\$SCOPE; ISTOP_$FP=\$ITOP"
         CALLEE=$ip_fv; RPC=1; ACTION=call; return ;;
+      S:LETK) SCOPE=$ip_pl ;;                            # restore the pre-let scope (body value stays on VS)
+      S:BINDK)                                           # bind a let value: pop it, give it a fresh frame slot, extend SCOPE
+        hp_car "$IVS"; bk_v=$R; hp_cdr "$IVS"; IVS=$R
+        eval "F$((FP+ITOP))=\$bk_v"; hp_cons "$ip_pl" "I:$ITOP"; hp_cons "$R" "$SCOPE"; SCOPE=$R; ITOP=$((ITOP+1)) ;;
+      S:CONDK)                                           # ip_pl = (then . rest-clauses): if cond true eval then, else (cond rest)
+        hp_car "$IVS"; ck_cv=$R; hp_cdr "$IVS"; IVS=$R
+        hp_car "$ip_pl"; ck_then=$R; hp_cdr "$ip_pl"; ck_rest=$R
+        if [ "$ck_cv" = NIL ]; then hp_cons "S:cond" "$ck_rest"; hp_cons "S:EVAL" "$R"; ics "$R"
+        else hp_cons "S:EVAL" "$ck_then"; ics "$R"; fi ;;
+      S:POPK) hp_cdr "$IVS"; IVS=$R ;;                   # discard a value (begin's non-final results)
     esac
   done
   hp_car "$IVS"; ACTION=ret; return                      # result = top of value stack
