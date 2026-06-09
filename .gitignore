@@ -9,3 +9,5 @@ tests/.work-native/
 comp-cmd/
 compile-cmd-tramp.dev.lisp
 comp-cmd.selfx.cmd
+portsh-cmd.cmd
+_warm.cmd
