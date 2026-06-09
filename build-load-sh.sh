@@ -25,11 +25,28 @@ G_DQ='T:"'
 write_lines()  { _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
 append_lines() { _f=${1#T:}; _l=$2;          while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
 gc()           { gc_run; R="S:t"; }
-# I/O primitives the JIT lacked (script semantics; mirror the interpreter's prim_app).
-print()          { _relem "$1"; printf '\n'; R=NIL; }
-read_lines()     { _f=${1#T:}; _acc=NIL; while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
-                   _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; }
-file_existszzQ() { [ -e "${1#T:}" ] && R="S:t" || R=NIL; }
+# --- record-and-replay: when PORTSH_REPLAY is set the JIT REPLAYS the interpreter's effect log (FD 9)
+# --- in execution order -- output ops VERIFY their computed value == the log then SUPPRESS; world ops
+# --- RETURN the logged result -- until the log is exhausted, then everything runs LIVE.
+RP_ON=0; RP_TAB=$(printf '\t')
+replay_init() { [ -n "${PORTSH_REPLAY:-}" ] && { exec 9<"$PORTSH_REPLAY"; RP_ON=1; }; return 0; }
+replay_take() {  # $1 = expected op -> 0 replaying (RP_N + RP_PAYLOAD/RP_L* set), 1 live (EOF / off)
+  [ "$RP_ON" = 1 ] || return 1
+  IFS=$RP_TAB read -r RP_OP RP_N <&9 || { RP_ON=0; return 1; }
+  [ "$RP_OP" = "$1" ] || { printf 'replay desync: expected %s got %s\n' "$1" "$RP_OP" >&2; exit 1; }
+  rp_i=0; RP_PAYLOAD=
+  while [ "$rp_i" -lt "$RP_N" ]; do IFS= read -r rp_l <&9 || rp_l=; eval "RP_L$rp_i=\$rp_l"; [ "$rp_i" = 0 ] && RP_PAYLOAD=$rp_l; rp_i=$((rp_i + 1)); done
+  return 0
+}
+# I/O primitives the JIT lacked (script semantics; mirror prim_app) -- replay-aware.
+print()          { if replay_take print; then rp_g=$(_relem "$1"); [ "$rp_g" = "$RP_PAYLOAD" ] || { printf 'replay mismatch print: log[%s] jit[%s]\n' "$RP_PAYLOAD" "$rp_g" >&2; exit 1; }; R=NIL
+                   else _relem "$1"; printf '\n'; R=NIL; fi; }
+read_lines()     { if replay_take read-lines; then _acc=NIL; rp_i=0
+                     while [ "$rp_i" -lt "$RP_N" ]; do eval "rp_v=\$RP_L$rp_i"; hp_cons "T:$rp_v" "$_acc"; _acc=$R; rp_i=$((rp_i + 1)); done
+                     _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev
+                   else _f=${1#T:}; _acc=NIL; while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
+                     _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; fi; }
+file_existszzQ() { if replay_take file-exists?; then R=$RP_PAYLOAD; else [ -e "${1#T:}" ] && R="S:t" || R=NIL; fi; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
 run_cmd()     { sh -c "$1"; R="I:$?"; }
@@ -100,12 +117,15 @@ done
 _tmp=$(mktemp)
 FP=0; RSP=0; PC=0; CLO=""; F0=$_xf; F1="T:$_tmp"; CURFN=compile_program_sh; drive
 . "$_tmp"
-# run each thunk in program order: show expressions, bind computed-define globals.
+replay_init   # arm REPLAY (FD 9) if PORTSH_REPLAY is set, BEFORE the program's effects run
+# run each thunk in program order: bind computed-define globals; show bare-expression values UNLESS
+# we're in script/replay mode (a real program's only output is its explicit print/write-lines, matching
+# the :ev recorder -- which doesn't echo top-level values; the auto-show is just for the parity REPL tests).
 for _e in $_thunks; do
   _th=${_e%%=*}; _act=${_e#*=}
   FP=0; RSP=0; PC=0; CLO=""; CURFN=$_th; drive
   case $_act in
-    S)   show_val "$R" ;;
+    S)   [ -n "${PORTSH_REPLAY:-}${PORTSH_SCRIPT:-}" ] || show_val "$R" ;;
     G:*) eval "G_${_act#G:}=\$R" ;;
   esac
 done
