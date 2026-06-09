@@ -210,6 +210,13 @@
                           (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
                             (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
 (define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) (t nil))))
+;; run / run-capture are OPERATIVES: operands are unevaluated literal tokens joined into a host
+;; command (matching prim_oper). fv/lift must SKIP their operands (like quote) -- runop? guards both.
+;; The joined command is baked via enc-mc (the SAME sentinel encoding the reader applies to heap
+;; tokens), so the prim's  cmd /c "!A1:~2!"  is byte-identical to the interpreter's  cmd /c "!rcCmd!".
+(define runop? (lambda (o) (if (eq? o (quote run)) t (eq? o (quote run-capture)))))
+(define tok-text (lambda (o) (cond ((symbol? o) (symbol->string o)) ((string? o) o) ((number? o) (number->string o)) (t ""))))
+(define join-toks (lambda (os) (if (null? os) "" (str " " (tok-text (car os)) (join-toks (cdr os))))))
 ;; primitives inlined in CALL position have no fn value; in VALUE position (e.g. (foldr + 0 xs)) they
 ;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp) named __p_<op>.
 (define prim-wrap (lambda (s)
@@ -272,6 +279,16 @@
     ((eq? (car f) (quote string->symbol)) (lretag f "S:" pmap b live))
     ((eq? (car f) (quote string->number)) (lretag f "I:" pmap b live))
     ((eq? (car f) (quote dq)) (let ((tmp (tmpn b))) (cons (bk+ (emit b (qset (str tmp "=T:!BANG8!")))) (cons (quote val) tmp))))
+    ((eq? (car f) (quote run))
+      ;; operative: bake the joined literal command (enc-mc) into A1, then run_cmd.cmd -> R="I:errorlevel".
+      (let ((tmp (tmpn b)))
+        (let ((b1 (emit b (qset (str "A1=T:" (enc-mc (join-toks (cdr f))))))))
+          (cons (bk+ (emit (emit b1 "call run_cmd.cmd") (qset (str tmp "=!R!")))) (cons (quote val) tmp)))))
+    ((eq? (car f) (quote run-capture))
+      ;; operative: bake command into A1, run_capture.cmd -> stdout+stderr as a line-list.
+      (let ((tmp (tmpn b)))
+        (let ((b1 (emit b (qset (str "A1=T:" (enc-mc (join-toks (cdr f))))))))
+          (cons (bk+ (emit (emit b1 "call run_capture.cmd") (qset (str tmp "=!R!")))) (cons (quote val) tmp)))))
     ((builtin? (car f)) (lbuiltin f pmap b live))
     ((tpred? (car f)) (lif-val f (quote t) (quote nil) pmap b live))
     ((eq? (car f) (quote make-closure))
@@ -619,10 +636,11 @@
 (define fv (lambda (f bound acc)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) acc
-      (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
-        (if (eq? (car f) (quote let))
-          (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
-          (fv-list f bound acc))))
+      (if (runop? (car f)) acc
+        (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
+          (if (eq? (car f) (quote let))
+            (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
+            (fv-list f bound acc)))))
     (if (symbol? f) (if (mem? f bound) acc (set-add f acc)) acc))))
 ;; lambda-lift (flat closures): hoist each inline (lambda lf lb) to a top-level
 ;; (define __lamN (clambda lf cap lb)) and replace it with (make-closure (quote __lamN) cap...).
@@ -638,13 +656,14 @@
 (define lift (lambda (f bound ctr)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) (list f nil ctr)
+     (if (runop? (car f)) (list f nil ctr)
       (if (eq? (car f) (quote lambda))
         (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (car (cdr f)) bound) ctr)))
           (let ((cap (keep-bound (fv (car rb) lf nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
             (list (cons (quote make-closure) (cons (list (quote quote) name) cap))
                   (append (car (cdr rb)) (list (list (quote define) name (list (quote clambda) lf cap (car rb)))))
                   (+ (car (cdr (cdr rb))) 1))))
-        (lift-list f bound ctr)))
+        (lift-list f bound ctr))))
     (list f nil ctr))))
 (define lift-program (lambda (forms ctr)
   (if (null? forms) nil

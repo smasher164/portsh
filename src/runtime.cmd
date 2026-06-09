@@ -179,3 +179,41 @@ rem slash normalisation -- consistent with the interpreter; write-lines normalis
 set "fexP=!A1:~2!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
 goto :eof
+rem :run_cmd -- A1 = T:<command> (baked by comp via enc-mc, the SAME sentinel encoding the reader
+rem applies to heap tokens). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
+rem ( cmd /c "!rcCmd!" ): operators are real bytes inside the quotes -> live, sentinels pass through
+rem exactly as :ev passes them. R = I:errorlevel.
+:run_cmd
+call :rc_unesc
+cmd /c "!RCMD!"
+set "R=I:!errorlevel!"
+goto :eof
+rem :rc_unesc -- A1 = T:<command>. comp bakes the command via enc-mc, but at comp.cmd RUNTIME the
+rem operator bytes survive as RAW & | < > (a comp.cmd self-host quirk -- enc-mc encodes operators in
+rem build-time string literals but not in a runtime-built command), so write-lines CARET-escapes them
+rem (^& ^| ^< ^>) when emitting the set "A1=..." line. Undo that here so cmd /c sees LIVE operators,
+rem matching the interpreter's cmd /c "!rcCmd!" (which has raw operator bytes). -> RCMD.
+:rc_unesc
+set "RCMD=!A1:~2!"
+set "RCMD=!RCMD:^&=&!"
+set "RCMD=!RCMD:^|=|!"
+set "RCMD=!RCMD:^<=<!"
+set "RCMD=!RCMD:^>=>!"
+goto :eof
+rem :run_capture -- like :run_cmd but capture stdout+stderr as a line-list (mirrors po_runcap exactly:
+rem redirect-FIRST with 2>&1 so no trailing token absorbs into the command line; then prefix every line
+rem with "[N]" via find /v /n "" (keeps blank/';' lines), iterate, strip the prefix, cons, reverse).
+rem Cells allocated via :rl_cons / reversed via :rl_reverse (shared with :read-lines). KNOWN GAP (same
+rem as :ev/read-lines): for/f eats a literal '!' in captured output.
+:run_capture
+call :rc_unesc
+> "%TEMP%\portsh_rc1.txt" 2>&1 cmd /c "!RCMD!"
+type "%TEMP%\portsh_rc1.txt" | find /v /n "" > "%TEMP%\portsh_rc.txt"
+set "rcAcc=NIL"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
+  set "rcLn=%%L" & set "rcLn=!rcLn:*]=!"
+  call :rl_cons "T:!rcLn!" "!rcAcc!"
+  set "rcAcc=!R!"
+)
+call :rl_reverse "!rcAcc!"
+goto :eof
