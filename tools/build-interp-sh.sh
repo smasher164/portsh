@@ -59,10 +59,11 @@ iresolve() {
   eval "ir_l=\${ILAM_${ICUR}_vars:-}"; ir_i=0; ir_hit=  # params + captures (static)
   for ir_w in $ir_l; do [ "$ir_w" = "$ir_v" ] && { ir_hit=$ir_i; break; }; ir_i=$((ir_i+1)); done
   if [ -n "$ir_hit" ]; then eval "R=\$F$((FP+ir_hit))"; return; fi
-  case " $GFNS " in *" $ir_v "*) R="I:$ir_v"; return ;; esac   # global fn
+  case " $GFNS " in *" $ir_v "*) R="I:$ir_v"; return ;; esac   # global fn -> I:<name> fn-value
+  if isprim "S:$ir_v"; then R="PRIM:$ir_v"; return; fi          # primitive used as a value
   eval "R=\${G_${ir_v}:-NIL}"                           # global var
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:+|S:-|'S:*'|'S:<'|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -73,8 +74,8 @@ ipop_n() {  # pop n values off IVS into ip_args (source order)
   ip_args=NIL; ip_k=$1
   while [ "$ip_k" -gt 0 ]; do hp_car "$IVS"; ip_v=$R; hp_cdr "$IVS"; IVS=$R; hp_cons "$ip_v" "$ip_args"; ip_args=$R; ip_k=$((ip_k-1)); done
 }
-iprim() {  # apply prim $1 to ip_args (1 or 2 values); push result
-  hp_car "$ip_args"; ipa=$R
+iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors kernel prim_app.
+  hp_car "$ip_args"; ipa=$R                            # first arg (most prims need it)
   case $1 in
     S:car) hp_car "$ipa"; ips "$R" ;;
     S:cdr) hp_cdr "$ipa"; ips "$R" ;;
@@ -82,15 +83,28 @@ iprim() {  # apply prim $1 to ip_args (1 or 2 values); push result
     S:pair?) case $ipa in P:*) ips "S:t" ;; *) ips "NIL" ;; esac ;;
     S:atom?) case $ipa in P:*) ips "NIL" ;; *) ips "S:t" ;; esac ;;
     S:number?) case $ipa in I:*) ips "S:t" ;; *) ips "NIL" ;; esac ;;
-    *) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R
+    S:not) [ "$ipa" = NIL ] && ips "S:t" || ips "NIL" ;;
+    S:type-of) case $ipa in NIL) ips "S:nil" ;; I:*) ips "S:number" ;; S:*) ips "S:symbol" ;; T:*) ips "S:string" ;; P:*) ips "S:pair" ;; *) ips "S:unknown" ;; esac ;;
+    'S:symbol->string') ips "T:${ipa#S:}" ;;
+    'S:number->string') ips "T:${ipa#I:}" ;;
+    'S:string->symbol') ips "S:${ipa#T:}" ;;
+    'S:string->number') ips "I:${ipa#T:}" ;;
+    S:string-length) pa_s=${ipa#T:}; ips "I:${#pa_s}" ;;
+    S:string-append) pa_o=""; pa_l=$ip_args; while [ "$pa_l" != NIL ]; do hp_car "$pa_l"; pa_o="$pa_o${R#T:}"; hp_cdr "$pa_l"; pa_l=$R; done; ips "T:$pa_o" ;;
+    S:substring) pa_s=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; pa_off=${R#I:}; hp_cdr "$ip_args"; hp_cdr "$R"; hp_car "$R"; pa_n=${R#I:}
+       pa_i=0; while [ "$pa_i" -lt "$pa_off" ]; do pa_s=${pa_s#?}; pa_i=$((pa_i+1)); done
+       pa_r=""; pa_i=0; while [ "$pa_i" -lt "$pa_n" ] && [ -n "$pa_s" ]; do pa_c=${pa_s%"${pa_s#?}"}; pa_r="$pa_r$pa_c"; pa_s=${pa_s#?}; pa_i=$((pa_i+1)); done
+       ips "T:$pa_r" ;;
+    S:cons) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R; hp_cons "$ipa" "$ipb"; ips "$R" ;;
+    *) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R                       # 2-arg arith / compare
        case $1 in
          S:+)    ips "I:$(( ${ipa#??} + ${ipb#??} ))" ;;
          S:-)    ips "I:$(( ${ipa#??} - ${ipb#??} ))" ;;
          'S:*')  ips "I:$(( ${ipa#??} * ${ipb#??} ))" ;;
          'S:<')  [ "${ipa#??}" -lt "${ipb#??}" ] && ips "S:t" || ips "NIL" ;;
+         'S:<=') [ "${ipa#??}" -le "${ipb#??}" ] && ips "S:t" || ips "NIL" ;;
          S:=)    [ "${ipa#??}" = "${ipb#??}" ] && ips "S:t" || ips "NIL" ;;
          S:eq?)  [ "$ipa" = "$ipb" ] && ips "S:t" || ips "NIL" ;;
-         S:cons) hp_cons "$ipa" "$ipb"; ips "$R" ;;
        esac ;;
   esac
 }
@@ -139,7 +153,7 @@ interp() {
                   [ "$bg_first" = 1 ] || { hp_cons "S:POPK" "NIL"; ics "$R"; }
                   hp_cons "S:EVAL" "$bg_e"; ics "$R"; bg_first=0
                 done ;;
-              S:let)                                     # sequential (let*-style) binding, matching the comp's lbinds
+              S:let|S:let*)                              # sequential binding (matches lbinds); let==let* here
                 hp_car "$ip_rest"; lt_binds=$R; hp_cdr "$ip_rest"; hp_car "$R"; lt_body=$R
                 hp_cons "S:LETK" "$SCOPE"; ics "$R"       # LETK restores the pre-let scope after the body
                 hp_cons "S:EVAL" "$lt_body"; ics "$R"
@@ -166,6 +180,31 @@ interp() {
                 while [ "$mc_caps" != NIL ]; do hp_car "$mc_caps"; case $R in S:*) iresolve "$R" ;; esac; hp_cons "$R" "$mc_acc"; mc_acc=$R; hp_cdr "$mc_caps"; mc_caps=$R; done
                 mc_rev=NIL; while [ "$mc_acc" != NIL ]; do hp_car "$mc_acc"; hp_cons "$R" "$mc_rev"; mc_rev=$R; hp_cdr "$mc_acc"; mc_acc=$R; done
                 hp_cons "$mc_lbl" "$mc_rev"; ips "K:${R#P:}" ;;
+              S:list)                                    # variadic list build
+                ilen "$ip_rest"; hp_cons "S:LISTK" "I:$R"; ics "$R"; ipush_args "$ip_rest" ;;
+              S:str)                                     # variadic stringify + concat
+                ilen "$ip_rest"; hp_cons "S:STRK" "I:$R"; ics "$R"; ipush_args "$ip_rest" ;;
+              S:and)
+                if [ "$ip_rest" = NIL ]; then ips "S:t"
+                else hp_car "$ip_rest"; an_c=$R; hp_cdr "$ip_rest"; an_r=$R
+                  hp_cons "S:ANDK" "$an_r"; ics "$R"; hp_cons "S:EVAL" "$an_c"; ics "$R"; fi ;;
+              S:or)
+                if [ "$ip_rest" = NIL ]; then ips "NIL"
+                else hp_car "$ip_rest"; or_c=$R; hp_cdr "$ip_rest"; or_r=$R
+                  hp_cons "S:ORK" "$or_r"; ics "$R"; hp_cons "S:EVAL" "$or_c"; ics "$R"; fi ;;
+              S:when)                                    # (if c (begin body) nil)
+                hp_car "$ip_rest"; wn_c=$R; hp_cdr "$ip_rest"; wn_b=$R
+                hp_cons "S:begin" "$wn_b"; wn_g=$R
+                hp_cons "S:nil" "NIL"; wn_t=$R; hp_cons "$wn_g" "$wn_t"; wn_t=$R; hp_cons "$wn_c" "$wn_t"; wn_t=$R; hp_cons "S:if" "$wn_t"
+                hp_cons "S:EVAL" "$R"; ics "$R" ;;
+              S:unless)                                  # (if c nil (begin body))
+                hp_car "$ip_rest"; un_c=$R; hp_cdr "$ip_rest"; un_b=$R
+                hp_cons "S:begin" "$un_b"; un_g=$R
+                hp_cons "$un_g" "NIL"; un_t=$R; hp_cons "S:nil" "$un_t"; un_t=$R; hp_cons "$un_c" "$un_t"; un_t=$R; hp_cons "S:if" "$un_t"
+                hp_cons "S:EVAL" "$R"; ics "$R" ;;
+              S:case)                                    # eval key once; CASEK matches a clause
+                hp_car "$ip_rest"; cs_k=$R; hp_cdr "$ip_rest"; cs_cl=$R
+                hp_cons "S:CASEK" "$cs_cl"; ics "$R"; hp_cons "S:EVAL" "$cs_k"; ics "$R" ;;
               *)
                 if isprim "$ip_h"; then
                   ilen "$ip_rest"; ip_n=$R
@@ -190,7 +229,8 @@ interp() {
       S:CALLK)
         ip_n=${ip_pl#I:}
         ipop_n "$ip_n"; ip_av=$ip_args                  # args (source order)
-        hp_car "$IVS"; ip_fv=$R; hp_cdr "$IVS"; IVS=$R   # operator value (C:/I:/K:)
+        hp_car "$IVS"; ip_fv=$R; hp_cdr "$IVS"; IVS=$R   # operator value (C:/I:/K:/PRIM:)
+        case $ip_fv in PRIM:*) ip_args=$ip_av; iprim "S:${ip_fv#PRIM:}"; continue ;; esac  # prim-as-value: apply inline, no call
         NFP=$((FP+ITOP)); ip_i=0; ip_a=$ip_av             # callee frame above this activation's let-vars
         while [ "$ip_a" != NIL ]; do hp_car "$ip_a"; eval "F$((NFP+ip_i))=\$R"; hp_cdr "$ip_a"; ip_a=$R; ip_i=$((ip_i+1)); done
         eval "ISCS_$FP=\$ICS; ISVS_$FP=\$IVS; ISSCOPE_$FP=\$SCOPE; ISTOP_$FP=\$ITOP"
@@ -205,6 +245,30 @@ interp() {
         if [ "$ck_cv" = NIL ]; then hp_cons "S:cond" "$ck_rest"; hp_cons "S:EVAL" "$R"; ics "$R"
         else hp_cons "S:EVAL" "$ck_then"; ics "$R"; fi ;;
       S:POPK) hp_cdr "$IVS"; IVS=$R ;;                   # discard a value (begin's non-final results)
+      S:ANDK)                                            # ip_pl = rest exprs; short-circuit on NIL
+        hp_car "$IVS"; an_v=$R; hp_cdr "$IVS"; IVS=$R
+        if [ "$an_v" = NIL ]; then ips "NIL"
+        elif [ "$ip_pl" = NIL ]; then ips "$an_v"
+        else hp_cons "S:and" "$ip_pl"; hp_cons "S:EVAL" "$R"; ics "$R"; fi ;;
+      S:ORK)                                             # ip_pl = rest exprs; short-circuit on non-NIL
+        hp_car "$IVS"; or_v=$R; hp_cdr "$IVS"; IVS=$R
+        if [ "$or_v" != NIL ]; then ips "$or_v"
+        elif [ "$ip_pl" = NIL ]; then ips "NIL"
+        else hp_cons "S:or" "$ip_pl"; hp_cons "S:EVAL" "$R"; ics "$R"; fi ;;
+      S:LISTK) ipop_n "${ip_pl#I:}"; ips "$ip_args" ;;   # the popped arg-list IS the result list
+      S:STRK)                                            # concat each value's printed text
+        ipop_n "${ip_pl#I:}"; sk_o=""; sk_l=$ip_args
+        while [ "$sk_l" != NIL ]; do hp_car "$sk_l"; sk_o="$sk_o${R#??}"; hp_cdr "$sk_l"; sk_l=$R; done
+        ips "T:$sk_o" ;;
+      S:CASEK)                                           # ip_pl = clauses; key on VS. match datum-list (or else)
+        hp_car "$IVS"; ck_key=$R; hp_cdr "$IVS"; IVS=$R; ck_cl=$ip_pl
+        while [ "$ck_cl" != NIL ]; do
+          hp_car "$ck_cl"; ck_c=$R; hp_cdr "$ck_cl"; ck_cl=$R
+          hp_car "$ck_c"; ck_vals=$R; hp_cdr "$ck_c"; ck_body=$R; ck_m=
+          if [ "$ck_vals" = "S:else" ]; then ck_m=1
+          else ck_vl=$ck_vals; while [ "$ck_vl" != NIL ]; do hp_car "$ck_vl"; [ "$R" = "$ck_key" ] && { ck_m=1; break; }; hp_cdr "$ck_vl"; ck_vl=$R; done; fi
+          if [ -n "$ck_m" ]; then hp_cons "S:begin" "$ck_body"; hp_cons "S:EVAL" "$R"; ics "$R"; break; fi
+        done ;;
     esac
   done
   hp_car "$IVS"; ACTION=ret; return                      # result = top of value stack
@@ -213,41 +277,55 @@ interp() {
 # ---- loader: read -> lift (comp) -> register fns/layout -> interpret top-level forms --------------
 # join a param/capture list's symbol names into a space-string for ILAM_<name>_vars
 ld_names() { ln_o=""; ln_l=$1; while [ "$ln_l" != NIL ]; do hp_car "$ln_l"; ln_o="$ln_o ${R#S:}"; hp_cdr "$ln_l"; ln_l=$R; done; R=$ln_o; }
+ld_mkthunk() {  # $1 = body ref, $2 = action (S | G:name) -> prepend (define __evN (lambda () body)) to XF
+  hp_cons "$1" NIL; mk_b=$R; hp_cons NIL "$mk_b"; mk_ll=$R; hp_cons "S:lambda" "$mk_ll"; mk_lam=$R
+  hp_cons "$mk_lam" NIL; mk_d3=$R; hp_cons "S:__ev$ld_evn" "$mk_d3"; mk_d2=$R; hp_cons "S:define" "$mk_d2"; mk_def=$R
+  hp_cons "$mk_def" "$XF"; XF=$R; ld_thunks="$ld_thunks __ev$ld_evn=$2"; ld_evn=$((ld_evn+1))
+}
 SRC="($(cat "$1"))"; rd_expr; ld_prog=$R
-FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$ld_prog; F1="I:0"; CURFN=lift_program; drive; ld_lifted=$R
-GFNS=""; GVARS=""; ld_thunks=""; ld_cur=$ld_lifted; ld_evn=0
-# pass 1: register every define (fn -> ILAM + GFNS; atom -> G_ + GVARS; computed -> thunk + GVARS)
+# pass 0: PARTITION before lifting. lift only hoists lambdas inside DEFINE bodies, so a bare top-level
+# expression's inner lambdas would survive as raw `lambda` (which the interp can't run). Wrap bare
+# expressions + computed defines as (define __evN (lambda () body)) thunks; keep lambda/atom defines.
+XF=NIL; ld_thunks=""; ld_evn=0; ld_cur=$ld_prog
 while [ "$ld_cur" != NIL ]; do
   hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
   hp_car "$ld_form"; ld_hd=$R
   if [ "$ld_hd" = "S:define" ]; then
-    hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm=${R#S:}; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
+    hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm0=$R; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
     ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
-    case $ld_vhd in
-      S:lambda)
-        hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
-        ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
-        ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body"
-        GFNS="$GFNS $ld_nm" ;;
-      S:clambda)
-        hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_cap=$R
-        hp_cdr "$ld_val"; hp_cdr "$R"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
-        ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
-        ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body"
-        GFNS="$GFNS $ld_nm" ;;
-      *) case $ld_val in
-           I:*|T:*) eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm" ;;
-           S:*) iresolve_init=$ld_val; eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm" ;;
-           *) eval "ILAM___ev${ld_evn}_body=\$ld_val; ILAM___ev${ld_evn}_np=0; ILAM___ev${ld_evn}_ncap=0; ILAM___ev${ld_evn}_vars=\"\""
-              ld_thunks="$ld_thunks __ev${ld_evn}=G:${ld_nm}"; GVARS="$GVARS $ld_nm"; ld_evn=$((ld_evn+1)) ;;
-         esac ;;
-    esac
+    if [ "$ld_vhd" = "S:lambda" ]; then hp_cons "$ld_form" "$XF"; XF=$R
+    else case $ld_val in
+           I:*|T:*|S:*) hp_cons "$ld_form" "$XF"; XF=$R ;;     # atom-const define -> G_<name>
+           *) ld_mkthunk "$ld_val" "G:${ld_nm0#S:}" ;;          # computed define -> thunk binds G_<name>
+         esac
+    fi
   else
-    eval "ILAM___ev${ld_evn}_body=\$ld_form; ILAM___ev${ld_evn}_np=0; ILAM___ev${ld_evn}_ncap=0; ILAM___ev${ld_evn}_vars=\"\""
-    ld_thunks="$ld_thunks __ev${ld_evn}=S"; ld_evn=$((ld_evn+1))
+    ld_mkthunk "$ld_form" "S"                                  # bare expression -> thunk, show value
   fi
 done
-GFNS="$GFNS $(for e in $ld_thunks; do printf '%s ' "${e%%=*}"; done)"   # thunks are interp fns too
+# lift the all-defines program: now every inner lambda is in a define body -> make-closure + clambda
+FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$XF; F1="I:0"; CURFN=lift_program; drive; ld_lifted=$R
+# pass 1: register every define -- lambda/clambda -> ILAM + GFNS; atom-const -> G_<name> + GVARS
+GFNS=""; GVARS=""; ld_cur=$ld_lifted
+while [ "$ld_cur" != NIL ]; do
+  hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
+  hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm=${R#S:}; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
+  ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
+  case $ld_vhd in
+    S:lambda)
+      hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
+      ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
+      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body"
+      GFNS="$GFNS $ld_nm" ;;
+    S:clambda)
+      hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_cap=$R
+      hp_cdr "$ld_val"; hp_cdr "$R"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
+      ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
+      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body"
+      GFNS="$GFNS $ld_nm" ;;
+    *) eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm" ;;    # atom-const define
+  esac
+done
 _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) printf %s "${1#T:}" ;; S:*) printf %s "${1#S:}" ;; K:*) printf "<closure>" ;; C:*) printf "<fn:%s>" "${1#C:}" ;; P:*) printf "("; _rlist "$1"; printf ")" ;; *) printf %s "$1" ;; esac; }
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
 # pass 2: run each top-level thunk (interpreted) in order
