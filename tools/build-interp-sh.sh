@@ -63,7 +63,7 @@ iresolve() {
   if isprim "S:$ir_v"; then R="PRIM:$ir_v"; return; fi          # primitive used as a value
   eval "R=\${G_${ir_v}:-NIL}"                           # global var
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:print|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -96,6 +96,16 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
        pa_r=""; pa_i=0; while [ "$pa_i" -lt "$pa_n" ] && [ -n "$pa_s" ]; do pa_c=${pa_s%"${pa_s#?}"}; pa_r="$pa_r$pa_c"; pa_s=${pa_s#?}; pa_i=$((pa_i+1)); done
        ips "T:$pa_r" ;;
     S:cons) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R; hp_cons "$ipa" "$ipb"; ips "$R" ;;
+    S:print) _relem "$ipa"; printf '\n'; ips "NIL" ;;
+    S:file-exists?) [ -e "${ipa#T:}" ] && ips "S:t" || ips "NIL" ;;
+    S:read) pa_sv=$SRC; SRC=${ipa#T:}; rd_expr; pa_rd=$R; SRC=$pa_sv; ips "$pa_rd" ;;
+    S:read-lines) pa_f=${ipa#T:}; pa_acc=NIL
+       while IFS= read -r pa_ln || [ -n "$pa_ln" ]; do hp_cons "T:$pa_ln" "$pa_acc"; pa_acc=$R; done < "$pa_f"
+       pa_rev=NIL; while [ "$pa_acc" != NIL ]; do hp_car "$pa_acc"; pa_v=$R; hp_cdr "$pa_acc"; pa_acc=$R; hp_cons "$pa_v" "$pa_rev"; pa_rev=$R; done; ips "$pa_rev" ;;
+    S:write-lines) pa_f=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; pa_l=$R; : > "$pa_f"
+       while [ "$pa_l" != NIL ]; do hp_car "$pa_l"; printf '%s\n' "${R#T:}" >> "$pa_f"; hp_cdr "$pa_l"; pa_l=$R; done; ips "S:t" ;;
+    S:append-lines) pa_f=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; pa_l=$R
+       while [ "$pa_l" != NIL ]; do hp_car "$pa_l"; printf '%s\n' "${R#T:}" >> "$pa_f"; hp_cdr "$pa_l"; pa_l=$R; done; ips "S:t" ;;
     *) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R                       # 2-arg arith / compare
        case $1 in
          S:+)    ips "I:$(( ${ipa#??} + ${ipb#??} ))" ;;
@@ -333,7 +343,7 @@ for e in $ld_thunks; do
   th=${e%%=*}; act=${e#*=}
   FP=0; RSP=0; PC=0; CLO=""; ICUR="$th"; CURFN=interp; drive
   case $act in
-    S)   _relem "$R"; printf '\n' ;;
+    S)   [ -n "${PORTSH_SCRIPT:-}" ] || { _relem "$R"; printf '\n'; } ;;   # auto-echo top values unless script mode
     G:*) eval "G_${act#G:}=\$R" ;;
   esac
 done
