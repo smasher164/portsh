@@ -84,4 +84,30 @@ printf 'recursion handoff (:ev overflows -> JIT completes): %s\n' "$rec"
                        printf '  :ev prefix (crash):'; tr '\n' '|' < "$work/rprefix"; echo
                        printf '  JIT replay+live:   '; tr '\n' '|' < "$work/rsuffix"; echo; }
 
-[ "$bad" -eq 0 ] && [ "$world_ok" = PASS ] && [ "$mism" = PASS ] && [ "$rec" = PASS ]
+# EXACTLY-ONCE for NON-IDEMPOTENT effects -- the whole reason replay exists. A file APPEND and an
+# external COMMAND both double if redone, so :ev does them in the prefix and the JIT must SUPPRESS them
+# on replay. Contrast: a fresh JIT re-run (no replay) DOES double the append -- proving the effect is
+# genuinely non-idempotent and that replay (not idempotence) is what keeps it once.
+wcl() { wc -l < "$1" | tr -d ' '; }
+printf '(append-lines "acc.txt" (list "X"))(print "ok")' > "$work/ap.lisp"
+apev() { ( cd "$work" && env "$@" PORTSH_SCRIPT=1 mksh "$ROOT/portsh-full.cmd" ap.lisp ); }
+apjit() { ( cd "$work" && env "$@" mksh "$ROOT/load-sh.sh" ap.lisp ); }
+: > "$work/acc.txt"; : > "$work/aplog"
+apev PORTSH_LOG="$work/aplog" PORTSH_LOG_STOP=1 >/dev/null 2>&1 || true   # :ev appends X, then abandons
+apjit PORTSH_REPLAY="$work/aplog" >/dev/null 2>&1                         # JIT replays -> must NOT re-append
+ap_once=$([ "$(wcl "$work/acc.txt")" = 1 ] && echo PASS || echo FAIL)
+apjit PORTSH_SCRIPT=1 >/dev/null 2>&1                                     # fresh re-run (no replay) DOES double
+ap_nonidem=$([ "$(wcl "$work/acc.txt")" = 2 ] && echo confirmed || echo "NOT non-idempotent?!")
+printf 'exactly-once append-lines (suppressed on replay): %s  [%s]\n' "$ap_once" "$ap_nonidem"
+
+printf '(run sh -c "echo >> cnt.txt")(print "ok")' > "$work/rn.lisp"
+rnev() { ( cd "$work" && env "$@" PORTSH_SCRIPT=1 mksh "$ROOT/portsh-full.cmd" rn.lisp ); }
+rnjit() { ( cd "$work" && env "$@" mksh "$ROOT/load-sh.sh" rn.lisp ); }
+: > "$work/cnt.txt"; : > "$work/rnlog"
+rnev PORTSH_LOG="$work/rnlog" PORTSH_LOG_STOP=1 >/dev/null 2>&1 || true    # :ev runs the command, abandons
+rnjit PORTSH_REPLAY="$work/rnlog" >/dev/null 2>&1                          # JIT replays -> must NOT re-run it
+run_once=$([ "$(wcl "$work/cnt.txt")" = 1 ] && echo PASS || echo FAIL)
+printf 'exactly-once run (command not re-executed on replay):    %s\n' "$run_once"
+
+[ "$bad" -eq 0 ] && [ "$world_ok" = PASS ] && [ "$mism" = PASS ] && [ "$rec" = PASS ] \
+  && [ "$ap_once" = PASS ] && [ "$run_once" = PASS ]

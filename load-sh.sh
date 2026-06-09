@@ -383,7 +383,7 @@ prim_oper() {
         po_cmd="$po_cmd ${po_tok#?:}"
         hp_cdr "$po_lst"; po_lst=$R
       done
-      sh -c "$po_cmd"; R="I:$?" ;;
+      sh -c "$po_cmd"; R="I:$?"; lg_out run "$R" ;;   # log exit code (world result); stdout was a live terminal effect
     'run-capture')
       po_cmd=; po_lst=$2
       while [ "$po_lst" != NIL ]; do
@@ -397,7 +397,7 @@ $po_out
 RCEOF
       po_rev=NIL
       while [ "$po_acc" != NIL ]; do hp_car "$po_acc"; po_v=$R; hp_cdr "$po_acc"; po_acc=$R; eval "ROOT$po_b=\"\$po_acc\""; hp_cons "$po_v" "$po_rev"; po_rev=$R; done
-      R=$po_rev; RSP=$po_b ;;
+      R=$po_rev; RSP=$po_b; lg_rc=$R; lg_list 'run-capture' "$lg_rc"; R=$lg_rc ;;
     vau)
       hp_car "$2"; po_formals=$R
       hp_cdr "$2"; po_r=$R; hp_car "$po_r"; po_eformal=$R
@@ -443,6 +443,7 @@ arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 LG_TAB=$(printf '\t'); LG_N=0
 lg_tick() { LG_N=$((LG_N + 1)); [ -n "${PORTSH_LOG_STOP:-}" ] && [ "$LG_N" -ge "$PORTSH_LOG_STOP" ] && exit 42; return 0; }
 lg_out()  { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s1\n%s\n' "$1" "$LG_TAB" "$2" >> "$PORTSH_LOG"; lg_tick; }
+lg_mark() { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s0\n' "$1" "$LG_TAB" >> "$PORTSH_LOG"; lg_tick; }   # effect-only op (file write); replay just suppresses the re-do
 lg_list() { [ -n "${PORTSH_LOG:-}" ] || return 0   # $1=op, $2=heap list of T: strings (multi-line result)
   lg_c=0; lg_l=$2; while [ "$lg_l" != NIL ]; do lg_c=$((lg_c + 1)); hp_cdr "$lg_l"; lg_l=$R; done
   printf '%s%s%s\n' "$1" "$LG_TAB" "$lg_c" >> "$PORTSH_LOG"
@@ -499,10 +500,10 @@ prim_app() {
              R=$_rev; RSP=$pa_b; lg_rl=$R; lg_list 'read-lines' "$lg_rl"; R=$lg_rl ;;
     'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
-             R="S:t" ;;
+             R="S:t"; lg_mark 'write-lines' ;;
     'append-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
-             R="S:t" ;;
+             R="S:t"; lg_mark 'append-lines' ;;
     hmark)   R="I:$HEAP_N" ;;          # current heap bump pointer (region reclamation)
     hreset)  arg1 "$args"; HEAP_N=${ARG1#I:}; R="S:t" ;;   # reset bump pointer -> reuse slots
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
@@ -14213,8 +14214,11 @@ esac; }
 # ---- closure-capable trampoline driver (K:/CLO/RSL) + comp's I/O prims --------------------
 GLOBAL=NIL
 G_DQ='T:"'
-write_lines()  { _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
-append_lines() { _f=${1#T:}; _l=$2;          while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
+# write-lines / append-lines are EFFECT-only (file writes) -- in replay the file was already written by
+# :ev, so just SUPPRESS the re-write (R=S:t). Live path writes. (replay_take is defined below; fine -- sh
+# resolves function calls at call time, not definition time.)
+write_lines()  { if replay_take write-lines; then R="S:t"; else _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; fi; }
+append_lines() { if replay_take append-lines; then R="S:t"; else _f=${1#T:}; _l=$2; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; fi; }
 gc()           { gc_run; R="S:t"; }
 # --- record-and-replay: when PORTSH_REPLAY is set the JIT REPLAYS the interpreter's effect log (FD 9)
 # --- in execution order -- output ops VERIFY their computed value == the log then SUPPRESS; world ops
@@ -14240,12 +14244,18 @@ read_lines()     { if replay_take read-lines; then _acc=NIL; rp_i=0
 file_existszzQ() { if replay_take file-exists?; then R=$RP_PAYLOAD; else [ -e "${1#T:}" ] && R="S:t" || R=NIL; fi; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
-run_cmd()     { sh -c "$1"; R="I:$?"; }
-run_capture() { _rc_out=$(sh -c "$1"); _rc_acc=NIL
+# run / run-capture EXECUTE a host command -- the effects that MUST happen exactly once. In replay
+# the command already ran in :ev, so run returns the logged exit code and run-capture rebuilds the
+# logged output list -- NEITHER re-executes. Live path runs the command.
+run_cmd()     { if replay_take run; then R=$RP_PAYLOAD; else sh -c "$1"; R="I:$?"; fi; }
+run_capture() { if replay_take run-capture; then _rc_acc=NIL; rp_i=0
+  while [ "$rp_i" -lt "$RP_N" ]; do eval "rp_v=\$RP_L$rp_i"; hp_cons "T:$rp_v" "$_rc_acc"; _rc_acc=$R; rp_i=$((rp_i + 1)); done
+  _rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev
+else _rc_out=$(sh -c "$1"); _rc_acc=NIL
 while IFS= read -r _rc_ln || [ -n "$_rc_ln" ]; do hp_cons "T:$_rc_ln" "$_rc_acc"; _rc_acc=$R; done <<RC_EOF
 $_rc_out
 RC_EOF
-_rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev; }
+_rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev; fi; }
 read_str()    { _rd_save=$SRC; SRC=${1#T:}; rd_expr; _rd_v=$R; SRC=$_rd_save; R=$_rd_v; }
 drive() {
   while [ "$CURFN" != HALT ]; do

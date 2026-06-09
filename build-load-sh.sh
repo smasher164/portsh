@@ -22,8 +22,11 @@ cd "$(dirname "$0")"
 # ---- closure-capable trampoline driver (K:/CLO/RSL) + comp's I/O prims --------------------
 GLOBAL=NIL
 G_DQ='T:"'
-write_lines()  { _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
-append_lines() { _f=${1#T:}; _l=$2;          while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
+# write-lines / append-lines are EFFECT-only (file writes) -- in replay the file was already written by
+# :ev, so just SUPPRESS the re-write (R=S:t). Live path writes. (replay_take is defined below; fine -- sh
+# resolves function calls at call time, not definition time.)
+write_lines()  { if replay_take write-lines; then R="S:t"; else _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; fi; }
+append_lines() { if replay_take append-lines; then R="S:t"; else _f=${1#T:}; _l=$2; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; fi; }
 gc()           { gc_run; R="S:t"; }
 # --- record-and-replay: when PORTSH_REPLAY is set the JIT REPLAYS the interpreter's effect log (FD 9)
 # --- in execution order -- output ops VERIFY their computed value == the log then SUPPRESS; world ops
@@ -49,12 +52,18 @@ read_lines()     { if replay_take read-lines; then _acc=NIL; rp_i=0
 file_existszzQ() { if replay_take file-exists?; then R=$RP_PAYLOAD; else [ -e "${1#T:}" ] && R="S:t" || R=NIL; fi; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
-run_cmd()     { sh -c "$1"; R="I:$?"; }
-run_capture() { _rc_out=$(sh -c "$1"); _rc_acc=NIL
+# run / run-capture EXECUTE a host command -- the effects that MUST happen exactly once. In replay
+# the command already ran in :ev, so run returns the logged exit code and run-capture rebuilds the
+# logged output list -- NEITHER re-executes. Live path runs the command.
+run_cmd()     { if replay_take run; then R=$RP_PAYLOAD; else sh -c "$1"; R="I:$?"; fi; }
+run_capture() { if replay_take run-capture; then _rc_acc=NIL; rp_i=0
+  while [ "$rp_i" -lt "$RP_N" ]; do eval "rp_v=\$RP_L$rp_i"; hp_cons "T:$rp_v" "$_rc_acc"; _rc_acc=$R; rp_i=$((rp_i + 1)); done
+  _rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev
+else _rc_out=$(sh -c "$1"); _rc_acc=NIL
 while IFS= read -r _rc_ln || [ -n "$_rc_ln" ]; do hp_cons "T:$_rc_ln" "$_rc_acc"; _rc_acc=$R; done <<RC_EOF
 $_rc_out
 RC_EOF
-_rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev; }
+_rc_rev=NIL; while [ "$_rc_acc" != NIL ]; do hp_car "$_rc_acc"; _rc_v=$R; hp_cdr "$_rc_acc"; _rc_acc=$R; hp_cons "$_rc_v" "$_rc_rev"; _rc_rev=$R; done; R=$_rc_rev; fi; }
 read_str()    { _rd_save=$SRC; SRC=${1#T:}; rd_expr; _rd_v=$R; SRC=$_rd_save; R=$_rd_v; }
 drive() {
   while [ "$CURFN" != HALT ]; do
