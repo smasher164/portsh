@@ -355,59 +355,14 @@ ld_mkthunk() {  # $1 = body ref, $2 = action (S | G:name) -> prepend (define __e
   hp_cons "$mk_lam" NIL; mk_d3=$R; hp_cons "S:__ev$ld_evn" "$mk_d3"; mk_d2=$R; hp_cons "S:define" "$mk_d2"; mk_def=$R
   hp_cons "$mk_def" "$XF"; XF=$R; ld_thunks="$ld_thunks __ev$ld_evn=$2"; ld_evn=$((ld_evn+1))
 }
-SRC="($(cat "$1"))"; rd_expr; ld_prog=$R
-# pass 0: PARTITION before lifting. lift only hoists lambdas inside DEFINE bodies, so a bare top-level
-# expression's inner lambdas would survive as raw `lambda` (which the interp can't run). Wrap bare
-# expressions + computed defines as (define __evN (lambda () body)) thunks; keep lambda/atom defines.
-XF=NIL; ld_thunks=""; ld_evn=0; ld_cur=$ld_prog
-while [ "$ld_cur" != NIL ]; do
-  hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
-  hp_car "$ld_form"; ld_hd=$R
-  if [ "$ld_hd" = "S:define" ]; then
-    hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm0=$R; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
-    ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
-    if [ "$ld_vhd" = "S:lambda" ]; then hp_cons "$ld_form" "$XF"; XF=$R
-    else case $ld_val in
-           I:*|T:*|S:*) hp_cons "$ld_form" "$XF"; XF=$R ;;     # atom-const define -> G_<name>
-           *) ld_mkthunk "$ld_val" "G:${ld_nm0#S:}" ;;          # computed define -> thunk binds G_<name>
-         esac
-    fi
-  else
-    ld_mkthunk "$ld_form" "S"                                  # bare expression -> thunk, show value
-  fi
-done
-# lift the all-defines program: now every inner lambda is in a define body -> make-closure + clambda
-FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$XF; F1="I:0"; CURFN=lift_program; drive; ld_lifted=$R
-# pass 1: register every define -- lambda/clambda -> ILAM + GFNS; atom-const -> G_<name> + GVARS
-GFNS=""; GVARS=""; ld_cur=$ld_lifted
-while [ "$ld_cur" != NIL ]; do
-  hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
-  hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm_raw=${R#S:}; mangle "$ld_nm_raw"; ld_nm=$R; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
-  ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
-  case $ld_vhd in
-    S:lambda)
-      hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
-      ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
-      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
-      GFNS="$GFNS $ld_nm" ;;
-    S:clambda)
-      hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_cap=$R
-      hp_cdr "$ld_val"; hp_cdr "$R"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
-      ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
-      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
-      GFNS="$GFNS $ld_nm" ;;
-    *) eval "G_${ld_nm_raw}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;   # atom-const define (G_ raw, matching comp)
-  esac
-done
 _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) printf %s "${1#T:}" ;; S:*) printf %s "${1#S:}" ;; K:*) printf "<closure>" ;; C:*) printf "<fn:%s>" "${1#C:}" ;; P:*) printf "("; _rlist "$1"; printf ")" ;; *) printf %s "$1" ;; esac; }
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
-# --- OSR flip: compile a registered fn at runtime (via the embedded comp, on the shared driver), source
-# it, and mark COMPILED so route() dispatches the compiled version on the next call. PORTSH_OSR="f g ..."
-# flips those fns before running -- proving compiled and interpreted fns interoperate via the registry. ---
+# --- OSR flip: compile a registered fn at runtime (via the embedded comp, on the shared driver), source it,
+# and mark COMPILED so route() dispatches the compiled version on the next call. PORTSH_OSR="f g ..." flips. ---
 str_to_symlist() { sl_o=NIL; for sl_w in $1; do hp_cons "S:$sl_w" "$sl_o"; sl_o=$R; done; R=$sl_o; }
 osr_compile() {
-  mangle "$1"; oc_n=$R                                  # registry key + compiled fn name (sh-mangled)
-  eval "[ -n \"\${ILAM_${oc_n}_def+x}\" ]" || return 0  # not a compilable fn (e.g. a gvar) -> skip
+  mangle "$1"; oc_n=$R
+  eval "[ -n \"\${ILAM_${oc_n}_def+x}\" ]" || return 0
   eval "oc_def=\$ILAM_${oc_n}_def"
   str_to_symlist "$GFNS"; oc_gf=$R; str_to_symlist "$GVARS"; oc_gv=$R
   FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$oc_def; F1=$oc_gf; F2=$oc_gv; CURFN=compile_def_sh; drive
@@ -416,17 +371,92 @@ osr_compile() {
   . "$oc_tmp"; rm -f "$oc_tmp"; eval "COMPILED_$oc_n=1"
   [ -n "${PORTSH_OSR_VERBOSE:-}" ] && printf 'OSR: compiled %s\n' "$1" >&2
 }
-for f in ${PORTSH_OSR:-}; do osr_compile "$f"; done
-
-# pass 2: run each top-level thunk (interpreted) in order
-for e in $ld_thunks; do
-  th=${e%%=*}; act=${e#*=}
-  FP=0; RSP=0; PC=0; CLO=""; ICUR="$th"; CURFN=interp; drive
-  case $act in
-    S)   [ -n "${PORTSH_SCRIPT:-}" ] || { _relem "$R"; printf '\n'; } ;;   # auto-echo top values unless script mode
-    G:*) eval "G_${act#G:}=\$R" ;;
-  esac
-done
+# process one batch of top-level forms: partition -> lift (threaded CTR via lift_program_c, so successive
+# REPL inputs don't collide __lamN) -> register -> [OSR flip] -> run thunks. State (CTR/GFNS/GVARS/ILAM_*/
+# G_*/heap) persists across calls, so the REPL accumulates definitions. Malformed defines are skipped (not
+# eval'd) so bad input can't create stray ILAM_* files.
+CTR=0; GFNS=""; GVARS=""
+process_forms() {
+  XF=NIL; ld_thunks=""; ld_evn=0; ld_cur=$1
+  while [ "$ld_cur" != NIL ]; do                              # pass 0: partition
+    hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
+    ld_hd=NIL; case $ld_form in P:*) hp_car "$ld_form"; ld_hd=$R ;; esac
+    if [ "$ld_hd" = "S:define" ]; then
+      hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm0=$R
+      case $ld_nm0 in S:*) ;; *) printf 'portsh: skipping malformed define (name is not a symbol)\n' >&2; continue ;; esac
+      hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
+      ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
+      if [ "$ld_vhd" = "S:lambda" ]; then hp_cons "$ld_form" "$XF"; XF=$R
+      else case $ld_val in
+             I:*|T:*|S:*) hp_cons "$ld_form" "$XF"; XF=$R ;;
+             *) ld_mkthunk "$ld_val" "G:${ld_nm0#S:}" ;;
+           esac
+      fi
+    else
+      ld_mkthunk "$ld_form" "S"
+    fi
+  done
+  FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$XF; F1="I:$CTR"; CURFN=lift_program_c; drive   # lift, threading CTR
+  pf_r=$R; hp_car "$pf_r"; ld_lifted=$R; hp_cdr "$pf_r"; CTR=${R#I:}                      # = (lifted . newctr)
+  ld_cur=$ld_lifted
+  while [ "$ld_cur" != NIL ]; do                              # pass 1: register
+    hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
+    hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nmt=$R
+    case $ld_nmt in S:*) ;; *) continue ;; esac
+    ld_nm_raw=${ld_nmt#S:}; mangle "$ld_nm_raw"; ld_nm=$R; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
+    ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
+    case $ld_vhd in
+      S:lambda)
+        hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
+        ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
+        ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
+        GFNS="$GFNS $ld_nm" ;;
+      S:clambda)
+        hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_cap=$R
+        hp_cdr "$ld_val"; hp_cdr "$R"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
+        ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
+        ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
+        GFNS="$GFNS $ld_nm" ;;
+      *) eval "G_${ld_nm_raw}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;
+    esac
+  done
+  for f in ${PORTSH_OSR:-}; do osr_compile "$f"; done         # OSR flip (no-op if PORTSH_OSR unset)
+  for e in $ld_thunks; do                                     # pass 2: run thunks in order
+    th=${e%%=*}; act=${e#*=}
+    FP=0; RSP=0; PC=0; CLO=""; ICUR="$th"; CURFN=interp; drive
+    case $act in
+      S)   [ -n "${PORTSH_SCRIPT:-}" ] || { _relem "$R"; printf '\n'; } ;;
+      G:*) eval "G_${act#G:}=\$R" ;;
+    esac
+  done
+}
+# _balanced BUF -> succeeds iff BUF holds >=1 complete top-level form (paren depth back to 0, not mid-
+# string), matching the kernel reader's lexing (';' comments, "..." single-line strings, '(' ')' nest).
+_balanced() {
+  _b=$1; _depth=0; _instr=0; _incom=0; _seen=0
+  while [ -n "$_b" ]; do
+    _c=${_b%"${_b#?}"}; _b=${_b#?}
+    if [ "$_incom" = 1 ]; then case $_c in "$_NL") _incom=0 ;; esac; continue; fi
+    if [ "$_instr" = 1 ]; then [ "$_c" = '"' ] && _instr=0; continue; fi
+    case $_c in ';') _incom=1 ;; '"') _instr=1; _seen=1 ;; '(') _depth=$((_depth+1)); _seen=1 ;; ')') _depth=$((_depth-1)); _seen=1 ;; ' '|"$_TAB"|"$_NL") ;; *) _seen=1 ;; esac
+  done
+  [ "$_instr" = 0 ] && [ "$_depth" -le 0 ] && [ "$_seen" = 1 ]
+}
+# ---- dispatch: a file arg runs the program; no arg starts the interactive REPL (state persists) --------
+if [ "$#" -ge 1 ]; then
+  SRC="($(cat "$1"))"; rd_expr; process_forms "$R"
+else
+  [ -t 0 ] && printf 'portsh interp repl -- ctrl-d to exit.\n'
+  _buf=""
+  while :; do
+    if [ -t 0 ]; then [ -z "$_buf" ] && printf '> ' || printf '... '; fi
+    IFS= read -r _line || { [ -n "$_buf" ] && printf '\n'; break; }
+    _buf="$_buf$_line$_NL"
+    _balanced "$_buf" || continue
+    SRC="($_buf)"; rd_expr; process_forms "$R"             # wrap input in (...) -> a form list
+    _buf=""
+  done
+fi
 INTERP
 } > interp-sh.sh
 echo "built interp-sh.sh ($(wc -l < interp-sh.sh) lines)"
