@@ -13,3 +13,5 @@ portsh-cmd.cmd
 _warm.cmd
 osr-proto.sh
 interp-sh.sh
+comp-compiled.sh
+*.preacc
