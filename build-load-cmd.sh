@@ -71,6 +71,16 @@ if not "!DVAL:~0,2!"=="P:" goto lm_keepform
 call :hp_car "!DVAL!"
 set "DVHD=!R!"
 if "!DVHD!"=="S:lambda" goto lm_keepform
+rem placeholder (define <name> nil) onto XF so gvarnames sees <name> as a global VAR -> a later call of
+rem it in operator position loads !G_<name>! and applies (the thunk below binds G_<name> to the closure).
+call :hp_cons "S:nil" "NIL"
+set "LPH=!R!"
+call :hp_cons "!DNAME!" "!LPH!"
+set "LPH=!R!"
+call :hp_cons "S:define" "!LPH!"
+set "LPH=!R!"
+call :hp_cons "!LPH!" "!XF!"
+set "XF=!R!"
 rem compound non-lambda value -> thunk binding G_<name> (=G:<name>)
 call :lm_wrap "!DVAL!"
 set "THUNKS=!THUNKS! __ev!NN!=G:!DNAME:~2!"

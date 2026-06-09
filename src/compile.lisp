@@ -314,12 +314,17 @@
                                   (cons (quote val) tmp))))))))))))))
     (t ;; general non-tail call -> YIELD
       (if (if (symbol? (car f)) (null? (lookup (car f) pmap)) nil)
-        ;; named call: CALLEE = the mangled global fn name (static)
+        ;; non-local symbol operator: a known global VAR holds a closure value in G_<name> -> load it
+        ;; as the callee (driver K: applies); otherwise a global FN name -> direct named call. Compile-
+        ;; time gvar test, so fn calls keep the bare static form (mirror of compile-sh.lisp).
         (let ((ar (largs (cdr f) pmap b live)))
-          (let ((rpc (b-npc (car ar))) (mn (mangle (symbol->string (car f)))))
+          (let ((rpc (b-npc (car ar)))
+                (cs (if (mem? (car f) (lookup "$GVARS" pmap))
+                      (str "set " (dq) "CALLEE=!G_" (symbol->string (car f)) "!" (dq))
+                      (str "set " (dq) "CALLEE=" (mangle (symbol->string (car f))) (dq)))))
             (let ((c1 (emit (spill (bnpc+ (car ar)) live 0) "set /a NFP=!FT!")))
               (let ((c2 (stage c1 (cdr ar) 0)))
-                (let ((c3 (emit c2 (str "set " (dq) "CALLEE=" mn (dq)))))
+                (let ((c3 (emit c2 cs)))
                   (let ((c4 (emit c3 (str "set " (dq) "RPC=" (number->string rpc) (dq)))))
                     (let ((c5 (emit c4 (str "set " (dq) "ACTION=call" (dq) " & goto :eof"))))
                       (let ((br (switch c5 rpc)))
@@ -365,18 +370,21 @@
   (cons (str "set /a _i=!FP!+" (number->string i) " & call set " (dq) "p" (number->string i) "=%%F!_i!%%" (dq)) (ploads (cdr fs) (+ i 1)))))))
 (define blkget (lambda (al pc) (if (null? al) nil (if (eq? (car (car al)) pc) (cdr (car al)) (blkget (cdr al) pc)))))
 (define caseblocks (lambda (al i n) (if (= i n) nil (append (cons (str ":_pc" (number->string i)) (blkget al i)) (caseblocks al (+ i 1) n)))))
-(define compile-fn (lambda (nm lbl fs body k0 elide gfns)
-  (let ((np (lenl fs)) (pm (cons (cons "$GFNS" gfns) (pmap-fr fs 0))))
+(define compile-fn (lambda (nm lbl fs body k0 elide gfns gvars)
+  (let ((np (lenl fs)) (pm (cons (cons "$GFNS" gfns) (cons (cons "$GVARS" gvars) (pmap-fr fs 0)))))
     (let ((bf (ltail body pm nm np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (let ((preamble (append (ploads fs 0) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil)))))
           (cons (seg-files preamble blk 0 (b-npc bf) lbl) k0)))))))
 ;; a lifted closure sub: formals from frame slots (ploads), captured vars from the record (cap-loads via CLO).
-(define compile-clambda (lambda (name lf cap body gfns)
-  (let ((np (lenl lf)) (pm (cons (cons "$GFNS" gfns) (pmap-fr (append lf cap) 0))) (lbl (mangle (symbol->string name))))
+(define compile-clambda (lambda (name lf cap body gfns gvars)
+  (let ((np (lenl lf)) (pm (cons (cons "$GFNS" gfns) (cons (cons "$GVARS" gvars) (pmap-fr (append lf cap) 0)))) (lbl (mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
-        (let ((preamble (append (ploads lf 0) (append (cap-loads cap np) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil))))))
+        ;; The cap-loads preamble (rdfield.cmd off the record) runs on EVERY entry, before the PC
+        ;; dispatch -- including a resume after a non-tail call, where R holds that call's result.
+        ;; rdfield.cmd sets R, so save/restore R around the preamble (mirror of compile-sh.lisp's _clrs).
+        (let ((preamble (append (ploads lf 0) (cons (qset "_clrs=!R!") (append (cap-loads cap np) (cons (qset "R=!_clrs!") (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil))))))))
           (seg-files preamble blk 0 (b-npc bf) lbl)))))))
 (define tst (lambda (x) (let ((y (cdr x))) (cond ((null? y) (quote done)) ((pair? y) (write-lines "out" y)) (t (string-length y))))))
 
@@ -565,7 +573,7 @@
 ;; header), so those survive every reset. nextk is read out BEFORE hreset (the cf pair
 ;; lives above base and is reclaimed; the k value it holds is an immediate, so it's safe
 ;; to carry across the reset).
-(define cp (lambda (forms cmdpath lisppath k elide gfns)
+(define cp (lambda (forms cmdpath lisppath k elide gfns gvars)
   (if (null? forms) (quote done)
     (begin
       ;; reclaim the PREVIOUS function's codegen garbage. At cp's entry the prior cf
@@ -577,25 +585,25 @@
         ;; lifted closure sub -> its own <label>.cmd files; NO residual bind (called via K:).
         (let ((ce (caddr (car forms))))
           (begin
-            (write-segs (compile-clambda (cadr (car forms)) (cadr ce) (caddr ce) (cadddr ce) gfns) cmdpath)
-            (cp (cdr forms) cmdpath lisppath k elide gfns)))
+            (write-segs (compile-clambda (cadr (car forms)) (cadr ce) (caddr ce) (cadddr ce) gfns gvars) cmdpath)
+            (cp (cdr forms) cmdpath lisppath k elide gfns gvars)))
       (if (def-lambda? (car forms))
         (let ((lbl (mangle (symbol->string (cadr (car forms))))))
-          (let ((cf (compile-fn (cadr (car forms)) lbl (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide gfns)))
+          (let ((cf (compile-fn (cadr (car forms)) lbl (cadr (caddr (car forms))) (caddr (caddr (car forms))) k elide gfns gvars)))
             (let ((nextk (cdr cf)))
               (begin
                 ;; multi-file: write THIS fn to its own <cmddir>/<label>.cmd (write-lines
                 ;; truncates -> one file per fn). cmdpath is the output DIRECTORY now.
                 (write-segs (car cf) cmdpath)
                 (append-lines lisppath (cons (show (resid-bind (cadr (car forms)))) nil))
-                (cp (cdr forms) cmdpath lisppath nextk elide gfns)))))
+                (cp (cdr forms) cmdpath lisppath nextk elide gfns gvars)))))
         ;; atom constants are seeded into the header as G_<name>, so keep them OUT of
         ;; the residual (show can't re-quote a string literal -> unbound-symbol noise).
         (if (atom-const? (car forms))
-          (cp (cdr forms) cmdpath lisppath k elide gfns)
+          (cp (cdr forms) cmdpath lisppath k elide gfns gvars)
           (begin
             (append-lines lisppath (cons (show (car forms)) nil))
-            (cp (cdr forms) cmdpath lisppath k elide gfns)))))))))
+            (cp (cdr forms) cmdpath lisppath k elide gfns gvars)))))))))
 ;; a top-level (define X <atom>) -> a constant compiled fns read as G_X. (Only
 ;; atoms: a list-valued constant would rebuild itself on the heap every dispatch.)
 (define atom-const? (lambda (f)
@@ -691,6 +699,11 @@
     acc)))
 (define callees-list (lambda (fs acc) (if (pair? fs) (callees-list (cdr fs) (callees (car fs) acc)) acc)))
 (define defnames (lambda (forms) (if (null? forms) nil (if (def-lambda? (car forms)) (cons (cadr (car forms)) (defnames (cdr forms))) (defnames (cdr forms))))))
+;; gvarnames: the known-global VARS (defines that are neither a lambda fn nor a lifted closure sub --
+;; i.e. atom constants and computed defines, whose value lives in G_<name>). A reference to one of
+;; these in OPERATOR position is a closure-bearing variable -> load !G_<name>! and apply (the named-
+;; call path would `call` a label that doesn't exist). Mirror of compile-sh.lisp's gvar-names.
+(define gvarnames (lambda (forms) (if (null? forms) nil (if (if (def-lambda? (car forms)) t (def-clambda? (car forms))) (gvarnames (cdr forms)) (if (eq? (car (car forms)) (quote define)) (cons (cadr (car forms)) (gvarnames (cdr forms))) (gvarnames (cdr forms)))))))
 (define keep-defined (lambda (cs defs) (if (null? cs) nil (if (mem? (car cs) defs) (cons (car cs) (keep-defined (cdr cs) defs)) (keep-defined (cdr cs) defs)))))
 (define fn-body (lambda (def) (caddr (caddr def))))
 (define build-adj (lambda (forms defs)
@@ -725,4 +738,4 @@
       ;; is unnecessary; pass nil and skip it.
       (write-lines (str cmdpath "/_consts.cmd") (const-inits ms))
       (write-lines lisppath nil)
-      (cp ms cmdpath lisppath 0 nil (defnames ms))))))
+      (cp ms cmdpath lisppath 0 nil (defnames ms) (gvarnames ms))))))

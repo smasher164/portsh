@@ -114,6 +114,12 @@ while [ "$_cur" != NIL ]; do
            if [ "$_vhd" = "S:lambda" ]; then
              hp_cons "$_form" "$_xf"; _xf=$R                # lambda define -> compiled fn
            else
+             # computed define -> a 0-arg thunk binds G_<name> in program order. ALSO emit a
+             # (define <name> nil) placeholder so gvar-names sees <name> as a global VAR -> a later
+             # call of it in operator position loads G_<name> and applies (the thunk's value is a
+             # closure); without this the comp would emit a direct call to a fn that doesn't exist.
+             hp_cons "S:nil" NIL; _ph=$R; hp_cons "$_name" "$_ph"; _ph=$R; hp_cons "S:define" "$_ph"; _ph=$R
+             hp_cons "$_ph" "$_xf"; _xf=$R
              _mkthunk "$_val" "G:${_name#S:}"              # computed define -> thunk binds G_<name>
            fi ;;
       *)   hp_cons "$_form" "$_xf"; _xf=$R ;;              # atom define -> G_<name> constant
