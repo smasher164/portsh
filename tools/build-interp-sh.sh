@@ -19,7 +19,17 @@ cd "$(dirname "$0")/.."
 
 # ===================== P1 resumable interpreter on the trampoline =====================
 GLOBAL=NIL
+G_DQ='T:"'    # the double-quote constant the comp's (dq) reads (G_DQ) -- needed when osr_compile runs the comp
 # ---- unified driver: C:<label> compiled | I:<id> interpret | K:<idx> closure (route by label) ----
+# route a fn label to its CURRENT executor by the registry -- this is the OSR dispatch: a fn is compiled
+# if COMPILED_<lbl> is set, else interpreted if it has an ILAM body, else assumed a compiled/external fn.
+# Consulted on EVERY call so a flip (set COMPILED_<lbl>) takes effect immediately for interp AND compiled
+# callers, and compiled<->interpreted cross-calls route correctly.
+route() {
+  if eval "[ -n \"\${COMPILED_$1+x}\" ]"; then CURFN=$1
+  elif eval "[ -n \"\${ILAM_${1}_body+x}\" ]"; then CURFN=interp; ICUR=$1
+  else CURFN=$1; fi
+}
 drive() {
   while [ "$CURFN" != HALT ]; do
     ACTION=; eval "$CURFN"
@@ -28,16 +38,20 @@ drive() {
       call) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO; RSI$RSP=\$ICUR"; RSP=$((RSP+1))
             FP=$NFP; PC=0; CLO=""; ICUR=""
             case $CALLEE in
-              C:*) CURFN=${CALLEE#C:} ;;
-              I:*) CURFN=interp; ICUR=${CALLEE#I:} ;;
-              K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; _lbl=${R#S:}; CLO=$_ri
-                   if eval "[ -n \"\${ILAM_${_lbl}_body+x}\" ]"; then CURFN=interp; ICUR=$_lbl; else CURFN=$_lbl; fi ;;
-              *)   CURFN=$CALLEE ;;
+              K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CLO=$_ri; route "${R#S:}" ;;
+              C:*) route "${CALLEE#C:}" ;;
+              I:*) route "${CALLEE#I:}" ;;
+              *)   route "$CALLEE" ;;
             esac ;;
       apply) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO; RSI$RSP=\$ICUR"; RSP=$((RSP+1))
             FP=$NFP; PC=0; CLO=""; ICUR=""
             _ai=0; _ac=$APLIST; while [ "$_ac" != NIL ]; do hp_car "$_ac"; eval "F$((FP+_ai))=\$R"; hp_cdr "$_ac"; _ac=$R; _ai=$((_ai+1)); done
-            case $CALLEE in C:*) CURFN=${CALLEE#C:} ;; I:*) CURFN=interp; ICUR=${CALLEE#I:} ;; K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CURFN=${R#S:}; CLO=$_ri ;; *) CURFN=$CALLEE ;; esac ;;
+            case $CALLEE in
+              K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CLO=$_ri; route "${R#S:}" ;;
+              C:*) route "${CALLEE#C:}" ;;
+              I:*) route "${CALLEE#I:}" ;;
+              *)   route "$CALLEE" ;;
+            esac ;;
       ret)  if [ "$RSP" -eq 0 ]; then CURFN=HALT; else RSP=$((RSP-1)); eval "FP=\$RSB$RSP; CURFN=\$RSF$RSP; PC=\$RSC$RSP; CLO=\$RSL$RSP; ICUR=\$RSI$RSP"; fi ;;
       tail|jump) ;;
     esac
@@ -325,19 +339,34 @@ while [ "$ld_cur" != NIL ]; do
     S:lambda)
       hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
       ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
-      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body"
+      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
       GFNS="$GFNS $ld_nm" ;;
     S:clambda)
       hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_cap=$R
       hp_cdr "$ld_val"; hp_cdr "$R"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
       ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
-      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body"
+      ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
       GFNS="$GFNS $ld_nm" ;;
     *) eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm" ;;    # atom-const define
   esac
 done
 _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) printf %s "${1#T:}" ;; S:*) printf %s "${1#S:}" ;; K:*) printf "<closure>" ;; C:*) printf "<fn:%s>" "${1#C:}" ;; P:*) printf "("; _rlist "$1"; printf ")" ;; *) printf %s "$1" ;; esac; }
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
+# --- OSR flip: compile a registered fn at runtime (via the embedded comp, on the shared driver), source
+# it, and mark COMPILED so route() dispatches the compiled version on the next call. PORTSH_OSR="f g ..."
+# flips those fns before running -- proving compiled and interpreted fns interoperate via the registry. ---
+str_to_symlist() { sl_o=NIL; for sl_w in $1; do hp_cons "S:$sl_w" "$sl_o"; sl_o=$R; done; R=$sl_o; }
+osr_compile() {
+  eval "oc_def=\$ILAM_${1}_def"
+  str_to_symlist "$GFNS"; oc_gf=$R; str_to_symlist "$GVARS"; oc_gv=$R
+  FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$oc_def; F1=$oc_gf; F2=$oc_gv; CURFN=compile_def_sh; drive
+  oc_l=$R; oc_tmp=$(mktemp)
+  while [ "$oc_l" != NIL ]; do hp_car "$oc_l"; printf '%s\n' "${R#T:}" >> "$oc_tmp"; hp_cdr "$oc_l"; oc_l=$R; done
+  . "$oc_tmp"; rm -f "$oc_tmp"; eval "COMPILED_$1=1"
+  [ -n "${PORTSH_OSR_VERBOSE:-}" ] && printf 'OSR: compiled %s\n' "$1" >&2
+}
+for f in ${PORTSH_OSR:-}; do osr_compile "$f"; done
+
 # pass 2: run each top-level thunk (interpreted) in order
 for e in $ld_thunks; do
   th=${e%%=*}; act=${e#*=}
