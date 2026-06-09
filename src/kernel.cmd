@@ -597,6 +597,7 @@ for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
   set "rcAcc=!R!"
 )
 call :list_reverse "!rcAcc!"
+set "lgRC=!R!" & call :lg_list run-capture "!lgRC!" & set "R=!lgRC!"
 goto :eof
 :po_run
 rem render unevaluated operands (symbols/ints) into a command line, execute it
@@ -612,6 +613,7 @@ goto po_run_loop
 :po_run_exec
 cmd /c "!porCmd!"
 set "R=I:!errorlevel!"
+call :lg_out run
 goto :eof
 :po_vau
 call :hp_car "%~3"
@@ -730,6 +732,59 @@ set "_%1_val=!R!"
 call :hp_cdr "!_%1_lst!"
 set "_%1_lst=!R!"
 goto es_loop
+
+rem ---- record-and-replay log (the two-tier handoff): when PORTSH_LOG is set, :ev RECORDS each I/O
+rem effect, in order, so the warm cmd JIT can re-run from source, REPLAY the logged prefix (suppress
+rem output / return logged world results), and go LIVE where the log ends -- each effect exactly once.
+rem Format: an op line, a count line, then <count> payload lines (no separator -- cmd-friendly). The
+rem value to log rides in R, written verbatim (sentinel bytes 0x01/0x02/0x08 are not cmd metachars, so
+rem they survive echo; a raw operator in a payload is a documented gap, like read-lines' '!'-loss). With
+rem PORTSH_LOG unset every helper is a no-op. lg_tick runs AFTER the effect+record, the only safe place
+rem to abandon: at PORTSH_LOG_STOP=K ops (deterministic test stand-in) or when the .ok marker appears
+rem (the real "JIT warm" signal). Abandon = `exit 42` (NOT exit /b, which only returns one call level) --
+rem :ev runs in its own cmd process, so this exits it with 42 for the front-end to detect.
+:lg_tick
+set /a LG_N+=1
+if defined PORTSH_LOG_STOP if !LG_N! geq !PORTSH_LOG_STOP! exit 42
+if defined PORTSH_OK if exist "!PORTSH_OK!" exit 42
+goto :eof
+:lg_out
+if not defined PORTSH_LOG goto :eof
+>>"!PORTSH_LOG!" echo(%~1
+>>"!PORTSH_LOG!" echo(1
+>>"!PORTSH_LOG!" echo(!R!
+goto lg_tick
+:lg_logv
+rem like lg_out but the value is given explicitly in %2 (used by print: it must EMIT first, then log the
+rem saved rendered text, so an abandon at lg_tick leaves the print both emitted AND logged). Doesn't touch R.
+if not defined PORTSH_LOG goto :eof
+>>"!PORTSH_LOG!" echo(%~1
+>>"!PORTSH_LOG!" echo(1
+>>"!PORTSH_LOG!" echo(%~2
+goto lg_tick
+:lg_mark
+if not defined PORTSH_LOG goto :eof
+>>"!PORTSH_LOG!" echo(%~1
+>>"!PORTSH_LOG!" echo(0
+goto lg_tick
+:lg_list
+rem %1=op, %2=heap list of T: strings. Clobbers R -- callers save/restore.
+if not defined PORTSH_LOG goto :eof
+set "lgL=%~2" & set "lgC=0"
+:lg_count
+if "!lgL!"=="NIL" goto lg_emit
+call :hp_cdr "!lgL!" & set "lgL=!R!" & set /a lgC+=1
+goto lg_count
+:lg_emit
+>>"!PORTSH_LOG!" echo(%~1
+>>"!PORTSH_LOG!" echo(!lgC!
+set "lgL=%~2"
+:lg_emit2
+if "!lgL!"=="NIL" goto lg_tick
+call :hp_car "!lgL!" & set "lgE=!R:~2!"
+>>"!PORTSH_LOG!" echo(!lgE!
+call :hp_cdr "!lgL!" & set "lgL=!R!"
+goto lg_emit2
 
 rem =========================== primitives (applicative) ===========================
 :prim_app
@@ -851,6 +906,7 @@ rem read-lines of a '!'-bearing data file loses the '!' -- a known consistency g
 rem The set/p raw reader used for source/programs can't be reused here: read-lines is
 rem called DEEP in the eval chain, where `call :sub < file` (stdin redirect) fails.
 call :list_reverse "!rlAcc!"
+set "lgRL=!R!" & call :lg_list read-lines "!lgRL!" & set "R=!lgRL!"
 goto :eof
 :pa_aplines
 rem append-lines: like write-lines but does NOT truncate (region reclamation: cp
@@ -860,6 +916,7 @@ set "wlF=!R:~2!"
 call :hp_cdr "%~3"
 call :hp_car "!R!"
 set "wlL=!R!"
+set "wlOp=append-lines"
 goto pa_wl_loop
 :pa_hmark
 set "R=I:!HN!"
@@ -876,14 +933,19 @@ call :hp_cdr "%~3"
 call :hp_car "!R!"
 set "wlL=!R!"
 break > "!wlF!"
+set "wlOp=write-lines"
 :pa_wl_loop
-if "!wlL!"=="NIL" set "R=S:t" & goto :eof
+if "!wlL!"=="NIL" goto pa_wl_done
 call :hp_car "!wlL!"
 set "wlLine=!R:~2!"
 call :wl_emit "!wlF!"
 call :hp_cdr "!wlL!"
 set "wlL=!R!"
 goto pa_wl_loop
+:pa_wl_done
+set "R=S:t"
+call :lg_mark "!wlOp!"
+goto :eof
 :wl_emit
 rem decode 0x01 -> '!' and append the line. Under disabled expansion a literal '!'
 rem is safe; set/p's quoted prompt keeps '&' < > '"' verbatim, and the codegen is
@@ -920,6 +982,7 @@ goto :eof
 call :hp_car "%~3"
 set "fexP=!R:~2!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
+call :lg_out file-exists?
 goto :eof
 :pa_strapp
 set "saS=" & set "saL=%~3"
@@ -1074,6 +1137,7 @@ goto :eof
 :pa_print
 call :hp_car "%~3"
 set /a ND=%1+1 & call :lisp_write !ND! "!R!"
+set "lgPV=!R!"
 rem decode 0x02 -> '%' (enabled; '%%' is the replacement), carry out (percent
 rem expansion is single-pass so the real '%' survives), then 0x01 -> '!' (disabled,
 rem where a literal '!' is safe). set/p then emits; the content has no '"' so its
@@ -1092,6 +1156,7 @@ endlocal
 :pr_nl
 echo(
 set "R=NIL"
+call :lg_logv print "!lgPV!"
 goto :eof
 
 rem ================================ printer ================================
