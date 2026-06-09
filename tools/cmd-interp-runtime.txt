@@ -1,0 +1,790 @@
+rem ---- unified driver (cmd) -- el_drive with the interp executor + registry routing ------------------
+rem Replaces cmd-jit-runtime.txt's el_drive when the interp is present: CURFN==interp runs :interp
+rem IN-PROCESS (state persists); any other label routes through the ILAM registry (an ILAM_<lbl>_body ->
+rem interpret it; else the per-PC compiled files). ICUR (which AST) saves/restores through RS (RSI<n>).
+rem CALLEE forms: K:<idx> closure (label from the record), C:<lbl>, I:<lbl> (interp fn-value), bare.
+:el_drive
+if "!CURFN!"=="HALT" goto :eof
+set "ACTION="
+if "!CURFN!"=="interp" (call :interp) else call "!CURFN!_pc!PC!.cmd"
+if "!ACTION!"=="" goto eld_noaction
+if "!ACTION!"=="call" goto eld_call
+if "!ACTION!"=="apply" goto eld_apply
+if "!ACTION!"=="ret" goto eld_ret
+goto el_drive
+:eld_noaction
+echo drive: !CURFN! pc !PC! yielded no ACTION ^(unbound global / missing fn?^) 1>&2
+set "CURFN=HALT"
+goto :eof
+:eld_call
+set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!" & set "RSI!RSP!=!ICUR!"
+set /a RSP+=1
+set "FP=!NFP!" & set "PC=0" & set "CLO=" & set "ICUR="
+goto eld_dispatch
+:eld_apply
+set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!" & set "RSI!RSP!=!ICUR!"
+set /a RSP+=1
+set "FP=!NFP!" & set "PC=0" & set "CLO=" & set "ICUR="
+set "_ai=0" & set "_ac=!APLIST!"
+:eld_ap_loop
+if "!_ac!"=="NIL" goto eld_dispatch
+call :hp_car "!_ac!"
+set /a _i=!FP!+!_ai!
+set "F!_i!=!R!"
+call :hp_cdr "!_ac!"
+set "_ac=!R!"
+set /a _ai+=1
+goto eld_ap_loop
+:eld_dispatch
+if "!CALLEE:~0,2!"=="K:" goto eld_clo
+if "!CALLEE:~0,2!"=="C:" (set "ELDL=!CALLEE:~2!" & goto eld_route)
+if "!CALLEE:~0,2!"=="I:" (set "ELDL=!CALLEE:~2!" & goto eld_route)
+set "ELDL=!CALLEE!"
+goto eld_route
+:eld_clo
+set "CLO=!CALLEE:~2!"
+call :hp_car "P:!CLO!"
+set "ELDL=!R:~2!"
+:eld_route
+rem the OSR dispatch: a registered interp body -> the interp executor; else the compiled per-PC files
+if defined ILAM_!ELDL!_body (set "CURFN=interp" & set "ICUR=!ELDL!") else set "CURFN=!ELDL!"
+goto el_drive
+:eld_ret
+if !RSP!==0 ( set "CURFN=HALT" & goto el_drive )
+set /a RSP-=1
+call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%" & call set "CLO=%%RSL!RSP!%%" & call set "ICUR=%%RSI!RSP!%%"
+goto el_drive
+
+rem ---- resumable interpreter (cmd) -- the OSR substrate-unification interpreter executor -------------
+rem Mirror of the sh interp() in tools/build-interp-sh.sh, SIMPLIFIED to core forms only: the cmd loader
+rem drives the compiled mexpand-program first (cond/and/or/when/unless/case/let*/str/list -> core
+rem if/let/begin/cons/string-append), then lift-program (inner lambdas -> make-closure + clambda). So the
+rem machine handles: literals, vars, quote, if, let, begin, make-closure, prims, run/run-capture, calls.
+rem State per activation: ICS (control stack) + IVS (value stack) + ISCP (let-scope, (S:name . I:slot)
+rem pairs) + ITOP (frame high-water), all heap lists/ints; saved per-frame in ISC_/ISV_/ISS_/IST_<FP> on
+rem a yield (ACTION=call) and restored on resume (PC=1). The driver (el_drive) calls :interp in-process
+rem when CURFN==interp (ICUR = which fn's AST). Tasks: (tag . payload) heap cells -- S:EVAL S:IFK S:PRIMK
+rem S:CALLK S:LETK S:BINDK S:POPK.
+:interp
+set "ipret=!R!"
+call set "NP=%%ILAM_!ICUR!_np%%"
+call set "ipnc=%%ILAM_!ICUR!_ncap%%"
+if "!PC!"=="0" goto itk_fresh
+rem resume after a call: restore the saved stacks, push the call's return value
+call set "ICS=%%ISC_!FP!%%"
+call set "IVS=%%ISV_!FP!%%"
+call set "ISCP=%%ISS_!FP!%%"
+call set "ITOP=%%IST_!FP!%%"
+call :hp_cons "!ipret!" "!IVS!"
+set "IVS=!R!"
+goto itk_loop
+:itk_fresh
+set /a ITOP=!NP!+!ipnc!
+if !ITOP! LSS 1 set "ITOP=1"
+set "ISCP=NIL"
+if "!ipnc!"=="0" goto itk_body
+rem clambda: load captures from the K: record (CLO) into frame slots after the params
+call :hp_cdr "P:!CLO!"
+set "ipcl=!R!"
+set "ipci=!NP!"
+:itk_caps
+if "!ipcl!"=="NIL" goto itk_body
+call :hp_car "!ipcl!"
+set /a ipx=!FP!+!ipci!
+set "F!ipx!=!R!"
+call :hp_cdr "!ipcl!"
+set "ipcl=!R!"
+set /a ipci+=1
+goto itk_caps
+:itk_body
+call set "ipb=%%ILAM_!ICUR!_body%%"
+set "ICS=NIL" & set "IVS=NIL"
+call :hp_cons "S:EVAL" "!ipb!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+:itk_loop
+if "!ICS!"=="NIL" goto itk_done
+call :hp_car "!ICS!"
+set "ipt=!R!"
+call :hp_cdr "!ICS!"
+set "ICS=!R!"
+call :hp_car "!ipt!"
+set "iptag=!R!"
+call :hp_cdr "!ipt!"
+set "ippl=!R!"
+if "!iptag!"=="S:EVAL" goto itk_eval
+if "!iptag!"=="S:IFK" goto itk_ifk
+if "!iptag!"=="S:PRIMK" goto itk_primk
+if "!iptag!"=="S:CALLK" goto itk_callk
+if "!iptag!"=="S:LETK" goto itk_letk
+if "!iptag!"=="S:BINDK" goto itk_bindk
+if "!iptag!"=="S:POPK" goto itk_popk
+echo interp: unknown task !iptag! 1>&2
+set "R=NIL" & set "ACTION=ret"
+goto :eof
+:itk_done
+call :hp_car "!IVS!"
+set "ACTION=ret"
+goto :eof
+rem -- value push helper: IPV -> IVS ------------------------------------------------------------------
+:ips
+call :hp_cons "!IPV!" "!IVS!"
+set "IVS=!R!"
+goto :eof
+rem -- EVAL ------------------------------------------------------------------------------------------
+:itk_eval
+if "!ippl!"=="NIL" (set "IPV=NIL" & goto itk_push)
+set "ipp2=!ippl:~0,2!"
+if "!ipp2!"=="I:" (set "IPV=!ippl!" & goto itk_push)
+if "!ipp2!"=="T:" (set "IPV=!ippl!" & goto itk_push)
+if "!ippl!"=="S:nil" (set "IPV=NIL" & goto itk_push)
+if "!ippl!"=="S:t" (set "IPV=S:t" & goto itk_push)
+if "!ipp2!"=="S:" goto itk_var
+if "!ipp2!"=="P:" goto itk_compound
+set "IPV=!ippl!"
+:itk_push
+call :ips
+goto itk_loop
+:itk_var
+set "IRV=!ippl:~2!"
+call :iresolve
+set "IPV=!R!"
+goto itk_push
+:itk_compound
+call :hp_car "!ippl!"
+set "iph=!R!"
+call :hp_cdr "!ippl!"
+set "iprest=!R!"
+if "!iph!"=="S:quote" goto itk_quote
+if "!iph!"=="S:if" goto itk_if
+if "!iph!"=="S:let" goto itk_let
+if "!iph!"=="S:begin" goto itk_begin
+if "!iph!"=="S:make-closure" goto itk_mkclo
+if "!iph!"=="S:run" goto itk_run
+if "!iph!"=="S:run-capture" goto itk_runcap
+set "IPO=!iph!"
+call :isprim
+if "!R!"=="1" goto itk_prim
+goto itk_call
+:itk_quote
+call :hp_car "!iprest!"
+set "IPV=!R!"
+goto itk_push
+:itk_if
+rem (if c a b) -> push IFK(a . b), then EVAL c on top
+call :hp_car "!iprest!"
+set "ipc=!R!"
+call :hp_cdr "!iprest!"
+set "ipr2=!R!"
+call :hp_car "!ipr2!"
+set "ipthen=!R!"
+call :hp_cdr "!ipr2!"
+call :hp_car "!R!"
+set "ipelse=!R!"
+call :hp_cons "!ipthen!" "!ipelse!"
+set "ipte=!R!"
+call :hp_cons "S:IFK" "!ipte!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+call :hp_cons "S:EVAL" "!ipc!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+goto itk_loop
+:itk_let
+rem (let ((n v)...) body) -- SEQUENTIAL (matches comp lbinds). Push LETK(saved scope), EVAL body,
+rem then per binding (reversed): BINDK(name), EVAL value -- so first binding evals first.
+call :hp_car "!iprest!"
+set "ipbinds=!R!"
+call :hp_cdr "!iprest!"
+call :hp_car "!R!"
+set "ipbody=!R!"
+call :hp_cons "S:LETK" "!ISCP!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+call :hp_cons "S:EVAL" "!ipbody!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+rem reverse bindings
+set "iprv=NIL"
+set "ipbl=!ipbinds!"
+:itk_let_rev
+if "!ipbl!"=="NIL" goto itk_let_push
+call :hp_car "!ipbl!"
+call :hp_cons "!R!" "!iprv!"
+set "iprv=!R!"
+call :hp_cdr "!ipbl!"
+set "ipbl=!R!"
+goto itk_let_rev
+:itk_let_push
+if "!iprv!"=="NIL" goto itk_loop
+call :hp_car "!iprv!"
+set "ipbnd=!R!"
+call :hp_cdr "!iprv!"
+set "iprv=!R!"
+call :hp_car "!ipbnd!"
+set "ipbn=!R!"
+call :hp_cdr "!ipbnd!"
+call :hp_car "!R!"
+set "ipbv=!R!"
+call :hp_cons "S:BINDK" "!ipbn!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+call :hp_cons "S:EVAL" "!ipbv!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+goto itk_let_push
+:itk_begin
+rem eval each expr, POPK between (discard all but the last). Push reversed: last expr deepest.
+set "iprv=NIL"
+set "ipbl=!iprest!"
+:itk_bg_rev
+if "!ipbl!"=="NIL" goto itk_bg_push
+call :hp_car "!ipbl!"
+call :hp_cons "!R!" "!iprv!"
+set "iprv=!R!"
+call :hp_cdr "!ipbl!"
+set "ipbl=!R!"
+goto itk_bg_rev
+:itk_bg_push
+set "ipfirst=1"
+:itk_bg_p2
+if "!iprv!"=="NIL" goto itk_loop
+call :hp_car "!iprv!"
+set "ipbe=!R!"
+call :hp_cdr "!iprv!"
+set "iprv=!R!"
+if "!ipfirst!"=="1" goto itk_bg_ev
+call :hp_cons "S:POPK" "NIL"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+:itk_bg_ev
+call :hp_cons "S:EVAL" "!ipbe!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+set "ipfirst=0"
+goto itk_bg_p2
+:itk_mkclo
+rem (make-closure (quote __lamN) cap...) -> K: record (S:__lamN capval...) -- caps resolved NOW
+call :hp_car "!iprest!"
+call :hp_cdr "!R!"
+call :hp_car "!R!"
+set "mclbl=!R!"
+call :hp_cdr "!iprest!"
+set "mccaps=!R!"
+set "mcacc=NIL"
+:itk_mc_caps
+if "!mccaps!"=="NIL" goto itk_mc_rev
+call :hp_car "!mccaps!"
+set "mcv=!R!"
+if "!mcv:~0,2!"=="S:" (set "IRV=!mcv:~2!" & call :iresolve & set "mcv=!R!")
+call :hp_cons "!mcv!" "!mcacc!"
+set "mcacc=!R!"
+call :hp_cdr "!mccaps!"
+set "mccaps=!R!"
+goto itk_mc_caps
+:itk_mc_rev
+set "mcrev=NIL"
+:itk_mc_r2
+if "!mcacc!"=="NIL" goto itk_mc_done
+call :hp_car "!mcacc!"
+call :hp_cons "!R!" "!mcrev!"
+set "mcrev=!R!"
+call :hp_cdr "!mcacc!"
+set "mcacc=!R!"
+goto itk_mc_r2
+:itk_mc_done
+call :hp_cons "!mclbl!" "!mcrev!"
+set "IPV=K:!R:~2!"
+goto itk_push
+:itk_run
+rem operative: join UNEVALUATED operand token texts -> host cmd; run_cmd.cmd does the exec (replay-aware)
+set "rnc="
+set "rnl=!iprest!"
+:itk_run_j
+if "!rnl!"=="NIL" goto itk_run_go
+call :hp_car "!rnl!"
+set "rnt=!R!"
+set "rnc=!rnc! !rnt:~2!"
+call :hp_cdr "!rnl!"
+set "rnl=!R!"
+goto itk_run_j
+:itk_run_go
+set "A1=T:!rnc:~1!"
+call run_cmd.cmd
+set "IPV=!R!"
+goto itk_push
+:itk_runcap
+set "rnc="
+set "rnl=!iprest!"
+:itk_rc_j
+if "!rnl!"=="NIL" goto itk_rc_go
+call :hp_car "!rnl!"
+set "rnt=!R!"
+set "rnc=!rnc! !rnt:~2!"
+call :hp_cdr "!rnl!"
+set "rnl=!R!"
+goto itk_rc_j
+:itk_rc_go
+set "A1=T:!rnc:~1!"
+call run_capture.cmd
+set "IPV=!R!"
+goto itk_push
+:itk_prim
+rem prim in call position: PRIMK(op . n) then arg EVALs (leftmost on top)
+set "ILL=!iprest!"
+call :ilen
+set "ipn=!R!"
+call :hp_cons "I:!ipn!" "NIL"
+call :hp_cons "!IPO!" "!R!"
+call :hp_cons "S:PRIMK" "!R!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+set "IPA=!iprest!"
+call :ipush_args
+goto itk_loop
+:itk_call
+rem general call: CALLK(n), arg EVALs, then EVAL operator on TOP (eval'd first)
+set "ILL=!iprest!"
+call :ilen
+set "ipn=!R!"
+call :hp_cons "S:CALLK" "I:!ipn!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+set "IPA=!iprest!"
+call :ipush_args
+call :hp_cons "S:EVAL" "!iph!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+goto itk_loop
+rem -- task handlers ---------------------------------------------------------------------------------
+:itk_ifk
+call :hp_car "!IVS!"
+set "ipcv=!R!"
+call :hp_cdr "!IVS!"
+set "IVS=!R!"
+call :hp_car "!ippl!"
+set "ipthen=!R!"
+call :hp_cdr "!ippl!"
+set "ipelse=!R!"
+if "!ipcv!"=="NIL" (call :hp_cons "S:EVAL" "!ipelse!") else (call :hp_cons "S:EVAL" "!ipthen!")
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+goto itk_loop
+:itk_letk
+set "ISCP=!ippl!"
+goto itk_loop
+:itk_bindk
+call :hp_car "!IVS!"
+set "ipbv=!R!"
+call :hp_cdr "!IVS!"
+set "IVS=!R!"
+set /a ipx=!FP!+!ITOP!
+set "F!ipx!=!ipbv!"
+call :hp_cons "!ippl!" "I:!ITOP!"
+call :hp_cons "!R!" "!ISCP!"
+set "ISCP=!R!"
+set /a ITOP+=1
+goto itk_loop
+:itk_popk
+call :hp_cdr "!IVS!"
+set "IVS=!R!"
+goto itk_loop
+:itk_primk
+call :hp_car "!ippl!"
+set "IPO=!R!"
+call :hp_cdr "!ippl!"
+call :hp_car "!R!"
+set "IPN=!R:~2!"
+call :ipop_n
+rem GOTO (not call): iprim's handlers jump back into the task loop (itk_push/itk_loop); a `call` here
+rem would leave a stale call-context that a later goto :eof would RETURN into -> double execution.
+goto iprim
+:itk_callk
+set "IPN=!ippl:~2!"
+call :ipop_n
+set "ipav=!ip_args!"
+call :hp_car "!IVS!"
+set "ipfv=!R!"
+call :hp_cdr "!IVS!"
+set "IVS=!R!"
+set /a NFP=!FP!+!ITOP!
+set "ipai=0"
+set "ipal=!ipav!"
+:itk_ck_stage
+if "!ipal!"=="NIL" goto itk_ck_yield
+call :hp_car "!ipal!"
+set /a ipx=!NFP!+!ipai!
+set "F!ipx!=!R!"
+call :hp_cdr "!ipal!"
+set "ipal=!R!"
+set /a ipai+=1
+goto itk_ck_stage
+:itk_ck_yield
+set "ISC_!FP!=!ICS!"
+set "ISV_!FP!=!IVS!"
+set "ISS_!FP!=!ISCP!"
+set "IST_!FP!=!ITOP!"
+set "CALLEE=!ipfv!"
+set "RPC=1"
+set "ACTION=call"
+goto :eof
+rem -- helpers ---------------------------------------------------------------------------------------
+:ilen
+rem ILL = list -> R = length
+set "iln=0"
+set "ill2=!ILL!"
+:ilen2
+if "!ill2!"=="NIL" (set "R=!iln!" & goto :eof)
+set /a iln+=1
+call :hp_cdr "!ill2!"
+set "ill2=!R!"
+goto ilen2
+:ipush_args
+rem IPA = arg list -> push (S:EVAL arg) per arg in REVERSE (leftmost ends on top -> eval'd first)
+set "iparv=NIL"
+set "ipal2=!IPA!"
+:ipa_rev
+if "!ipal2!"=="NIL" goto ipa_push
+call :hp_car "!ipal2!"
+call :hp_cons "!R!" "!iparv!"
+set "iparv=!R!"
+call :hp_cdr "!ipal2!"
+set "ipal2=!R!"
+goto ipa_rev
+:ipa_push
+if "!iparv!"=="NIL" goto :eof
+call :hp_car "!iparv!"
+call :hp_cons "S:EVAL" "!R!"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+call :hp_cdr "!iparv!"
+set "iparv=!R!"
+goto ipa_push
+:ipop_n
+rem IPN = count -> pop IPN values off IVS into ip_args (source order)
+set "ip_args=NIL"
+set "ipk=!IPN!"
+:ipn2
+if !ipk! LEQ 0 goto :eof
+call :hp_car "!IVS!"
+set "ipv=!R!"
+call :hp_cdr "!IVS!"
+set "IVS=!R!"
+call :hp_cons "!ipv!" "!ip_args!"
+set "ip_args=!R!"
+set /a ipk-=1
+goto ipn2
+:imangle
+rem IMS = raw name -> R = registry key (mirror comp mangle: > < & | * ? -> zzG zzL zzA zzP zzS zzQ; - kept)
+set "imo="
+set "ims2=!IMS!"
+:img2
+if not defined ims2 (set "R=!imo!" & goto :eof)
+if "!ims2!"=="" (set "R=!imo!" & goto :eof)
+set "imc=!ims2:~0,1!"
+set "ims2=!ims2:~1!"
+if "!imc!"=="!LT!" (set "imo=!imo!zzL" & goto img2)
+if "!imc!"=="!GT!" (set "imo=!imo!zzG" & goto img2)
+if "!imc!"=="!AMP!" (set "imo=!imo!zzA" & goto img2)
+if "!imc!"=="!PIPE!" (set "imo=!imo!zzP" & goto img2)
+if "!imc!"=="*" (set "imo=!imo!zzS" & goto img2)
+if "!imc!"=="?" (set "imo=!imo!zzQ" & goto img2)
+set "imo=!imo!!imc!"
+goto img2
+:iresolve
+rem IRV = raw symbol text -> R = value. Order: let-scope -> params/captures -> global fn (interp) ->
+rem prim-as-value (C:__p_<op>) -> global var (G_) -> NIL.
+set "irs=!ISCP!"
+:irs_scope
+if "!irs!"=="NIL" goto irs_vars
+call :hp_car "!irs!"
+set "irp=!R!"
+call :hp_car "!irp!"
+if "!R:~2!"=="!IRV!" goto irs_scope_hit
+call :hp_cdr "!irs!"
+set "irs=!R!"
+goto irs_scope
+:irs_scope_hit
+call :hp_cdr "!irp!"
+set /a ipx=!FP!+!R:~2!
+call set "R=%%F!ipx!%%"
+goto :eof
+:irs_vars
+call set "irl=%%ILAM_!ICUR!_vars%%"
+set "iri=0"
+:irs_v2
+if "!irl!"=="NIL" goto irs_gfn
+call :hp_car "!irl!"
+if "!R:~2!"=="!IRV!" goto irs_vars_hit
+call :hp_cdr "!irl!"
+set "irl=!R!"
+set /a iri+=1
+goto irs_v2
+:irs_vars_hit
+set /a ipx=!FP!+!iri!
+call set "R=%%F!ipx!%%"
+goto :eof
+:irs_gfn
+set "IMS=!IRV!"
+call :imangle
+set "irm=!R!"
+if defined ILAM_!irm!_body (set "R=I:!irm!" & goto :eof)
+call :iprimwrap
+if not "!R!"=="" (set "R=C:!R!" & goto :eof)
+if defined G_!IRV! (call set "R=%%G_!IRV!%%" & goto :eof)
+set "R=NIL"
+goto :eof
+:iprimwrap
+rem IRV = raw op -> R = __p_<op> wrapper name or "" (mirror comp prim-wrap)
+set "R="
+if "!IRV!"=="+" set "R=__p_add"
+if "!IRV!"=="-" set "R=__p_sub"
+if "!IRV!"=="*" set "R=__p_mul"
+if "!IRV!"=="!LT!" set "R=__p_lt"
+if "!IRV!"=="=" set "R=__p_neq"
+if "!IRV!"=="cons" set "R=__p_cons"
+if "!IRV!"=="car" set "R=__p_car"
+if "!IRV!"=="cdr" set "R=__p_cdr"
+if "!IRV!"=="null?" set "R=__p_null"
+if "!IRV!"=="eq?" set "R=__p_eq"
+if "!IRV!"=="pair?" set "R=__p_pair"
+if "!IRV!"=="not" set "R=__p_not"
+goto :eof
+:isprim
+rem IPO = S:<op> -> R=1 if a call-position prim, else 0
+set "R=0"
+if "!IPO!"=="S:car" set "R=1"
+if "!IPO!"=="S:cdr" set "R=1"
+if "!IPO!"=="S:cons" set "R=1"
+if "!IPO!"=="S:null?" set "R=1"
+if "!IPO!"=="S:pair?" set "R=1"
+if "!IPO!"=="S:atom?" set "R=1"
+if "!IPO!"=="S:number?" set "R=1"
+if "!IPO!"=="S:not" set "R=1"
+if "!IPO!"=="S:eq?" set "R=1"
+if "!IPO!"=="S:+" set "R=1"
+if "!IPO!"=="S:-" set "R=1"
+if "!IPO!"=="S:*" set "R=1"
+if "!IPO!"=="S:!LT!" set "R=1"
+if "!IPO!"=="S:=" set "R=1"
+if "!IPO!"=="S:type-of" set "R=1"
+if "!IPO!"=="S:symbol->string" set "R=1"
+if "!IPO!"=="S:number->string" set "R=1"
+if "!IPO!"=="S:string->symbol" set "R=1"
+if "!IPO!"=="S:string->number" set "R=1"
+if "!IPO!"=="S:string-length" set "R=1"
+if "!IPO!"=="S:string-append" set "R=1"
+if "!IPO!"=="S:substring" set "R=1"
+if "!IPO!"=="S:split" set "R=1"
+if "!IPO!"=="S:print" set "R=1"
+if "!IPO!"=="S:file-exists?" set "R=1"
+if "!IPO!"=="S:read" set "R=1"
+if "!IPO!"=="S:read-lines" set "R=1"
+if "!IPO!"=="S:write-lines" set "R=1"
+if "!IPO!"=="S:append-lines" set "R=1"
+goto :eof
+:iprim
+rem IPO = S:<op>, ip_args = evaluated args (source order). Push the result. I/O prims call the runtime
+rem .cmd files (replay-aware, shared with compiled code); pure prims inline via hp_*/set arithmetic.
+call :hp_car "!ip_args!"
+set "ipa=!R!"
+if "!IPO!"=="S:car" (call :hp_car "!ipa!" & set "IPV=!R!" & goto itk_push)
+if "!IPO!"=="S:cdr" (call :hp_cdr "!ipa!" & set "IPV=!R!" & goto itk_push)
+if "!IPO!"=="S:null?" goto ipr_null
+if "!IPO!"=="S:pair?" goto ipr_pair
+if "!IPO!"=="S:atom?" goto ipr_atom
+if "!IPO!"=="S:number?" goto ipr_num
+if "!IPO!"=="S:not" goto ipr_null
+if "!IPO!"=="S:type-of" goto ipr_typeof
+if "!IPO!"=="S:symbol->string" (set "IPV=T:!ipa:~2!" & goto itk_push)
+if "!IPO!"=="S:number->string" (set "IPV=T:!ipa:~2!" & goto itk_push)
+if "!IPO!"=="S:string->symbol" (set "IPV=S:!ipa:~2!" & goto itk_push)
+if "!IPO!"=="S:string->number" (set "IPV=I:!ipa:~2!" & goto itk_push)
+if "!IPO!"=="S:string-length" goto ipr_slen
+if "!IPO!"=="S:string-append" goto ipr_sapp
+if "!IPO!"=="S:substring" goto ipr_substr
+if "!IPO!"=="S:split" goto ipr_split
+if "!IPO!"=="S:print" goto ipr_print
+if "!IPO!"=="S:file-exists?" goto ipr_fex
+if "!IPO!"=="S:read" goto ipr_read
+if "!IPO!"=="S:read-lines" goto ipr_rdl
+if "!IPO!"=="S:write-lines" goto ipr_wrl
+if "!IPO!"=="S:append-lines" goto ipr_apl
+rem 2-arg arith / compare / cons
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "ipb=!R!"
+if "!IPO!"=="S:cons" (call :hp_cons "!ipa!" "!ipb!" & set "IPV=!R!" & goto itk_push)
+if "!IPO!"=="S:eq?" goto ipr_eq
+set /a ipna=!ipa:~2! >nul 2>&1
+set /a ipnb=!ipb:~2! >nul 2>&1
+if "!IPO!"=="S:+" (set /a ipr=!ipna!+!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
+if "!IPO!"=="S:-" (set /a ipr=!ipna!-!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
+if "!IPO!"=="S:*" (set /a ipr=!ipna!*!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
+if "!IPO!"=="S:!LT!" goto ipr_lt
+if "!IPO!"=="S:=" goto ipr_neq
+echo interp: unknown prim !IPO! 1>&2
+set "IPV=NIL"
+goto itk_push
+:ipr_null
+if "!ipa!"=="NIL" (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_pair
+if "!ipa:~0,2!"=="P:" (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_atom
+if "!ipa:~0,2!"=="P:" (set "IPV=NIL") else (set "IPV=S:t")
+goto itk_push
+:ipr_num
+if "!ipa:~0,2!"=="I:" (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_eq
+if "!ipa!"=="!ipb!" (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_lt
+if !ipna! LSS !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_neq
+if !ipna!==!ipnb! (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_typeof
+set "A1=!ipa!"
+call type-of.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_slen
+set "ipss=!ipa:~2!"
+set "ipsl=0"
+:ipr_sl2
+if not defined ipss goto ipr_sl3
+if "!ipss!"=="" goto ipr_sl3
+set "ipss=!ipss:~1!"
+set /a ipsl+=1
+goto ipr_sl2
+:ipr_sl3
+set "IPV=I:!ipsl!"
+goto itk_push
+:ipr_sapp
+set "ipso="
+set "ipsl2=!ip_args!"
+:ipr_sa2
+if "!ipsl2!"=="NIL" (set "IPV=T:!ipso!" & goto itk_push)
+call :hp_car "!ipsl2!"
+set "ipsv=!R!"
+set "ipso=!ipso!!ipsv:~2!"
+call :hp_cdr "!ipsl2!"
+set "ipsl2=!R!"
+goto ipr_sa2
+:ipr_substr
+set "ipss=!ipa:~2!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "ipoff=!R:~2!"
+call :hp_cdr "!ip_args!"
+call :hp_cdr "!R!"
+call :hp_car "!R!"
+set "ipcnt=!R:~2!"
+:ipr_su2
+if !ipoff! LEQ 0 goto ipr_su3
+set "ipss=!ipss:~1!"
+set /a ipoff-=1
+goto ipr_su2
+:ipr_su3
+set "ipso="
+:ipr_su4
+if !ipcnt! LEQ 0 goto ipr_su5
+if not defined ipss goto ipr_su5
+if "!ipss!"=="" goto ipr_su5
+set "ipso=!ipso!!ipss:~0,1!"
+set "ipss=!ipss:~1!"
+set /a ipcnt-=1
+goto ipr_su4
+:ipr_su5
+set "IPV=T:!ipso!"
+goto itk_push
+:ipr_split
+rem split STRING on SEPARATOR -> list of pieces (mirror kernel). Char-scan: accumulate iph2 until the
+rem remaining text starts with the separator; on a hit, emit iph2, skip the sep, continue. Handles
+rem multi-char separators; empty separator -> single-element list.
+set "ipss=!ipa:~2!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "ipsep=!R:~2!"
+if not defined ipsep goto ipr_sp_one
+set "ipacc=NIL"
+set "iph2="
+set "ipr2=!ipss!"
+:ipr_sp_scan
+if not defined ipr2 goto ipr_sp_last
+rem does ipr2 start with ipsep? char-compare a copy
+set "iprr=!ipr2!"
+set "ipsp2=!ipsep!"
+:ipr_sp_cmp
+if not defined ipsp2 goto ipr_sp_hit
+if not defined iprr goto ipr_sp_advance
+if not "!iprr:~0,1!"=="!ipsp2:~0,1!" goto ipr_sp_advance
+set "iprr=!iprr:~1!"
+set "ipsp2=!ipsp2:~1!"
+goto ipr_sp_cmp
+:ipr_sp_hit
+call :hp_cons "T:!iph2!" "!ipacc!"
+set "ipacc=!R!"
+set "iph2="
+set "ipr2=!iprr!"
+goto ipr_sp_scan
+:ipr_sp_advance
+set "iph2=!iph2!!ipr2:~0,1!"
+set "ipr2=!ipr2:~1!"
+goto ipr_sp_scan
+:ipr_sp_last
+call :hp_cons "T:!iph2!" "!ipacc!"
+set "ipacc=!R!"
+set "iprev=NIL"
+:ipr_sp_r2
+if "!ipacc!"=="NIL" (set "IPV=!iprev!" & goto itk_push)
+call :hp_car "!ipacc!"
+call :hp_cons "!R!" "!iprev!"
+set "iprev=!R!"
+call :hp_cdr "!ipacc!"
+set "ipacc=!R!"
+goto ipr_sp_r2
+:ipr_sp_one
+call :hp_cons "T:!ipss!" "NIL"
+set "IPV=!R!"
+goto itk_push
+:ipr_print
+set "A1=!ipa!"
+call print.cmd
+set "IPV=NIL"
+goto itk_push
+:ipr_fex
+set "A1=!ipa!"
+call file-existszzQ.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_read
+set "A1=!ipa!"
+call read.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_rdl
+set "A1=!ipa!"
+call read-lines.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_wrl
+set "A1=!ipa!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "A2=!R!"
+call write-lines.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_apl
+set "A1=!ipa!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "A2=!R!"
+call append-lines.cmd
+set "IPV=!R!"
+goto itk_push
