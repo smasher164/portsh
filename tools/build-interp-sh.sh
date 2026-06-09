@@ -63,6 +63,20 @@ ips() { hp_cons "$1" "$IVS"; IVS=$R; }
 ics() { hp_cons "$1" "$ICS"; ICS=$R; }
 ilen() { il_n=0; il_l=$1; while [ "$il_l" != NIL ]; do il_n=$((il_n+1)); hp_cdr "$il_l"; il_l=$R; done; R=$il_n; }
 # iresolve S:name -> R = value: local frame slot | global-fn I:<name> | global-var G_<name> value
+# mangle a fn name to a safe identifier, matching the comp's sh-mangle (so interp registry keys and route
+# labels line up with the comp's compiled fn names). Identity for names without special chars.
+mangle() {
+  mg_o=""; mg_s=$1
+  while [ -n "$mg_s" ]; do
+    mg_c=${mg_s%"${mg_s#?}"}; mg_s=${mg_s#?}
+    case $mg_c in
+      -) mg_o="${mg_o}_" ;; ">") mg_o="${mg_o}zzG" ;; "<") mg_o="${mg_o}zzL" ;; "*") mg_o="${mg_o}zzS" ;;
+      "?") mg_o="${mg_o}zzQ" ;; "!") mg_o="${mg_o}zzB" ;; "=") mg_o="${mg_o}zzE" ;; "+") mg_o="${mg_o}zzP" ;;
+      *) mg_o="${mg_o}${mg_c}" ;;
+    esac
+  done
+  R=$mg_o
+}
 iresolve() {
   ir_v=${1#S:}
   ir_s=$SCOPE                                           # let-bound vars (innermost first) shadow params
@@ -73,7 +87,8 @@ iresolve() {
   eval "ir_l=\${ILAM_${ICUR}_vars:-}"; ir_i=0; ir_hit=  # params + captures (static)
   for ir_w in $ir_l; do [ "$ir_w" = "$ir_v" ] && { ir_hit=$ir_i; break; }; ir_i=$((ir_i+1)); done
   if [ -n "$ir_hit" ]; then eval "R=\$F$((FP+ir_hit))"; return; fi
-  case " $GFNS " in *" $ir_v "*) R="I:$ir_v"; return ;; esac   # global fn -> I:<name> fn-value
+  mangle "$ir_v"; ir_m=$R                                       # global fn -> I:<mangled> fn-value
+  case " $GFNS " in *" $ir_m "*) R="I:$ir_m"; return ;; esac
   if isprim "S:$ir_v"; then R="PRIM:$ir_v"; return; fi          # primitive used as a value
   eval "R=\${G_${ir_v}:-NIL}"                           # global var
 }
@@ -345,7 +360,7 @@ FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$XF; F1="I:0"; CURFN=lift_program; drive;
 GFNS=""; GVARS=""; ld_cur=$ld_lifted
 while [ "$ld_cur" != NIL ]; do
   hp_car "$ld_cur"; ld_form=$R; hp_cdr "$ld_cur"; ld_cur=$R
-  hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm=${R#S:}; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
+  hp_cdr "$ld_form"; ld_nv=$R; hp_car "$ld_nv"; ld_nm_raw=${R#S:}; mangle "$ld_nm_raw"; ld_nm=$R; hp_cdr "$ld_nv"; hp_car "$R"; ld_val=$R
   ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
   case $ld_vhd in
     S:lambda)
@@ -359,7 +374,7 @@ while [ "$ld_cur" != NIL ]; do
       ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
       ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
       GFNS="$GFNS $ld_nm" ;;
-    *) eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm" ;;    # atom-const define
+    *) eval "G_${ld_nm_raw}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;   # atom-const define (G_ raw, matching comp)
   esac
 done
 _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) printf %s "${1#T:}" ;; S:*) printf %s "${1#S:}" ;; K:*) printf "<closure>" ;; C:*) printf "<fn:%s>" "${1#C:}" ;; P:*) printf "("; _rlist "$1"; printf ")" ;; *) printf %s "$1" ;; esac; }
@@ -369,12 +384,13 @@ _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} i
 # flips those fns before running -- proving compiled and interpreted fns interoperate via the registry. ---
 str_to_symlist() { sl_o=NIL; for sl_w in $1; do hp_cons "S:$sl_w" "$sl_o"; sl_o=$R; done; R=$sl_o; }
 osr_compile() {
-  eval "oc_def=\$ILAM_${1}_def"
+  mangle "$1"; oc_n=$R                                  # registry key + compiled fn name (sh-mangled)
+  eval "oc_def=\$ILAM_${oc_n}_def"
   str_to_symlist "$GFNS"; oc_gf=$R; str_to_symlist "$GVARS"; oc_gv=$R
   FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$oc_def; F1=$oc_gf; F2=$oc_gv; CURFN=compile_def_sh; drive
   oc_l=$R; oc_tmp=$(mktemp)
   while [ "$oc_l" != NIL ]; do hp_car "$oc_l"; printf '%s\n' "${R#T:}" >> "$oc_tmp"; hp_cdr "$oc_l"; oc_l=$R; done
-  . "$oc_tmp"; rm -f "$oc_tmp"; eval "COMPILED_$1=1"
+  . "$oc_tmp"; rm -f "$oc_tmp"; eval "COMPILED_$oc_n=1"
   [ -n "${PORTSH_OSR_VERBOSE:-}" ] && printf 'OSR: compiled %s\n' "$1" >&2
 }
 for f in ${PORTSH_OSR:-}; do osr_compile "$f"; done
