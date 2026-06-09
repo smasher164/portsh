@@ -12,3 +12,4 @@ comp-cmd.selfx.cmd
 portsh-cmd.cmd
 _warm.cmd
 osr-proto.sh
+interp-sh.sh
