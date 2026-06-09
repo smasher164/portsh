@@ -25,22 +25,54 @@ needle = 'if not "%~1"=="" call :feedfile "%~1" 0'
 assert needle in s, "boot line not found"
 s = s.replace(needle, 'goto :in_main', 1)
 s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd call _consts_std.cmd', 1)
+# REPL hooks on the kernel reader's per-line loop (readall): (1) in RDMODE, stop once a complete top-
+# level form is captured (RDRESULT set) so the REPL gets one form per call -- harmless in file mode,
+# where the pre-pushed outer LP keeps DEPTH>0 so RDRESULT stays NIL until the trailing ')' (fed
+# separately, not via readall). (2) print a depth-aware prompt to stderr when PORTSH_REPL is set.
+n_addsrc = 'call :addsrc'
+assert s.count(n_addsrc) == 1, "addsrc not unique"
+s = s.replace(n_addsrc, 'call :addsrc\r\nif defined RDMODE if not "!RDRESULT!"=="NIL" goto :eof', 1)
 main = r'''
 :in_main
-rem read ALL top-level forms into ONE list (same trick as load-cmd: pre-open an outer list so every
-rem datum accumulates at DEPTH>=1, then feed ')' so emit_top captures RDRESULT = (form1 form2 ...)).
-set "SP=0" & set "DEPTH=0"
-set "ST_0=LP" & set "SP=1" & set "DEPTH=1"
-set "RDMODE=1" & set "RDRESULT=NIL"
+rem CTR threads the lambda-lift counter, NN the thunk counter -- both persist across proc_forms calls so
+rem successive REPL inputs don't collide __lamN / __evN (which would clobber live closures/defs).
+set "CTR=0" & set "NN=0"
+if "%~1"=="" goto in_repl
+rem file mode: read ALL top-level forms into ONE list (pre-open an outer list so every datum accumulates
+rem at DEPTH>=1, then feed ')' so emit_top captures RDRESULT = (form1 form2 ...)).
+set "SP=0" & set "DEPTH=0" & set "ST_0=LP" & set "SP=1" & set "DEPTH=1" & set "RDMODE=1" & set "RDRESULT=NIL"
 call :feedfile "%~1" 0
 set "SRC=) " & call :run_forms
 set "RDMODE="
+call :replay_init
+set "PFIN=!RDRESULT!"
+call :proc_forms
+exit /b 0
+
+:in_repl
+rem interactive REPL: readall in RDMODE returns after each complete top-level form (one form/submit);
+rem interpret it on the SAME engine, show the value. State (CTR/NN/ILAM_*/G_*/heap) persists across forms.
+1>&2 echo portsh cmd interp repl -- ctrl-z then enter to exit.
+:irl_loop
+set "SP=0" & set "DEPTH=0" & set "RDMODE=1" & set "RDRESULT=NIL" & set "PORTSH_REPL=1"
+call :readall 0
+set "PORTSH_REPL=" & set "RDMODE="
+if "!RDRESULT!"=="NIL" goto irl_eof
+call :hp_cons "!RDRESULT!" "NIL"
+set "PFIN=!R!"
+call :proc_forms
+goto irl_loop
+:irl_eof
+1>&2 echo.
+exit /b 0
+
+rem ---- process one batch of top-level forms (PFIN) ------------------------------------------------
+:proc_forms
 rem partition: lambda defines + atom defines kept; computed defines + bare expressions thunk-wrapped as
 rem (define __evNN (lambda () BODY)) BEFORE mexpand/lift (so inner lambdas get hoisted). Mirrors load-cmd.
 set "XF=NIL"
 set "THUNKS="
-set "NN=0"
-set "CUR=!RDRESULT!"
+set "CUR=!PFIN!"
 :in_part
 if "!CUR!"=="NIL" goto in_expand
 call :hp_car "!CUR!"
@@ -104,10 +136,15 @@ rem comp on the shared driver. After this the interp only needs the core machine
 set "F0=!XF!"
 set "FP=0" & set "RSP=0" & set "CURFN=map-mexpand" & set "PC=0" & set "CLO=" & set "ICUR="
 call :el_drive
-set "F0=!R!" & set "F1=I:0"
-set "FP=0" & set "RSP=0" & set "CURFN=lift-program" & set "PC=0" & set "CLO=" & set "ICUR="
+rem lift-program-c (not lift-program): returns (lifted . end-ctr) so the REPL threads CTR across inputs.
+set "F0=!R!" & set "F1=I:!CTR!"
+set "FP=0" & set "RSP=0" & set "CURFN=lift-program-c" & set "PC=0" & set "CLO=" & set "ICUR="
 call :el_drive
+set "LPR=!R!"
+call :hp_car "!LPR!"
 set "LIFTED=!R!"
+call :hp_cdr "!LPR!"
+set "CTR=!R:~2!"
 
 rem register every define: lambda/clambda -> ILAM_<mangled>_{np,ncap,vars,body}; atom -> G_<raw>.
 rem _vars is the heap LIST of param (then capture) symbols -- iresolve walks it (no string globbing).
@@ -198,7 +235,6 @@ set "ILAM_!MN!_body=!BODY!"
 goto in_reg
 
 :in_run0
-call :replay_init
 set "RUNQ=!THUNKS!"
 :in_run
 set "ENT="
@@ -217,7 +253,7 @@ call :el_relem 0 "!R!"
 echo(!ELR!
 goto in_run
 :in_done
-exit /b 0
+goto :eof
 
 '''
 s = s.rstrip('\r\n') + '\n' + main.replace('\r\n','\n') + interp_rt + '\n' + jit_tail

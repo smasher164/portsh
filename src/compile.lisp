@@ -682,6 +682,21 @@
             (cons (list (quote define) nm (list (quote lambda) lf (car r)))
                   (append (car (cdr r)) (lift-program (cdr forms) (car (cdr (cdr r))))))))
         (cons d (lift-program (cdr forms) ctr)))))))
+;; lift-program-c: like lift-program but RETURNS (lifted-forms . end-ctr), so the cmd interp REPL can
+;; thread the lambda-lift counter across inputs (input N's __lamK must not overwrite N-1's live closures).
+;; Backend-independent -- byte-identical to compile-sh.lisp's lift-program-c.
+(define lift-program-c (lambda (forms ctr)
+  (if (null? forms) (cons nil ctr)
+    (let ((d (car forms)))
+      (if (if (pair? d) (if (eq? (car d) (quote define)) (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil) nil) nil)
+        (let ((nm (car (cdr d))) (lf (car (cdr (car (cdr (cdr d)))))) (bd (car (cdr (cdr (car (cdr (cdr d))))))))
+          (let ((r (lift bd lf ctr)))
+            (let ((rest (lift-program-c (cdr forms) (car (cdr (cdr r))))))
+              (cons (cons (list (quote define) nm (list (quote lambda) lf (car r)))
+                          (append (car (cdr r)) (car rest)))
+                    (cdr rest)))))
+        (let ((rest (lift-program-c (cdr forms) ctr)))
+          (cons (cons d (car rest)) (cdr rest))))))))
 ;; make-closure record builder + captured-var loads (cmd file-heap flavor: rdfield.cmd).
 (define mkclo-caps (lambda (caps) (if (null? caps) (quote nil) (list (quote cons) (car caps) (mkclo-caps (cdr caps))))))
 (define cap-loads-go (lambda (cap i)
