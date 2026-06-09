@@ -226,6 +226,17 @@ if "!RP_HIT!"=="1" (set "R=!RP_P0!" & goto :eof)
 set "fexP=!A1:~2!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
 goto :eof
+rem :type-of -- A1 = a tagged value. R = its type symbol (mirrors the kernel/interp type-of). Pure (no
+rem replay). The comp now emits this as a builtin call (call type-of.cmd) for (type-of x).
+:type-of
+if "!A1!"=="NIL" (set "R=S:nil" & goto :eof)
+set "toT=!A1:~0,2!"
+if "!toT!"=="I:" (set "R=S:number" & goto :eof)
+if "!toT!"=="S:" (set "R=S:symbol" & goto :eof)
+if "!toT!"=="T:" (set "R=S:string" & goto :eof)
+if "!toT!"=="P:" (set "R=S:pair" & goto :eof)
+set "R=S:unknown"
+goto :eof
 rem :run_cmd -- A1 = T:<command> (baked by comp via enc-mc, the SAME sentinel encoding the reader
 rem applies to heap tokens). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 rem ( cmd /c "!rcCmd!" ): operators are real bytes inside the quotes -> live, sentinels pass through

@@ -22,6 +22,9 @@ cd "$(dirname "$0")/.."
 # ===================== P1 resumable interpreter on the trampoline =====================
 GLOBAL=NIL
 G_DQ='T:"'    # the double-quote constant the comp's (dq) reads (G_DQ) -- needed when osr_compile runs the comp
+# type_of runtime helper: the comp (with type-of in builtin?) emits a direct call `type_of "$arg"`; needed
+# for OSR-compiled fns that use type-of. The interpreter inlines type-of in iprim -- both give the same result.
+type_of() { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }
 # ---- unified driver: C:<label> compiled | I:<id> interpret | K:<idx> closure (route by label) ----
 # route a fn label to its CURRENT executor by the registry -- this is the OSR dispatch: a fn is compiled
 # if COMPILED_<lbl> is set, else interpreted if it has an ILAM body, else assumed a compiled/external fn.
@@ -101,7 +104,7 @@ prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not 
     *) R="" ;;
   esac
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:print|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -134,6 +137,15 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
        pa_r=""; pa_i=0; while [ "$pa_i" -lt "$pa_n" ] && [ -n "$pa_s" ]; do pa_c=${pa_s%"${pa_s#?}"}; pa_r="$pa_r$pa_c"; pa_s=${pa_s#?}; pa_i=$((pa_i+1)); done
        ips "T:$pa_r" ;;
     S:cons) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R; hp_cons "$ipa" "$ipb"; ips "$R" ;;
+    S:split) pa_s=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; pa_sep=${R#T:}; pa_acc=NIL   # split s on sep -> list (mirror kernel)
+       if [ -z "$pa_sep" ]; then hp_cons "T:$pa_s" "NIL"; pa_acc=$R
+       else
+         while case "$pa_s" in *"$pa_sep"*) true ;; *) false ;; esac; do
+           hp_cons "T:${pa_s%%"$pa_sep"*}" "$pa_acc"; pa_acc=$R; pa_s=${pa_s#*"$pa_sep"}
+         done
+         hp_cons "T:$pa_s" "$pa_acc"; pa_acc=$R
+       fi
+       pa_rev=NIL; while [ "$pa_acc" != NIL ]; do hp_car "$pa_acc"; pa_rv=$R; hp_cdr "$pa_acc"; pa_acc=$R; hp_cons "$pa_rv" "$pa_rev"; pa_rev=$R; done; ips "$pa_rev" ;;
     S:print) _relem "$ipa"; printf '\n'; ips "NIL" ;;
     S:file-exists?) [ -e "${ipa#T:}" ] && ips "S:t" || ips "NIL" ;;
     S:read) pa_sv=$SRC; SRC=${ipa#T:}; rd_expr; pa_rd=$R; SRC=$pa_sv; ips "$pa_rd" ;;

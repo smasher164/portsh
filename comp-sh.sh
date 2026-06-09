@@ -1897,6 +1897,13 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 14)
+if [ "${p0}" = "S:type-of" ]; then PC=15; else PC=16; fi
+ACTION=jump; return
+;;
+15)
+R="S:t"; ACTION=ret; return
+;;
+16)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }

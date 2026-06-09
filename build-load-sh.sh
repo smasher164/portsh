@@ -50,6 +50,7 @@ read_lines()     { if replay_take read-lines; then _acc=NIL; rp_i=0
                    else _f=${1#T:}; _acc=NIL; while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
                      _rev=NIL; while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; fi; }
 file_existszzQ() { if replay_take file-exists?; then R=$RP_PAYLOAD; else [ -e "${1#T:}" ] && R="S:t" || R=NIL; fi; }
+type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }  # pure: a kernel prim the comp now emits as a builtin call
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
 # run / run-capture EXECUTE a host command -- the effects that MUST happen exactly once. In replay
