@@ -46,7 +46,11 @@ set "CLO=!CALLEE:~2!"
 call :hp_car "P:!CLO!"
 set "ELDL=!R:~2!"
 :eld_route
-rem the OSR dispatch: a registered interp body -> the interp executor; else the compiled per-PC files
+rem the OSR dispatch (consulted on EVERY call, so a flip takes effect immediately, both directions):
+rem COMPILED_<lbl> set -> run the compiled per-PC files; else an ILAM body -> interpret; else assume
+rem a compiled/external fn. The COMPILED check FIRST is the OSR flip: warm a fn -> set COMPILED_<lbl>
+rem -> its next call (from interp OR compiled code) routes to the compiled version.
+if defined COMPILED_!ELDL! (set "CURFN=!ELDL!" & goto el_drive)
 if defined ILAM_!ELDL!_body (set "CURFN=interp" & set "ICUR=!ELDL!") else set "CURFN=!ELDL!"
 goto el_drive
 :eld_ret

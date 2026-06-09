@@ -235,6 +235,26 @@ set "ILAM_!MN!_body=!BODY!"
 goto in_reg
 
 :in_run0
+rem --- OSR flip (keystone, mirror of sh P2 PORTSH_OSR): compile XF to per-PC .cmd files in osrout/ (a
+rem SEPARATE dir -- compile-program also writes _consts.cmd, which in cwd would clobber the comp's own),
+rem put osrout/ on PATH so el_drive's `call <fn>_pc<n>.cmd` finds the compiled user fns (comp fns stay in
+rem cwd, distinct names), then mark each PORTSH_OSR fn COMPILED so its next call routes to compiled code.
+rem The interp's register already set the user's atom-const G_<name> globals the compiled code reads. ---
+if not defined PORTSH_OSR goto in_runq
+if not exist osrout mkdir osrout
+set "F0=!XF!" & set "F1=T:osrout" & set "F2=T:osr.lisp"
+set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO=" & set "ICUR="
+call :el_drive
+set "PATH=!CD!\osrout;!PATH!"
+set "OSRQ=!PORTSH_OSR!"
+:in_osr_flip
+set "OF="
+for /f "tokens=1*" %%a in ("!OSRQ!") do (set "OF=%%a" & set "OSRQ=%%b")
+if "!OF!"=="" goto in_runq
+set "IMS=!OF!" & call :imangle
+set "COMPILED_!R!=1"
+goto in_osr_flip
+:in_runq
 set "RUNQ=!THUNKS!"
 :in_run
 set "ENT="
