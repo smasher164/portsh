@@ -11,3 +11,4 @@ compile-cmd-tramp.dev.lisp
 comp-cmd.selfx.cmd
 portsh-cmd.cmd
 _warm.cmd
+osr-proto.sh
