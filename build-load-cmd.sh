@@ -107,6 +107,7 @@ rem compile ALL forms in-process -> per-PC .cmd fns in the cwd.
 set "F0=!XF!" & set "F1=T:." & set "F2=T:elmain.lisp"
 set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO="
 call :el_drive
+call :replay_init
 rem run each top-level expression's thunk, in SOURCE order, via a goto-loop over THUNKS (avoid
 rem calling el_drive's goto-machine from inside a for-body). Render each like eval-sh show_val.
 set "RUNQ=!THUNKS!"
@@ -122,6 +123,10 @@ rem TA = G:<name> -> bind G_<name> = result (compiled code reads !G_<name>!)
 set "G_!TA:~2!=!R!"
 goto lm_run
 :lm_show
+rem SCRIPT/REPLAY mode: a real program's output is only its explicit print/write-lines, matching the
+rem :ev recorder (which doesn't echo top-level values). The auto-echo is just the REPL-style loader.
+if defined PORTSH_REPLAY goto lm_run
+if defined PORTSH_SCRIPT goto lm_run
 call :el_relem 0 "!R!"
 echo(!ELR!
 goto lm_run

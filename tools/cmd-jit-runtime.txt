@@ -85,3 +85,19 @@ if "!_r%1_tl:~0,2!"=="P:" set "_r%1_lst=!_r%1_tl!" & goto el_rl2
 set /a ND=%1+1 & call :el_relem !ND! "!_r%1_tl!"
 set "ELR=!_r%1_acc! . !ELR!"
 goto :eof
+
+rem ---- record-and-replay: read the :ev effect log into RP_L0..RP_L<RP_TOT-1> (cursor in replay_take,
+rem ---- which lives in the prim files / runtime.cmd). type|find /v /n "" + [N]-strip preserves blank
+rem ---- lines (empty payloads); the sentinel bytes in payloads aren't cmd metachars so they survive.
+rem ---- RP_* are process-global, so the called prim files (print.cmd etc.) see the cursor + payloads.
+:replay_init
+if not defined PORTSH_REPLAY goto :eof
+set "RP_TOT=0" & set "RP_CUR=0"
+type "!PORTSH_REPLAY!" | find /v /n "" > "%TEMP%\portsh_rp.txt"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rp.txt") do (
+  set "rpln=%%L" & set "rpln=!rpln:*]=!"
+  set "RP_L!RP_TOT!=!rpln!"
+  set /a RP_TOT+=1
+)
+set "RP_ON=1"
+goto :eof

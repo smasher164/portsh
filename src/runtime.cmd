@@ -15,6 +15,24 @@ rem values ending in !/" survive intact. Writers must append the same guard.
 set /p R=<%HD%\%1%2
 set "R=!R:~0,-1!"
 goto :eof
+rem :replay_take -- two-tier handoff REPLAY (cmd JIT). load-cmd's :replay_init read the log into
+rem RP_L0..RP_L<RP_TOT-1> and set RP_CUR=0 / RP_ON=1 (when PORTSH_REPLAY is set). %1 = expected op ->
+rem RP_HIT=1 (replaying: RP_N + RP_P0.. are set, cursor advanced) or 0 (live: log exhausted / off).
+:replay_take
+set "RP_HIT=0"
+if not "!RP_ON!"=="1" goto :eof
+if !RP_CUR! geq !RP_TOT! (set "RP_ON=0" & goto :eof)
+call set "RP_OP=%%RP_L!RP_CUR!%%"
+set /a RP_CUR+=1
+call set "RP_N=%%RP_L!RP_CUR!%%"
+set /a RP_CUR+=1
+if not "!RP_OP!"=="%~1" (>&2 echo replay desync: want %~1 got !RP_OP! & exit 1)
+set "rpi=0"
+:rt_pl
+if !rpi! geq !RP_N! (set "RP_HIT=1" & goto :eof)
+call set "RP_P!rpi!=%%RP_L!RP_CUR!%%"
+set /a RP_CUR+=1 & set /a rpi+=1
+goto rt_pl
 rem :gc -- compiled-program GC. For now a no-op: returns without collecting, which is
 rem CORRECT (gc only reclaims, never changes values) and fine for small inputs. A real
 rem collector for compiled programs is TODO -- the interpreter's gc roots from the env
@@ -26,6 +44,8 @@ goto :eof
 rem :append-lines -- A1=path, A2=list. Like write-lines but does NOT truncate
 rem (incremental output: comp's cp appends each fn's lines as it compiles them).
 :append-lines
+call :replay_take append-lines
+if "!RP_HIT!"=="1" (set "R=S:t" & goto :eof)
 set wlf=!A1:~2!
 set "wlf=!wlf:/=\!"
 set wll=!A2!
@@ -40,6 +60,8 @@ set wll=!R!
 goto al_loop_c
 rem :write-lines -- A1=path (T:..), A2=list. Truncate, then per line decode+append.
 :write-lines
+call :replay_take write-lines
+if "!RP_HIT!"=="1" (set "R=S:t" & goto :eof)
 set wlf=!A1:~2!
 rem cmd redirection needs backslashes; the codegen builds paths with '/' (sh-native),
 rem so normalise here. The line write (wl_emit_c) gets the already-normalised wlf.
@@ -89,6 +111,8 @@ rem handling (a latent sh/cmd print divergence); this is the corrected canonical
 rem emit mirrors pa_print exactly: @B2@->'%' (delayed), then @B7@->'^' and @B1@->'!' (disabled),
 rem a QUOTED set/p (operators & | < > ^ ( ) pass verbatim), then a newline.
 :print
+call :replay_take print
+if "!RP_HIT!"=="1" goto print_rp
 call :pr_write 0 "!A1!"
 if not defined R goto pr_nl
 setlocal enableDelayedExpansion
@@ -101,6 +125,13 @@ set "pout=%pout:@B1@=!%"
 endlocal
 :pr_nl
 echo(
+set "R=NIL"
+goto :eof
+rem replay: render the value, VERIFY it equals the logged text (self-validation -- a render/parity
+rem divergence is caught here), then SUPPRESS (it was already emitted by :ev).
+:print_rp
+call :pr_write 0 "!A1!"
+if not "!R!"=="!RP_P0!" (>&2 echo replay mismatch print: log[!RP_P0!] jit[!R!] & exit 1)
 set "R=NIL"
 goto :eof
 :pr_write
@@ -143,6 +174,8 @@ rem HN, write car/cdr at %HN% with the trailing guard byte '#'). KNOWN GAP (iden
 rem for/f eats a literal '!' in file content (delayed expansion) -- a separately-tracked sh/cmd
 rem read-lines divergence, not introduced here.
 :read-lines
+call :replay_take read-lines
+if "!RP_HIT!"=="1" goto rdl_rp
 set "rlF=!A1:~2!"
 set "rlF=!rlF:/=\!"
 set "rlAcc=NIL"
@@ -152,6 +185,18 @@ for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl.txt") do (
   call :rl_cons "T:!rlLn!" "!rlAcc!"
   set "rlAcc=!R!"
 )
+call :rl_reverse "!rlAcc!"
+goto :eof
+rem replay: rebuild the logged line-list from RP_P0..RP_P<RP_N-1> (return logged result, no file read).
+:rdl_rp
+set "rlAcc=NIL" & set "rdi=0"
+:rdl_rp_loop
+if !rdi! geq !RP_N! goto rdl_rp_rev
+call set "rdv=%%RP_P!rdi!%%"
+call :rl_cons "T:!rdv!" "!rlAcc!"
+set "rlAcc=!R!" & set /a rdi+=1
+goto rdl_rp_loop
+:rdl_rp_rev
 call :rl_reverse "!rlAcc!"
 goto :eof
 :rl_cons
@@ -176,6 +221,8 @@ goto rl_lr
 rem :file-existszzQ -- A1 = path (T:..). R = S:t if it exists, else NIL. Matches pa_fex (no
 rem slash normalisation -- consistent with the interpreter; write-lines normalises, fex does not).
 :file-existszzQ
+call :replay_take file-exists?
+if "!RP_HIT!"=="1" (set "R=!RP_P0!" & goto :eof)
 set "fexP=!A1:~2!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
 goto :eof
@@ -184,6 +231,8 @@ rem applies to heap tokens). So  cmd /c "!A1:~2!"  is byte-identical to the inte
 rem ( cmd /c "!rcCmd!" ): operators are real bytes inside the quotes -> live, sentinels pass through
 rem exactly as :ev passes them. R = I:errorlevel.
 :run_cmd
+call :replay_take run
+if "!RP_HIT!"=="1" (set "R=!RP_P0!" & goto :eof)
 call :rc_unesc
 cmd /c "!RCMD!"
 set "R=I:!errorlevel!"
@@ -206,6 +255,8 @@ rem with "[N]" via find /v /n "" (keeps blank/';' lines), iterate, strip the pre
 rem Cells allocated via :rl_cons / reversed via :rl_reverse (shared with :read-lines). KNOWN GAP (same
 rem as :ev/read-lines): for/f eats a literal '!' in captured output.
 :run_capture
+call :replay_take run-capture
+if "!RP_HIT!"=="1" goto rc_rp
 call :rc_unesc
 > "%TEMP%\portsh_rc1.txt" 2>&1 cmd /c "!RCMD!"
 type "%TEMP%\portsh_rc1.txt" | find /v /n "" > "%TEMP%\portsh_rc.txt"
@@ -215,6 +266,18 @@ for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
   call :rl_cons "T:!rcLn!" "!rcAcc!"
   set "rcAcc=!R!"
 )
+call :rl_reverse "!rcAcc!"
+goto :eof
+rem replay: rebuild the logged captured-output list (do NOT re-execute the command).
+:rc_rp
+set "rcAcc=NIL" & set "rci=0"
+:rc_rp_loop
+if !rci! geq !RP_N! goto rc_rp_rev
+call set "rcv=%%RP_P!rci!%%"
+call :rl_cons "T:!rcv!" "!rcAcc!"
+set "rcAcc=!R!" & set /a rci+=1
+goto rc_rp_loop
+:rc_rp_rev
 call :rl_reverse "!rcAcc!"
 goto :eof
 rem :read -- A1 = T:<source>. Parse the FIRST datum from the string (mirrors the kernel's pa_read): save
