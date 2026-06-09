@@ -37,6 +37,7 @@ main = r'''
 rem CTR threads the lambda-lift counter, NN the thunk counter -- both persist across proc_forms calls so
 rem successive REPL inputs don't collide __lamN / __evN (which would clobber live closures/defs).
 set "CTR=0" & set "NN=0"
+if defined PORTSH_OSRDIR set "PATH=!PORTSH_OSRDIR!;!PATH!"
 if "%~1"=="" goto in_repl
 rem file mode: read ALL top-level forms into ONE list (pre-open an outer list so every datum accumulates
 rem at DEPTH>=1, then feed ')' so emit_top captures RDRESULT = (form1 form2 ...)).
@@ -242,7 +243,10 @@ rem cwd, distinct names), then mark each PORTSH_OSR fn COMPILED so its next call
 rem The interp's register already set the user's atom-const G_<name> globals the compiled code reads. ---
 if not defined PORTSH_OSR goto in_runq
 if not exist osrout mkdir osrout
-set "F0=!XF!" & set "F1=T:osrout" & set "F2=T:osr.lisp"
+rem F2 (lisppath) is the compiled "main" manifest -- compile-program TRUNCATES + writes it. It must NOT be
+rem the user's program file (that would clobber it -- cross-process the next reader gets the manifest); the
+rem route calls the per-PC files in cmdpath (F1) directly and never needs main, so write it inside osrout.
+set "F0=!XF!" & set "F1=T:osrout" & set "F2=T:osrout/_main"
 set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO=" & set "ICUR="
 call :el_drive
 set "PATH=!CD!\osrout;!PATH!"

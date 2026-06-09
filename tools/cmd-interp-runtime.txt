@@ -51,6 +51,7 @@ rem COMPILED_<lbl> set -> run the compiled per-PC files; else an ILAM body -> in
 rem a compiled/external fn. The COMPILED check FIRST is the OSR flip: warm a fn -> set COMPILED_<lbl>
 rem -> its next call (from interp OR compiled code) routes to the compiled version.
 if defined COMPILED_!ELDL! (set "CURFN=!ELDL!" & goto el_drive)
+if defined PORTSH_OSRDIR if exist "!PORTSH_OSRDIR!\!ELDL!_pc0.cmd" (set "COMPILED_!ELDL!=1" & set "CURFN=!ELDL!" & goto el_drive)
 if defined ILAM_!ELDL!_body (set "CURFN=interp" & set "ICUR=!ELDL!") else set "CURFN=!ELDL!"
 goto el_drive
 :eld_ret
