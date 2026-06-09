@@ -5981,6 +5981,13 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 12)
+if [ "${p0}" = "S:read" ]; then PC=13; else PC=14; fi
+ACTION=jump; return
+;;
+13)
+R="S:t"; ACTION=ret; return
+;;
+14)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }

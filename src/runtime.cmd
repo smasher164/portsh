@@ -217,3 +217,104 @@ for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
 )
 call :rl_reverse "!rcAcc!"
 goto :eof
+rem :read -- A1 = T:<source>. Parse the FIRST datum from the string (mirrors the kernel's pa_read): save
+rem reader state, point SRC at A1's content, run the reader in RDMODE (emit_top captures the first datum
+rem into RDRESULT and clears SRC to stop), then restore. R = the parsed datum (heap value). The reader
+rem below is EMBEDDED here because a `call`ed prim file cannot reach comp.cmd's reader labels; it allocates
+rem into the SHARED heap via :rl_cons. *** KEEP IN SYNC with src/kernel.cmd's reader (run_forms / rf_* /
+rem read_atom / reduce_list / emit_top / apply_quotes) -- this is a copy; build-time sharing is a TODO. ***
+:read
+set "_rdSRC=!SRC!" & set "_rdSP=!SP!" & set "_rdDEPTH=!DEPTH!"
+set "SRC=!A1:~2!" & set "SP=0" & set "DEPTH=0" & set "RDMODE=1" & set "RDRESULT=NIL"
+call :run_forms
+set "RDMODE="
+set "R=!RDRESULT!"
+set "SRC=!_rdSRC!" & set "SP=!_rdSP!" & set "DEPTH=!_rdDEPTH!"
+goto :eof
+:run_forms
+:rf_loop
+call :skipws
+if "!SRC!"=="" goto :eof
+set "ch=!SRC:~0,1!"
+if "!ch!"=="(" goto rf_open
+if "!ch!"==")" goto rf_close
+if "!ch!"=="'" goto rf_quote
+if "!ch!"=="!BANG8!" goto rf_string
+goto rf_atom
+:rf_quote
+set "ST_!SP!=QM" & set /a SP+=1 & set "SRC=!SRC:~1!"
+goto rf_loop
+:rf_string
+set "SRC=!SRC:~1!"
+set "rfs="
+:rfs_loop
+if "!SRC!"=="" goto rfs_done
+set "sc=!SRC:~0,1!"
+if "!sc!"=="!BANG8!" set "SRC=!SRC:~1!" & goto rfs_done
+set "rfs=!rfs!!sc!" & set "SRC=!SRC:~1!"
+goto rfs_loop
+:rfs_done
+set "R=T:!rfs!"
+call :emit_top "!R!"
+goto rf_loop
+:rf_open
+set "ST_!SP!=LP" & set /a SP+=1 & set /a DEPTH+=1 & set "SRC=!SRC:~1!"
+goto rf_loop
+:rf_close
+set "SRC=!SRC:~1!"
+call :reduce_list
+call :emit_top "!R!"
+goto rf_loop
+:rf_atom
+call :read_atom
+call :emit_top "!R!"
+goto rf_loop
+:skipws
+if "!SRC!"=="" goto :eof
+if "!SRC:~0,1!"==" " set "SRC=!SRC:~1!" & goto :skipws
+goto :eof
+:read_atom
+set "tok="
+:ra_loop
+if "!SRC!"=="" goto ra_done
+set "ch=!SRC:~0,1!"
+if "!ch!"==" " goto ra_done
+if "!ch!"=="(" goto ra_done
+if "!ch!"==")" goto ra_done
+set "tok=!tok!!ch!" & set "SRC=!SRC:~1!"
+goto ra_loop
+:ra_done
+set "t=!tok!"
+if "!t!"=="" set "R=S:" & goto :eof
+set "c0=!t:~0,1!"
+set "isnum=0"
+if "!c0!" geq "0" if "!c0!" leq "9" set "isnum=1"
+if "!c0!"=="-" if "!t:~1,1!" geq "0" if "!t:~1,1!" leq "9" set "isnum=1"
+if "!isnum!"=="1" (set "R=I:!t!") else (set "R=S:!t!")
+goto :eof
+:reduce_list
+set "acc=NIL"
+:rdl_loop
+set /a SP-=1
+call set "top=%%ST_!SP!%%"
+if "!top!"=="LP" set /a DEPTH-=1 & set "R=!acc!" & goto :eof
+call :rl_cons "!top!" "!acc!"
+set "acc=!R!"
+goto rdl_loop
+:emit_top
+call :apply_quotes
+if !DEPTH! GTR 0 goto et_push
+set "RDRESULT=!R!" & set "SRC=" & goto :eof
+:et_push
+set "ST_!SP!=!R!" & set /a SP+=1
+goto :eof
+:apply_quotes
+:aq_loop
+if "!SP!"=="0" goto :eof
+set /a aqsp=SP-1
+call set "aqtop=%%ST_!aqsp!%%"
+if not "!aqtop!"=="QM" goto :eof
+set "SP=!aqsp!"
+call :rl_cons "!R!" "NIL"
+call :rl_cons "S:quote" "!R!"
+goto aq_loop

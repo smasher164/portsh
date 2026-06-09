@@ -38,6 +38,11 @@ add '(read-lines "data.txt")'
 add '(print (read-lines "data.txt"))'
 add '(file-exists? "data.txt")'
 add '(file-exists? "nope.txt")'
+add '(read "(a b c)")'
+add '(read "42")'
+add '(read "(nested (1 2) x)")'
+add '(read "hello")'
+add '(print (read "(a b c)"))'
 
 # ---- sh JIT (reference): run each program through load-sh.sh, tag blocks. -------------------
 # Run load-sh from the work dir so the relative "data.txt" resolves there.

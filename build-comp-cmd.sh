@@ -80,10 +80,10 @@ echo "comp(comp): $nfn compiled fn .cmd files + _consts.cmd"
 #    then falls through the full runtime body (all the internal :wl_emit_c/:al_loop_c labels are
 #    present for the same-file `call :helper`/`goto` to resolve). No setlocal -> R reaches caller,
 #    and delayed expansion + !HD!/!BANG!/!LT!/G_* are inherited in-process from comp.cmd.
-for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture; do
+for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture read; do
   { printf 'goto :%s\r\n' "$entry"; cat portsh-runtime.cmd; } > "$out/$entry.cmd"
 done
-echo "runtime: rdfield.cmd write-lines.cmd append-lines.cmd gc.cmd print.cmd read-lines.cmd file-existszzQ.cmd run_cmd.cmd run_capture.cmd"
+echo "runtime: rdfield/write-lines/append-lines/gc/print/read-lines/file-existszzQ/run_cmd/run_capture/read .cmd"
 
 # 3. Driver comp.cmd = the BARE cmd kernel (portsh.cmd, NOT portsh-full.cmd) + `call _consts.cmd`.
 #    Crucially NO stdlib: the native comp needs only the reader + eval dispatch + heap, and comp's
