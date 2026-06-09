@@ -11,10 +11,12 @@ set -eu
 cd "$(dirname "$0")/.."
 [ -f portsh-full.cmd ] || sh build.sh >/dev/null
 [ -f src/comp-sh-compiled.sh ] || sh build-comp-sh.sh >/dev/null
+[ -f src/prims-aot.sh ] || sh tools/build-prims-aot.sh >/dev/null
 
 {
   tr -d '\r' < portsh-full.cmd | awk 'NR==1{next} /^main "\$@"$/{exit} {print}'
   cat src/comp-sh-compiled.sh        # the comp -- we reuse lift_program (compiled) via the shared driver
+  cat src/prims-aot.sh               # __p_<op> wrappers: prims-as-values resolve to C:__p_<op>, like the comp
   cat <<'INTERP'
 
 # ===================== P1 resumable interpreter on the trampoline =====================
@@ -89,8 +91,15 @@ iresolve() {
   if [ -n "$ir_hit" ]; then eval "R=\$F$((FP+ir_hit))"; return; fi
   mangle "$ir_v"; ir_m=$R                                       # global fn -> I:<mangled> fn-value
   case " $GFNS " in *" $ir_m "*) R="I:$ir_m"; return ;; esac
-  if isprim "S:$ir_v"; then R="PRIM:$ir_v"; return; fi          # primitive used as a value
+  prim_wrap "$ir_v"; if [ -n "$R" ]; then R="C:$R"; return; fi  # primitive as a value -> C:<wrapper> (like the comp)
   eval "R=\${G_${ir_v}:-NIL}"                           # global var
+}
+prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not wrappable (matches comp prim-wrap)
+  case $1 in
+    +) R=__p_add ;; -) R=__p_sub ;; '*') R=__p_mul ;; '<') R=__p_lt ;; =) R=__p_neq ;;
+    cons) R=__p_cons ;; car) R=__p_car ;; cdr) R=__p_cdr ;; null?) R=__p_null ;; eq?) R=__p_eq ;; pair?) R=__p_pair ;; not) R=__p_not ;;
+    *) R="" ;;
+  esac
 }
 isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:print|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
@@ -280,8 +289,7 @@ RC_EOF
       S:CALLK)
         ip_n=${ip_pl#I:}
         ipop_n "$ip_n"; ip_av=$ip_args                  # args (source order)
-        hp_car "$IVS"; ip_fv=$R; hp_cdr "$IVS"; IVS=$R   # operator value (C:/I:/K:/PRIM:)
-        case $ip_fv in PRIM:*) ip_args=$ip_av; iprim "S:${ip_fv#PRIM:}"; continue ;; esac  # prim-as-value: apply inline, no call
+        hp_car "$IVS"; ip_fv=$R; hp_cdr "$IVS"; IVS=$R   # operator value (C:/I:/K:; prims-as-values are C:<wrapper>)
         NFP=$((FP+ITOP)); ip_i=0; ip_a=$ip_av             # callee frame above this activation's let-vars
         while [ "$ip_a" != NIL ]; do hp_car "$ip_a"; eval "F$((NFP+ip_i))=\$R"; hp_cdr "$ip_a"; ip_a=$R; ip_i=$((ip_i+1)); done
         eval "ISCS_$FP=\$ICS; ISVS_$FP=\$IVS; ISSCOPE_$FP=\$SCOPE; ISTOP_$FP=\$ITOP"
@@ -315,9 +323,11 @@ RC_EOF
         hp_car "$IVS"; ck_key=$R; hp_cdr "$IVS"; IVS=$R; ck_cl=$ip_pl
         while [ "$ck_cl" != NIL ]; do
           hp_car "$ck_cl"; ck_c=$R; hp_cdr "$ck_cl"; ck_cl=$R
-          hp_car "$ck_c"; ck_vals=$R; hp_cdr "$ck_c"; ck_body=$R; ck_m=
-          if [ "$ck_vals" = "S:else" ]; then ck_m=1
-          else ck_vl=$ck_vals; while [ "$ck_vl" != NIL ]; do hp_car "$ck_vl"; [ "$R" = "$ck_key" ] && { ck_m=1; break; }; hp_cdr "$ck_vl"; ck_vl=$R; done; fi
+          hp_car "$ck_c"; ck_dat=$R; hp_cdr "$ck_c"; ck_body=$R; ck_m=
+          # match the comp's case->cond: a clause is (DATUM body...), compared (eq? key DATUM) -- a SINGLE
+          # quoted datum, NOT Scheme's ((d1 d2) body) datum-list. else always matches.
+          if [ "$ck_dat" = "S:else" ]; then ck_m=1
+          elif [ "$ck_dat" = "$ck_key" ]; then ck_m=1; fi
           if [ -n "$ck_m" ]; then hp_cons "S:begin" "$ck_body"; hp_cons "S:EVAL" "$R"; ics "$R"; break; fi
         done ;;
     esac
@@ -385,6 +395,7 @@ _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} i
 str_to_symlist() { sl_o=NIL; for sl_w in $1; do hp_cons "S:$sl_w" "$sl_o"; sl_o=$R; done; R=$sl_o; }
 osr_compile() {
   mangle "$1"; oc_n=$R                                  # registry key + compiled fn name (sh-mangled)
+  eval "[ -n \"\${ILAM_${oc_n}_def+x}\" ]" || return 0  # not a compilable fn (e.g. a gvar) -> skip
   eval "oc_def=\$ILAM_${oc_n}_def"
   str_to_symlist "$GFNS"; oc_gf=$R; str_to_symlist "$GVARS"; oc_gv=$R
   FP=0; RSP=0; PC=0; CLO=""; ICUR=""; F0=$oc_def; F1=$oc_gf; F2=$oc_gv; CURFN=compile_def_sh; drive
