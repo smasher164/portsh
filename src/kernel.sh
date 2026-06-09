@@ -438,7 +438,10 @@ arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 # PORTSH_LOG_STOP=K abandons after K logged ops (exit 42) -- the deterministic stand-in, for tests,
 # for "the JIT became warm"; the real cold path checks the .ok marker instead.
 LG_TAB=$(printf '\t'); LG_N=0
-lg_tick() { LG_N=$((LG_N + 1)); [ -n "${PORTSH_LOG_STOP:-}" ] && [ "$LG_N" -ge "$PORTSH_LOG_STOP" ] && exit 42; return 0; }
+lg_tick() { LG_N=$((LG_N + 1))   # between ops, AFTER the effect+record: safe to abandon here
+  [ -n "${PORTSH_LOG_STOP:-}" ] && [ "$LG_N" -ge "$PORTSH_LOG_STOP" ] && exit 42   # deterministic stand-in (tests)
+  [ -n "${PORTSH_OK:-}" ] && [ -e "$PORTSH_OK" ] && exit 42                          # REAL warm signal: the JIT is ready
+  return 0; }
 lg_out()  { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s1\n%s\n' "$1" "$LG_TAB" "$2" >> "$PORTSH_LOG"; lg_tick; }
 lg_mark() { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s0\n' "$1" "$LG_TAB" >> "$PORTSH_LOG"; lg_tick; }   # effect-only op (file write); replay just suppresses the re-do
 lg_list() { [ -n "${PORTSH_LOG:-}" ] || return 0   # $1=op, $2=heap list of T: strings (multi-line result)
