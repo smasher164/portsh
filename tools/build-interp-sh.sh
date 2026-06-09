@@ -229,6 +229,18 @@ interp() {
               S:case)                                    # eval key once; CASEK matches a clause
                 hp_car "$ip_rest"; cs_k=$R; hp_cdr "$ip_rest"; cs_cl=$R
                 hp_cons "S:CASEK" "$cs_cl"; ics "$R"; hp_cons "S:EVAL" "$cs_k"; ics "$R" ;;
+              S:run)                                     # operative: join UNEVALUATED operand tokens -> host cmd
+                rn_c=""; rn_l=$ip_rest
+                while [ "$rn_l" != NIL ]; do hp_car "$rn_l"; rn_c="$rn_c ${R#??}"; hp_cdr "$rn_l"; rn_l=$R; done
+                sh -c "$rn_c"; ips "I:$?" ;;
+              S:run-capture)                             # operative: run, capture stdout as a list of lines
+                rn_c=""; rn_l=$ip_rest
+                while [ "$rn_l" != NIL ]; do hp_car "$rn_l"; rn_c="$rn_c ${R#??}"; hp_cdr "$rn_l"; rn_l=$R; done
+                rn_out=$(sh -c "$rn_c"); rn_acc=NIL
+                while IFS= read -r rn_ln || [ -n "$rn_ln" ]; do hp_cons "T:$rn_ln" "$rn_acc"; rn_acc=$R; done <<RC_EOF
+$rn_out
+RC_EOF
+                rn_rev=NIL; while [ "$rn_acc" != NIL ]; do hp_car "$rn_acc"; rn_v=$R; hp_cdr "$rn_acc"; rn_acc=$R; hp_cons "$rn_v" "$rn_rev"; rn_rev=$R; done; ips "$rn_rev" ;;
               *)
                 if isprim "$ip_h"; then
                   ilen "$ip_rest"; ip_n=$R
