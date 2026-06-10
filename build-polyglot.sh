@@ -75,21 +75,28 @@ for /f "skip=1 tokens=1" %%h in ('certutil -hashfile "!PROG!" SHA256') do if not
 set "PCACHE=%CACHE%\\p\\!H:~0,16!"
 if not exist "%CACHE%\\p" mkdir "%CACHE%\\p"
 if exist "!PCACHE!\\.ok" goto prun
-rem program cold: generate the background warmer to %TEMP% and launch it; the running interp flips
-rem per-fn (PORTSH_OSRDIR) as its atomic publish lands. Extra outer quotes defeat cmd /c quote-stripping.
-set "WARMP=%TEMP%\\portsh_warmp_{B}.cmd"
+rem program cold: generate the background warmer to %TEMP% (per-program, all paths CONCRETE -- no args,
+rem so the schtasks action string needs no nested quoting) and launch it DETACHED via the Task Scheduler:
+rem a `start /b` child lives in this console/ssh job and DIES when the session ends (compiling a program
+rem takes minutes -- longer than many runs), silently leaving the cache forever cold. A scheduled task
+rem runs outside the job and always finishes. Fallback to start /b if schtasks is unavailable.
+set "WARMP=%TEMP%\\portsh_warmp_!H:~0,16!.cmd"
 > "!WARMP!" echo @echo off
 >>"!WARMP!" echo set "PATH=%CACHE%;%%PATH%%"
->>"!WARMP!" echo if exist "%%~2.tmp" rmdir /s /q "%%~2.tmp"
->>"!WARMP!" echo mkdir "%%~2.tmp"
->>"!WARMP!" echo set "PORTSH_OSRCOMPILE=%%~2.tmp"
->>"!WARMP!" echo cmd /c "call interp-cmd.cmd "%%~1"" ^>nul 2^>^&1
->>"!WARMP!" echo if errorlevel 1 exit /b 1
+>>"!WARMP!" echo if exist "!PCACHE!.tmp" rmdir /s /q "!PCACHE!.tmp"
+>>"!WARMP!" echo mkdir "!PCACHE!.tmp"
+>>"!WARMP!" echo set "PORTSH_OSRCOMPILE=!PCACHE!.tmp"
+>>"!WARMP!" echo cmd /c "call interp-cmd.cmd "!PROG!"" ^>nul 2^>^&1
+>>"!WARMP!" echo if errorlevel 1 goto wpend
 >>"!WARMP!" echo set "PORTSH_OSRCOMPILE="
->>"!WARMP!" echo if exist "%%~2" rmdir /s /q "%%~2"
->>"!WARMP!" echo move "%%~2.tmp" "%%~2" ^>nul 2^>^&1
->>"!WARMP!" echo break^>"%%~2\\.ok"
-start "" /b cmd /c ""!WARMP!" "!PROG!" "!PCACHE!"" >nul 2>&1
+>>"!WARMP!" echo if exist "!PCACHE!" rmdir /s /q "!PCACHE!"
+>>"!WARMP!" echo move "!PCACHE!.tmp" "!PCACHE!" ^>nul 2^>^&1
+>>"!WARMP!" echo break^>"!PCACHE!\\.ok"
+>>"!WARMP!" echo :wpend
+>>"!WARMP!" echo schtasks /delete /f /tn "portsh_w_!H:~0,16!" ^>nul 2^>^&1
+set "WOK="
+schtasks /create /f /tn "portsh_w_!H:~0,16!" /tr "'!WARMP!'" /sc once /st 00:00 >nul 2>&1 && set "WOK=1"
+if defined WOK (schtasks /run /tn "portsh_w_!H:~0,16!" >nul 2>&1) else (start "" /b cmd /c ""!WARMP!"" >nul 2>&1)
 :prun
 set "PORTSH_OSRDIR=!PCACHE!"
 set "PORTSH_SCRIPT=1"

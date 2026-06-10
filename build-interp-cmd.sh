@@ -45,6 +45,11 @@ rem successive REPL inputs don't collide __lamN / __evN (which would clobber liv
 set "CTR=0" & set "NN=0"
 if defined PORTSH_OSRDIR set "PATH=!PORTSH_OSRDIR!;!PATH!"
 if "%~1"=="" goto in_repl
+rem WARM FAST PATH: the program cache has the thunk run-list -> execute the program STRAIGHT from the
+rem cache (program consts + compiled thunks on el_drive). No reader, no mexpand, no lift, no register --
+rem the pipeline is pure waste when every fn is already compiled. Content-hash keying makes this safe
+rem (an edited program lands in a different cache dir).
+if defined PORTSH_OSRDIR if exist "!PORTSH_OSRDIR!\_thunks" goto in_warmrun
 rem file mode: read ALL top-level forms into ONE list (pre-open an outer list so every datum accumulates
 rem at DEPTH>=1, then feed ')' so emit_top captures RDRESULT = (form1 form2 ...)).
 set "SP=0" & set "DEPTH=0" & set "ST_0=LP" & set "SP=1" & set "DEPTH=1" & set "RDMODE=1" & set "RDRESULT=NIL"
@@ -54,6 +59,28 @@ set "RDMODE="
 set "PFIN=!RDRESULT!"
 call :proc_forms
 exit /b 0
+
+:in_warmrun
+rem the program's atom-const globals (FULL path -- a bare `call _consts.cmd` would resolve in PATH order
+rem and could hit the comp's own _consts.cmd in the tooling cache)
+if exist "!PORTSH_OSRDIR!\_consts.cmd" call "!PORTSH_OSRDIR!\_consts.cmd"
+set "RUNQ="
+for /f "usebackq delims=" %%t in ("!PORTSH_OSRDIR!\_thunks") do set "RUNQ=%%t"
+:in_wr_loop
+set "ENT="
+for /f "tokens=1*" %%a in ("!RUNQ!") do (set "ENT=%%a" & set "RUNQ=%%b")
+if "!ENT!"=="" exit /b 0
+for /f "tokens=1,2 delims==" %%x in ("!ENT!") do (set "TN=%%x" & set "TA=%%y")
+set "FP=0" & set "RSP=0" & set "CURFN=!TN!" & set "PC=0" & set "CLO=" & set "ICUR="
+call :el_drive
+if "!TA!"=="S" goto in_wr_show
+set "G_!TA:~2!=!R!"
+goto in_wr_loop
+:in_wr_show
+if defined PORTSH_SCRIPT goto in_wr_loop
+call :el_relem 0 "!R!"
+echo(!ELR!
+goto in_wr_loop
 
 :in_repl
 rem interactive REPL: readall in RDMODE returns after each complete top-level form (one form/submit);
@@ -278,6 +305,9 @@ goto in_reg
 
 :in_compileonly
 if not exist "!PORTSH_OSRCOMPILE!" mkdir "!PORTSH_OSRCOMPILE!"
+rem persist the thunk run-list (order + actions) -- the warm fast path executes the program straight
+rem from the cache (boot -> _consts -> these thunks on el_drive), skipping read/mexpand/lift/register.
+>"!PORTSH_OSRCOMPILE!\_thunks" echo(!THUNKS!
 set "F0=!XF!" & set "F1=T:!PORTSH_OSRCOMPILE!" & set "F2=T:!PORTSH_OSRCOMPILE!/_main"
 set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO=" & set "ICUR="
 call :el_drive
