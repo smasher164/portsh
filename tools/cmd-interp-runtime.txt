@@ -118,30 +118,43 @@ set "ICS=NIL" & set "IVS=NIL"
 call :hp_cons "S:EVAL" "!ipb!"
 call :hp_cons "!R!" "!ICS!"
 set "ICS=!R!"
+rem the task loop, CHUNKED like el_drive (a backward goto = full-file scan; for /l can't break early ->
+rem flag-drain). Each iteration pops one task INLINE (the heap reads are open-coded: a task ref is always
+rem P:, so no hp_car guard needed) and CALL-dispatches the handler; handlers end `goto :eof` (or set
+rem ACTION to yield/finish, which drains the chunk and returns to the driver).
 :itk_loop
-if "!ICS!"=="NIL" goto itk_done
-call :hp_car "!ICS!"
-set "ipt=!R!"
-call :hp_cdr "!ICS!"
-set "ICS=!R!"
-call :hp_car "!ipt!"
-set "iptag=!R!"
-call :hp_cdr "!ipt!"
-set "ippl=!R!"
-if "!iptag!"=="S:EVAL" goto itk_eval
-if "!iptag!"=="S:IFK" goto itk_ifk
-if "!iptag!"=="S:PRIMK" goto itk_primk
-if "!iptag!"=="S:CALLK" goto itk_callk
-if "!iptag!"=="S:LETK" goto itk_letk
-if "!iptag!"=="S:BINDK" goto itk_bindk
-if "!iptag!"=="S:POPK" goto itk_popk
+set "ITDONE="
+:itk_chunk
+for /l %%Y in (1,1,1000) do if not defined ITDONE (
+  if "!ICS!"=="NIL" (
+    call :hp_car "!IVS!"
+    set "ACTION=ret"
+    set "ITDONE=1"
+  ) else (
+    set "ipi=!ICS:~2!"
+    set /p ipt=<%HD%\car!ipi!
+    set /p ICS=<%HD%\cdr!ipi!
+    set "ipt=!ipt:~0,-1!" & set "ICS=!ICS:~0,-1!"
+    set "ipi=!ipt:~2!"
+    set /p iptag=<%HD%\car!ipi!
+    set /p ippl=<%HD%\cdr!ipi!
+    set "iptag=!iptag:~0,-1!" & set "ippl=!ippl:~0,-1!"
+    if "!iptag!"=="S:EVAL" (call :itk_eval) else if "!iptag!"=="S:PRIMK" (call :itk_primk2) else if "!iptag!"=="S:IFK" (call :itk_ifk) else if "!iptag!"=="S:CALLK" (call :itk_callk) else if "!iptag!"=="S:LETK" (call :itk_letk) else if "!iptag!"=="S:BINDK" (call :itk_bindk) else if "!iptag!"=="S:POPK" (call :itk_popk) else call :itk_unknown
+    if defined ACTION set "ITDONE=1"
+  )
+)
+if not defined ITDONE goto itk_chunk
+set "ITDONE="
+goto :eof
+:itk_unknown
 echo interp: unknown task !iptag! 1>&2
 set "R=NIL" & set "ACTION=ret"
 goto :eof
-:itk_done
-call :hp_car "!IVS!"
-set "ACTION=ret"
-goto :eof
+:itk_primk2
+rem call-context wrapper: itk_primk historically GOTOs into iprim whose branches end at itk_push --
+rem in the chunked design every handler chain terminates with goto :eof (itk_push), so the whole
+rem primk->iprim->push path runs inside THIS call's context.
+goto itk_primk
 rem -- value push helper: IPV -> IVS ------------------------------------------------------------------
 :ips
 call :hp_cons "!IPV!" "!IVS!"
@@ -160,7 +173,7 @@ if "!ipp2!"=="P:" goto itk_compound
 set "IPV=!ippl!"
 :itk_push
 call :ips
-goto itk_loop
+goto :eof
 :itk_var
 set "IRV=!ippl:~2!"
 call :iresolve
@@ -205,7 +218,7 @@ set "ICS=!R!"
 call :hp_cons "S:EVAL" "!ipc!"
 call :hp_cons "!R!" "!ICS!"
 set "ICS=!R!"
-goto itk_loop
+goto :eof
 :itk_let
 rem (let ((n v)...) body) -- SEQUENTIAL (matches comp lbinds). Push LETK(saved scope), EVAL body,
 rem then per binding (reversed): BINDK(name), EVAL value -- so first binding evals first.
@@ -232,7 +245,7 @@ call :hp_cdr "!ipbl!"
 set "ipbl=!R!"
 goto itk_let_rev
 :itk_let_push
-if "!iprv!"=="NIL" goto itk_loop
+if "!iprv!"=="NIL" goto :eof
 call :hp_car "!iprv!"
 set "ipbnd=!R!"
 call :hp_cdr "!iprv!"
@@ -264,7 +277,7 @@ goto itk_bg_rev
 :itk_bg_push
 set "ipfirst=1"
 :itk_bg_p2
-if "!iprv!"=="NIL" goto itk_loop
+if "!iprv!"=="NIL" goto :eof
 call :hp_car "!iprv!"
 set "ipbe=!R!"
 call :hp_cdr "!iprv!"
@@ -357,7 +370,7 @@ call :hp_cons "!R!" "!ICS!"
 set "ICS=!R!"
 set "IPA=!iprest!"
 call :ipush_args
-goto itk_loop
+goto :eof
 :itk_call
 rem general call: CALLK(n), arg EVALs, then EVAL operator on TOP (eval'd first)
 set "ILL=!iprest!"
@@ -371,7 +384,7 @@ call :ipush_args
 call :hp_cons "S:EVAL" "!iph!"
 call :hp_cons "!R!" "!ICS!"
 set "ICS=!R!"
-goto itk_loop
+goto :eof
 rem -- task handlers ---------------------------------------------------------------------------------
 :itk_ifk
 call :hp_car "!IVS!"
@@ -385,10 +398,10 @@ set "ipelse=!R!"
 if "!ipcv!"=="NIL" (call :hp_cons "S:EVAL" "!ipelse!") else (call :hp_cons "S:EVAL" "!ipthen!")
 call :hp_cons "!R!" "!ICS!"
 set "ICS=!R!"
-goto itk_loop
+goto :eof
 :itk_letk
 set "ISCP=!ippl!"
-goto itk_loop
+goto :eof
 :itk_bindk
 call :hp_car "!IVS!"
 set "ipbv=!R!"
@@ -400,11 +413,11 @@ call :hp_cons "!ippl!" "I:!ITOP!"
 call :hp_cons "!R!" "!ISCP!"
 set "ISCP=!R!"
 set /a ITOP+=1
-goto itk_loop
+goto :eof
 :itk_popk
 call :hp_cdr "!IVS!"
 set "IVS=!R!"
-goto itk_loop
+goto :eof
 :itk_primk
 call :hp_car "!ippl!"
 set "IPO=!R!"
