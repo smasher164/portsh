@@ -378,8 +378,23 @@ goto :eof
 # per-char reader and the per-op heap stay at the front, and what gets pushed deep is the cold vau-:ev
 # half of the kernel that the interp path never calls. Appending at the end (the old layout) made every
 # interp step and every comp-driving dispatch ~10ms.
-hot = '\n' + interp_rt + '\n' + main.replace('\r\n','\n') + '\n' + jit_tail + '\n'
+# within the hot blob, the MACHINE (interp + itk_* handlers + ips/iresolve/iprim -- called per eval
+# step) goes BEFORE the driver: el_drive is entered rarely and its chunk works inline, so its label
+# position barely matters, while every task dispatch pays the handlers' call offsets.
+rt_machine_at = interp_rt.index('\nrem ---- resumable interpreter')
+rt_driver, rt_machine = interp_rt[:rt_machine_at], interp_rt[rt_machine_at:]
+hot = '\n' + rt_machine + '\n' + rt_driver + '\n' + main.replace('\r\n','\n') + '\n' + jit_tail + '\n'
 s_lf = s.replace('\r\n','\n')
+# FRONT-DUP the heap primitives: `call :label` scans from the top, so a duplicate of hp_cons/hp_car/
+# hp_cdr right after the boot jump (~2.5KB) shadows the kernel originals (~10KB) for every one of the
+# interp's ~136 call sites -- ~1ms saved per call, no handler edits. First-match-from-top wins; the
+# originals become dead shadows. Verbatim copies, so behavior is identical.
+hpa = s_lf.index('\n:hp_cons\n')
+hpb = s_lf.index('\n:hp_setcar\n')
+hp_dup = s_lf[hpa:hpb]
+bj = 'goto :in_main'
+j = s_lf.index(bj) + len(bj)
+s_lf = s_lf[:j] + hp_dup + s_lf[j:]
 anchor = '\n:hp_setcar\n'
 i = s_lf.index(anchor)
 s = s_lf[:i] + hot + s_lf[i:]

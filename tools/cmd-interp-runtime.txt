@@ -155,10 +155,13 @@ rem call-context wrapper: itk_primk historically GOTOs into iprim whose branches
 rem in the chunked design every handler chain terminates with goto :eof (itk_push), so the whole
 rem primk->iprim->push path runs inside THIS call's context.
 goto itk_primk
-rem -- value push helper: IPV -> IVS ------------------------------------------------------------------
+rem -- value push helper: IPV -> IVS (hp_cons OPEN-CODED -- the hottest single op in the machine; the
+rem trailing guard byte # protects sentinel-ending values from set /p stripping, exactly like hp_cons) --
 :ips
-call :hp_cons "!IPV!" "!IVS!"
-set "IVS=!R!"
+>%HD%\car%HN% echo(!IPV!#
+>%HD%\cdr%HN% echo(!IVS!#
+set "IVS=P:%HN%"
+set /a HN+=1
 goto :eof
 rem -- EVAL ------------------------------------------------------------------------------------------
 :itk_eval
