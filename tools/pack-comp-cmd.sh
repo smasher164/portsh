@@ -12,7 +12,12 @@ cd "$(dirname "$0")/.."
 python3 - comp-cmd comp-cmd.selfx.cmd <<'PY'
 import sys, os, hashlib
 srcdir, out = sys.argv[1], sys.argv[2]
-files = sorted(f for f in os.listdir(srcdir) if os.path.isfile(os.path.join(srcdir, f)))
+# load-cmd.cmd is the standalone cmd-JIT engine -- a dev/test artifact (engine-differential tests);
+# nothing in the shipped front-end calls it. Excluding it keeps the pack lean AND the build id
+# deterministic regardless of whether build-load-cmd.sh has run since the last comp-cmd/ regen.
+EXCLUDE = {'load-cmd.cmd'}
+files = sorted(f for f in os.listdir(srcdir)
+               if os.path.isfile(os.path.join(srcdir, f)) and f not in EXCLUDE)
 h = hashlib.sha256()
 for f in files:
     h.update(f.encode())

@@ -30,6 +30,11 @@ for f in tests/engines/*.lisp; do
 done
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   VM=$PORTSH_WIN_SSH; DIR="eng$$"
+  # build-comp-cmd.sh regenerates comp-cmd/ with rm -rf, dropping the loader and interp; rebuild
+  # whichever is missing (load-cmd.cmd is deliberately NOT in the selfx pack -- it exists for these
+  # engine-differential legs).
+  [ -f comp-cmd/interp-cmd.cmd ] || sh build-interp-cmd.sh >/dev/null
+  [ -f comp-cmd/load-cmd.cmd ]   || sh build-load-cmd.sh >/dev/null
   work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
   tar czf "$work/t.tgz" -C comp-cmd . -C "$root/tests" engines
   ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true
