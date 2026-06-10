@@ -813,12 +813,17 @@ rem car<i>/cdr<i> in %HD%. KEY: redirect targets are parsed BEFORE delayed expan
 rem so the PATH uses %HD%/%HN%/%idx% (immediate); the value uses !..! (delayed,
 rem post-parse) so operators (& | < >) and parens in a value never re-tokenize.
 rem Files don't degrade with heap size, so GC is non-critical here (po_gc neutralised).
+rem PRE-increment (HN = the last USED cell), matching compiled code's inline cons and rl_cons.
+rem The conventions MUST agree: under OSR mixed execution, interp and compiled conses interleave
+rem in one process, and a post-inc cons issued after a pre-inc one writes AT the other engine's
+rem newest live cell (that clobber turned (foldl + 0 (range 1 5)) into 1861 in the first
+rem progressive-warmer cold run).
 :hp_cons
 set "hca=%~1" & set "hcd=%~2"
+set /a HN+=1
 >%HD%\car%HN% echo(!hca!#
 >%HD%\cdr%HN% echo(!hcd!#
 set "R=P:%HN%"
-set /a HN+=1
 goto :eof
 :hp_car
 set "hcp=%~1"

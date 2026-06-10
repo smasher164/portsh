@@ -156,12 +156,14 @@ rem in the chunked design every handler chain terminates with goto :eof (itk_pus
 rem primk->iprim->push path runs inside THIS call's context.
 goto itk_primk
 rem -- value push helper: IPV -> IVS (hp_cons OPEN-CODED -- the hottest single op in the machine; the
-rem trailing guard byte # protects sentinel-ending values from set /p stripping, exactly like hp_cons) --
+rem trailing guard byte # protects sentinel-ending values from set /p stripping, exactly like hp_cons).
+rem PRE-increment like hp_cons/compiled cons: ONE heap convention process-wide or OSR mixed execution
+rem clobbers the other engine's newest cell. --
 :ips
+set /a HN+=1
 >%HD%\car%HN% echo(!IPV!#
 >%HD%\cdr%HN% echo(!IVS!#
 set "IVS=P:%HN%"
-set /a HN+=1
 goto :eof
 rem -- EVAL ------------------------------------------------------------------------------------------
 :itk_eval
