@@ -302,7 +302,7 @@ call :hp_cons "!mclbl!" "!mcrev!"
 set "IPV=K:!R:~2!"
 goto itk_push
 :itk_run
-rem operative: join UNEVALUATED operand token texts -> host cmd; run_cmd.cmd does the exec (replay-aware)
+rem operative: join UNEVALUATED operand token texts -> host cmd; run_cmd.cmd does the exec
 set "rnc="
 set "rnl=!iprest!"
 :itk_run_j
@@ -590,7 +590,7 @@ if "!IPO!"=="S:append-lines" set "R=1"
 goto :eof
 :iprim
 rem IPO = S:<op>, ip_args = evaluated args (source order). Push the result. I/O prims call the runtime
-rem .cmd files (replay-aware, shared with compiled code); pure prims inline via hp_*/set arithmetic.
+rem .cmd files (shared with compiled code); pure prims inline via hp_*/set arithmetic.
 call :hp_car "!ip_args!"
 set "ipa=!R!"
 if "!IPO!"=="S:car" (call :hp_car "!ipa!" & set "IPV=!R!" & goto itk_push)

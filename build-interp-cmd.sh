@@ -17,7 +17,7 @@ src, out, irt, jrt = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 s = open(src, 'rb').read().decode('latin-1')
 interp_rt = open(irt).read()
 jit_rt = open(jrt).read()
-# the interp runtime carries its own (unified) el_drive; take only the renderer + replay tail of the
+# the interp runtime carries its own (unified) el_drive; take only the renderer tail of the
 # jit runtime (everything from the value-renderer marker on), so :el_drive isn't duplicated.
 marker = 'rem ---- value renderer'
 jit_tail = jit_rt[jit_rt.index(marker):]
@@ -45,7 +45,6 @@ set "SP=0" & set "DEPTH=0" & set "ST_0=LP" & set "SP=1" & set "DEPTH=1" & set "R
 call :feedfile "%~1" 0
 set "SRC=) " & call :run_forms
 set "RDMODE="
-call :replay_init
 set "PFIN=!RDRESULT!"
 call :proc_forms
 exit /b 0
@@ -282,7 +281,6 @@ if "!TA!"=="S" goto in_show
 set "G_!TA:~2!=!R!"
 goto in_run
 :in_show
-if defined PORTSH_REPLAY goto in_run
 if defined PORTSH_SCRIPT goto in_run
 call :el_relem 0 "!R!"
 echo(!ELR!
