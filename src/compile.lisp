@@ -33,7 +33,9 @@
 (define vref (lambda (r) (cond ((eq? (car r) (quote lit)) (str "I:" (cdr r))) ((eq? (car r) (quote raw)) (str "I:!" (cdr r) "!")) ((eq? (car r) (quote cst)) (cdr r)) (t (str "!" (cdr r) "!")))))
 ;; cref: the CONTENT of a value (tag stripped) for string concat/retag. A cst
 ;; (T:lit) is stripped at compile time; a var (val) strips its 2-char tag at runtime.
-(define cref (lambda (r) (if (eq? (car r) (quote cst)) (substring (cdr r) 2 (- (string-length (cdr r)) 2)) (str "!" (cdr r) ":~2!"))))
+;; cref: render an operand ref PAYLOAD (tag stripped). lit = raw compile-time number (no tag, verbatim --
+;; without this arm a literal in (str "n=" 42) emits !42:~2!, a substring of an undefined var named 42).
+(define cref (lambda (r) (if (eq? (car r) (quote lit)) (cdr r) (if (eq? (car r) (quote cst)) (substring (cdr r) 2 (- (string-length (cdr r)) 2)) (str "!" (cdr r) ":~2!")))))
 ;; enc-mc: rewrite the data metachars in a string LITERAL's content so they survive
 ;; into compiled.cmd. At runtime a value reaches `set zt=T:...`; there a bare 0x01('!')
 ;; is eaten by delayed expansion, 0x02('%') by percent-expansion, and 0x07('^') acts as
@@ -209,7 +211,7 @@
                         (let ((b7 (emit b6 (str ":" tk))))
                           (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
                             (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
-(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) (t nil))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) (t nil))))
 ;; run / run-capture are OPERATIVES: operands are unevaluated literal tokens joined into a host
 ;; command (matching prim_oper). fv/lift must SKIP their operands (like quote) -- runop? guards both.
 ;; The joined command is baked via enc-mc (the SAME sentinel encoding the reader applies to heap

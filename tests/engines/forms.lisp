@@ -1,0 +1,7 @@
+(print (let ((a 3) (b 4)) (+ a b)))
+(print (let* ((a 3) (b (* a a))) (+ a b)))
+(print (cond ((eq? 1 2) (quote no)) (t (quote yes))))
+(print (and 1 2 3))
+(print (or nil 7))
+(print (case 2 (1 (quote one)) (2 (quote two)) (else (quote other))))
+(print (when t (quote shown)))

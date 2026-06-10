@@ -179,6 +179,41 @@ rem slash normalisation -- consistent with the interpreter; write-lines normalis
 set "fexP=!A1:~2!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
 goto :eof
+rem :split -- A1 = T:string, A2 = T:separator. R = list of T: pieces (mirrors the kernel/interp split).
+rem Char-scan (handles multi-char separators); empty separator -> single-element list. Cells via :rl_cons.
+:split
+set "spS=!A1:~2!"
+set "spSep=!A2:~2!"
+if not defined spSep (call :rl_cons "T:!spS!" "NIL" & goto :eof)
+set "spAcc=NIL"
+set "spH="
+set "spR=!spS!"
+:sp_scan
+if not defined spR goto sp_last
+set "spT=!spR!"
+set "spP=!spSep!"
+:sp_cmp
+if not defined spP goto sp_hit
+if not defined spT goto sp_adv
+if not "!spT:~0,1!"=="!spP:~0,1!" goto sp_adv
+set "spT=!spT:~1!"
+set "spP=!spP:~1!"
+goto sp_cmp
+:sp_hit
+call :rl_cons "T:!spH!" "!spAcc!"
+set "spAcc=!R!"
+set "spH="
+set "spR=!spT!"
+goto sp_scan
+:sp_adv
+set "spH=!spH!!spR:~0,1!"
+set "spR=!spR:~1!"
+goto sp_scan
+:sp_last
+call :rl_cons "T:!spH!" "!spAcc!"
+set "spAcc=!R!"
+call :rl_reverse "!spAcc!"
+goto :eof
 rem :type-of -- A1 = a tagged value. R = its type symbol (mirrors the kernel/interp type-of). Pure (no
 rem The comp emits this as a builtin call (call type-of.cmd) for (type-of x).
 :type-of

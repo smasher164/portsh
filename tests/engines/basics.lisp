@@ -1,0 +1,6 @@
+(print (+ 40 2))
+(print (* 6 7))
+(print (- 50 8))
+(print (< 1 2))
+(print (eq? (quote a) (quote a)))
+(print (cons 1 (cons 2 nil)))

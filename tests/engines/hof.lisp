@@ -1,0 +1,5 @@
+(define map (lambda (f xs) (if (null? xs) nil (cons (f (car xs)) (map f (cdr xs))))))
+(define foldl (lambda (f acc xs) (if (null? xs) acc (foldl f (f acc (car xs)) (cdr xs)))))
+(define dbl (lambda (x) (* x 2)))
+(print (map dbl (list 1 2 3)))
+(print (foldl (lambda (a b) (+ a b)) 0 (list 1 2 3 4)))

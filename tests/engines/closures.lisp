@@ -1,0 +1,7 @@
+(define dbl (lambda (x) (* x 2)))
+(define compose (lambda (f g) (lambda (x) (f (g x)))))
+(define inc (lambda (x) (+ x 1)))
+(define d2 (compose dbl inc))
+(print (d2 10))
+(define adder (lambda (n) (lambda (x) (+ x n))))
+(print ((adder 5) 10))

@@ -1,0 +1,7 @@
+(print (string-append "ab" "cd"))
+(print (string-length "hello"))
+(print (substring "abcdef" 2 3))
+(print (split "a,b,c" ","))
+(print (str "n=" 42))
+(print (type-of "s"))
+(print (type-of 5))
