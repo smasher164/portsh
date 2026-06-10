@@ -179,8 +179,8 @@ if "!RP_HIT!"=="1" goto rdl_rp
 set "rlF=!A1:~2!"
 set "rlF=!rlF:/=\!"
 set "rlAcc=NIL"
-type "!rlF!" | find /v /n "" > "%TEMP%\portsh_rl.txt"
-for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl.txt") do (
+type "!rlF!" | find /v /n "" > "%TEMP%\portsh_rl_!HD!.txt"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl_!HD!.txt") do (
   set "rlLn=%%L" & set "rlLn=!rlLn:*]=!"
   call :rl_cons "T:!rlLn!" "!rlAcc!"
   set "rlAcc=!R!"
@@ -269,10 +269,10 @@ rem as :ev/read-lines): for/f eats a literal '!' in captured output.
 call :replay_take run-capture
 if "!RP_HIT!"=="1" goto rc_rp
 call :rc_unesc
-> "%TEMP%\portsh_rc1.txt" 2>&1 cmd /c "!RCMD!"
-type "%TEMP%\portsh_rc1.txt" | find /v /n "" > "%TEMP%\portsh_rc.txt"
+> "%TEMP%\portsh_rc1_!HD!.txt" 2>&1 cmd /c "!RCMD!"
+type "%TEMP%\portsh_rc1_!HD!.txt" | find /v /n "" > "%TEMP%\portsh_rc_!HD!.txt"
 set "rcAcc=NIL"
-for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc_!HD!.txt") do (
   set "rcLn=%%L" & set "rcLn=!rcLn:*]=!"
   call :rl_cons "T:!rcLn!" "!rcAcc!"
   set "rcAcc=!R!"

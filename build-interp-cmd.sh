@@ -132,6 +132,10 @@ set "XF=!R!"
 goto :eof
 
 :in_expand
+rem COMPILE-ONLY mode (the front-end's background program-warmer): compile the partitioned forms to
+rem per-PC .cmd artifacts in %PORTSH_OSRCOMPILE% and exit -- no register, no run. Same partition code
+rem path as the interp run, so fn labels + __lamN/__evN numbering match what a running interp expects.
+if defined PORTSH_OSRCOMPILE goto in_compileonly
 rem mexpand (derived forms -> core) then lift (inner lambdas -> make-closure/clambda), via the COMPILED
 rem comp on the shared driver. After this the interp only needs the core machine.
 set "F0=!XF!"
@@ -234,6 +238,13 @@ set "ILAM_!MN!_ncap=!R!"
 set "ILAM_!MN!_vars=!APP!"
 set "ILAM_!MN!_body=!BODY!"
 goto in_reg
+
+:in_compileonly
+if not exist "!PORTSH_OSRCOMPILE!" mkdir "!PORTSH_OSRCOMPILE!"
+set "F0=!XF!" & set "F1=T:!PORTSH_OSRCOMPILE!" & set "F2=T:!PORTSH_OSRCOMPILE!/_main"
+set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO=" & set "ICUR="
+call :el_drive
+exit /b 0
 
 :in_run0
 rem --- OSR flip (keystone, mirror of sh P2 PORTSH_OSR): compile XF to per-PC .cmd files in osrout/ (a

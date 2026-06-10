@@ -9,10 +9,16 @@ rem stored as _%1_name. Reader is iterative (mutates global SRC + parse stack).
 rem MUST be CRLF (label lookup) and uses goto-dispatch (values contain parens).
 setlocal enabledelayedexpansion
 set "HN=0" & set "FID=0" & set "SP=0" & set "FREE_HEAD=NIL" & set "MARKGEN=0"
-rem file-backed heap dir (cells = %HD%\car<i>/cdr<i>). %RANDOM%-unique so concurrent
-rem runs don't collide; inherited in-process by any compiled subs that touch the heap.
-set "HD=ph_%RANDOM%%RANDOM%"
+rem file-backed heap dir (cells = %HD%\car<i>/cdr<i>), inherited in-process by any compiled subs
+rem that touch the heap. %RANDOM% alone is NOT enough: it's seeded from the wall-clock SECOND, so two
+rem processes launched together (e.g. the front-end's fg interp + bg program warmer) get the SAME
+rem sequence -> same dir -> shared/corrupted heap. mkdir is the atomic claim: it FAILS if the dir
+rem exists, and the loser retries with fresh entropy (centiseconds + an advanced RANDOM).
+:hd_claim
+set "HD=ph_%RANDOM%%TIME:~9,2%%RANDOM%"
+set "HD=!HD:,=!"
 mkdir "!HD!" 2>nul
+if errorlevel 1 goto hd_claim
 if not defined GC_THRESH set "GC_THRESH=150000"
 rem Four sentinel bytes stand in for the chars cmd's expansion phases eat or mangle
 rem inside string VALUES: 0x01='!' (delayed expansion eats it), 0x02='%' (percent
@@ -65,8 +71,8 @@ rem `find /v /n ""` (so set/p never meets a blank line, which it can't tell from
 rem EOF), then read each line RAW with set/p, discard the first %2 (to skip the
 rem kernel's own text ahead of the baked-in payload), and encode+drain the rest.
 :feedfile
-type "%~1" | find /v /n "" > "%TEMP%\portsh_in.txt"
-call :readall %2 < "%TEMP%\portsh_in.txt"
+type "%~1" | find /v /n "" > "%TEMP%\portsh_in_!HD!.txt"
+call :readall %2 < "%TEMP%\portsh_in_!HD!.txt"
 goto :eof
 
 rem readall: set/p reads a raw line (all of ! % ^ " & | < > survive). NO `call` is
@@ -588,10 +594,10 @@ rem before a trailing token (`2>&1`/`|`) is absorbed into the command line and
 rem echo emits a spurious trailing space (a cmd quote-stripping quirk that the
 rem sh capture doesn't have). Capture raw, then prefix every line with "[N]" via
 rem find (keeps blank/';' lines) in a separate step, then iterate.
-> "%TEMP%\portsh_rc1.txt" 2>&1 cmd /c "!rcCmd!"
-type "%TEMP%\portsh_rc1.txt" | find /v /n "" > "%TEMP%\portsh_rc.txt"
+> "%TEMP%\portsh_rc1_!HD!.txt" 2>&1 cmd /c "!rcCmd!"
+type "%TEMP%\portsh_rc1_!HD!.txt" | find /v /n "" > "%TEMP%\portsh_rc_!HD!.txt"
 set "rcAcc=NIL"
-for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc.txt") do (
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc_!HD!.txt") do (
   set "rcLn=%%L" & set "rcLn=!rcLn:*]=!"
   call :hp_cons "T:!rcLn!" "!rcAcc!"
   set "rcAcc=!R!"
@@ -895,8 +901,8 @@ rem Run the pipe as a normal redirect FIRST, then iterate the prefixed file with
 rem a plain for/f. A pipe INSIDE for/f deadlocks in this deep call/redirect
 rem context, so the pipe must stand alone. The "[N]" prefix on every line keeps
 rem blank/';'-leading lines visible to for/f; !ln:*]=! strips it back off.
-type "!rlF!" | find /v /n "" > "%TEMP%\portsh_rl.txt"
-for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl.txt") do (
+type "!rlF!" | find /v /n "" > "%TEMP%\portsh_rl_!HD!.txt"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rl_!HD!.txt") do (
   set "rlLn=%%L" & set "rlLn=!rlLn:*]=!"
   call :hp_cons "T:!rlLn!" "!rlAcc!"
   set "rlAcc=!R!"

@@ -93,8 +93,8 @@ rem ---- RP_* are process-global, so the called prim files (print.cmd etc.) see 
 :replay_init
 if not defined PORTSH_REPLAY goto :eof
 set "RP_TOT=0" & set "RP_CUR=0"
-type "!PORTSH_REPLAY!" | find /v /n "" > "%TEMP%\portsh_rp.txt"
-for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rp.txt") do (
+type "!PORTSH_REPLAY!" | find /v /n "" > "%TEMP%\portsh_rp_!HD!.txt"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rp_!HD!.txt") do (
   set "rpln=%%L" & set "rpln=!rpln:*]=!"
   set "RP_L!RP_TOT!=!rpln!"
   set /a RP_TOT+=1
