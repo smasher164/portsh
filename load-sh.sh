@@ -383,7 +383,7 @@ prim_oper() {
         po_cmd="$po_cmd ${po_tok#?:}"
         hp_cdr "$po_lst"; po_lst=$R
       done
-      sh -c "$po_cmd"; R="I:$?"; lg_out run "$R" ;;   # log exit code (world result); stdout was a live terminal effect
+      sh -c "$po_cmd"; R="I:$?" ;;   # exit code (world result); stdout was a live terminal effect
     'run-capture')
       po_cmd=; po_lst=$2
       while [ "$po_lst" != NIL ]; do
@@ -397,7 +397,7 @@ $po_out
 RCEOF
       po_rev=NIL
       while [ "$po_acc" != NIL ]; do hp_car "$po_acc"; po_v=$R; hp_cdr "$po_acc"; po_acc=$R; eval "ROOT$po_b=\"\$po_acc\""; hp_cons "$po_v" "$po_rev"; po_rev=$R; done
-      R=$po_rev; RSP=$po_b; lg_rc=$R; lg_list 'run-capture' "$lg_rc"; R=$lg_rc ;;
+      R=$po_rev; RSP=$po_b ;;
     vau)
       hp_car "$2"; po_formals=$R
       hp_cdr "$2"; po_r=$R; hp_car "$po_r"; po_eformal=$R
@@ -432,27 +432,6 @@ RCEOF
 arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
-# ---- record-and-replay log (the two-tier handoff) ------------------------------------------------
-# When PORTSH_LOG is set, the interpreter (:ev) RECORDS every I/O effect, in execution order, so the
-# warm JIT can re-run from source, REPLAY the logged prefix (suppress output / return logged world
-# results), and go LIVE where the log ends -- each effect happening exactly once. Record format:
-#   <op>\t<count>\n   then <count> payload lines.  Output ops log their rendered text; scalar world
-# ops log their tagged result. With PORTSH_LOG unset every helper is a no-op (zero behaviour change).
-# PORTSH_LOG_STOP=K abandons after K logged ops (exit 42) -- the deterministic stand-in, for tests,
-# for "the JIT became warm"; the real cold path checks the .ok marker instead.
-LG_TAB=$(printf '\t'); LG_N=0
-lg_tick() { LG_N=$((LG_N + 1))   # between ops, AFTER the effect+record: safe to abandon here
-  [ -n "${PORTSH_LOG_STOP:-}" ] && [ "$LG_N" -ge "$PORTSH_LOG_STOP" ] && exit 42   # deterministic stand-in (tests)
-  [ -n "${PORTSH_OK:-}" ] && [ -e "$PORTSH_OK" ] && exit 42                          # REAL warm signal: the JIT is ready
-  return 0; }
-lg_out()  { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s1\n%s\n' "$1" "$LG_TAB" "$2" >> "$PORTSH_LOG"; lg_tick; }
-lg_mark() { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s0\n' "$1" "$LG_TAB" >> "$PORTSH_LOG"; lg_tick; }   # effect-only op (file write); replay just suppresses the re-do
-lg_list() { [ -n "${PORTSH_LOG:-}" ] || return 0   # $1=op, $2=heap list of T: strings (multi-line result)
-  lg_c=0; lg_l=$2; while [ "$lg_l" != NIL ]; do lg_c=$((lg_c + 1)); hp_cdr "$lg_l"; lg_l=$R; done
-  printf '%s%s%s\n' "$1" "$LG_TAB" "$lg_c" >> "$PORTSH_LOG"
-  lg_l=$2; while [ "$lg_l" != NIL ]; do hp_car "$lg_l"; printf '%s\n' "${R#T:}" >> "$PORTSH_LOG"; hp_cdr "$lg_l"; lg_l=$R; done
-  lg_tick; }
-
 prim_app() {
   # No locals (ksh93). name/args + scratch are globals; none is live across a prim_app
   # re-entry (only `eval`->ev and `read`->rd_expr re-enter, and neither needs them after).
@@ -471,7 +450,7 @@ prim_app() {
     '-')     arg2 "$args"; R="I:$(( ${ARG1#I:} - ${ARG2#I:} ))" ;;
     '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
-    'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL; lg_out 'file-exists?' "$R" ;;
+    'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
     'string-append') _sa=; _l=$args
              while [ "$_l" != NIL ]; do hp_car "$_l"; _sa="$_sa${R#T:}"; hp_cdr "$_l"; _l=$R; done
              R="T:$_sa" ;;
@@ -500,22 +479,19 @@ prim_app() {
              while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
              _rev=NIL; pa_b=$RSP; RSP=$((pa_b + 1))
              while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; eval "ROOT$pa_b=\"\$_acc\""; hp_cons "$_v" "$_rev"; _rev=$R; done
-             R=$_rev; RSP=$pa_b; lg_rl=$R; lg_list 'read-lines' "$lg_rl"; R=$lg_rl ;;
+             R=$_rev; RSP=$pa_b ;;
     'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
-             R="S:t"; lg_mark 'write-lines' ;;
+             R="S:t" ;;
     'append-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
-             R="S:t"; lg_mark 'append-lines' ;;
+             R="S:t" ;;
     hmark)   R="I:$HEAP_N" ;;          # current heap bump pointer (region reclamation)
     hreset)  arg1 "$args"; HEAP_N=${ARG1#I:}; R="S:t" ;;   # reset bump pointer -> reuse slots
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
-    print)   arg1 "$args"
-             if [ -n "${PORTSH_LOG:-}" ]; then lg_pt=$(lisp_write "$ARG1"); printf '%s\n' "$lg_pt"; lg_out print "$lg_pt"   # capture to log
-             else lisp_write "$ARG1"; printf '\n'; fi                                                                       # fast path (no fork)
-             R=NIL ;;
+    print)   arg1 "$args"; lisp_write "$ARG1"; printf '\n'; R=NIL ;;
     *)       die "unknown primitive: $name" ;;
   esac
 }
@@ -14984,6 +14960,84 @@ _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) print
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
 show_val() { _relem "$1"; printf "\n"; }
 
+# ---- interactive JIT REPL (no-arg mode; the repl-sh.sh behavior, unified into the one artifact) ----
+# State threaded across inputs: CTR (next lambda-lift index), GFNS/GVARS (accumulated known globals),
+# EVN (next __ev thunk index, monotonic). Each input compiles incrementally via repl_compile_sh.
+_balanced() {
+  _b=$1; _depth=0; _instr=0; _incom=0; _seen=0
+  while [ -n "$_b" ]; do
+    _c=${_b%"${_b#?}"}; _b=${_b#?}
+    if [ "$_incom" = 1 ]; then case $_c in "$_NL") _incom=0 ;; esac; continue; fi
+    if [ "$_instr" = 1 ]; then [ "$_c" = '"' ] && _instr=0; continue; fi
+    case $_c in
+      ';') _incom=1 ;;
+      '"') _instr=1; _seen=1 ;;
+      '(') _depth=$((_depth+1)); _seen=1 ;;
+      ')') _depth=$((_depth-1)); _seen=1 ;;
+      ' '|"$_TAB"|"$_NL") ;;
+      *) _seen=1 ;;
+    esac
+  done
+  [ "$_instr" = 0 ] && [ "$_depth" -le 0 ] && [ "$_seen" = 1 ]
+}
+_mkthunk1() {   # $1 = body heap-ref, $2 = action -> REPLXF = ((define __evEVN (lambda () body)))
+  hp_cons "$1" NIL;            _b=$R
+  hp_cons NIL "$_b";           _ll=$R
+  hp_cons "S:lambda" "$_ll";   _lam=$R
+  hp_cons "$_lam" NIL;         _d3=$R
+  hp_cons "S:__ev$EVN" "$_d3"; _d2=$R
+  hp_cons "S:define" "$_d2";   _def=$R
+  hp_cons "$_def" NIL;         REPLXF=$R
+  REPLTH="__ev$EVN"; REPLACT="$2"; EVN=$((EVN+1))
+}
+repl_form() {   # classify one input form, compile it incrementally (threading CTR/GFNS/GVARS), run+show
+  _form=$1; REPLXF=NIL; REPLTH=""; REPLACT=""
+  _hd=NIL; case $_form in P:*) hp_car "$_form"; _hd=$R ;; esac
+  if [ "$_hd" = "S:define" ]; then
+    hp_cdr "$_form"; _nv=$R; hp_car "$_nv"; _name=$R
+    hp_cdr "$_nv"; _vv=$R;   hp_car "$_vv"; _val=$R
+    case $_val in
+      P:*) hp_car "$_val"; _vhd=$R
+           if [ "$_vhd" = "S:lambda" ]; then hp_cons "$_form" NIL; REPLXF=$R
+           else _mkthunk1 "$_val" "G:${_name#S:}"; fi ;;
+      *)   hp_cons "$_form" NIL; REPLXF=$R ;;
+    esac
+  else
+    _mkthunk1 "$_form" "S"
+  fi
+  _tmp=$(mktemp)
+  FP=0; RSP=0; PC=0; CLO=""; F0=$REPLXF; F1="T:$_tmp"; F2="I:$CTR"; F3=$GFNS; F4=$GVARS; CURFN=repl_compile_sh; drive
+  _res=$R; hp_car "$_res"; CTR=${R#I:}; hp_cdr "$_res"; _gg=$R    # R = (newctr . (newgfns . newgvars))
+  hp_car "$_gg"; GFNS=$R; hp_cdr "$_gg"; GVARS=$R
+  # a COMPUTED define is compiled as a thunk, so gvar-names can't see its name -- add it here (the
+  # thunk binds G_<name>), so a later input calling it in operator position applies.
+  case $REPLACT in G:*) hp_cons "S:${REPLACT#G:}" "$GVARS"; GVARS=$R ;; esac
+  . "$_tmp"; rm -f "$_tmp"
+  if [ -n "$REPLTH" ]; then
+    FP=0; RSP=0; PC=0; CLO=""; CURFN=$REPLTH; drive
+    case $REPLACT in
+      S)   show_val "$R" ;;
+      G:*) eval "G_${REPLACT#G:}=\$R" ;;
+    esac
+  fi
+}
+jit_repl() {
+  CTR=0; GFNS=NIL; GVARS=NIL; EVN=0
+  [ -t 0 ] && printf 'portsh repl -- JIT-backed. ctrl-d to exit.\n'
+  _buf=""
+  while :; do
+    if [ -t 0 ]; then [ -z "$_buf" ] && printf '> ' || printf '... '; fi
+    IFS= read -r _line || { [ -n "$_buf" ] && printf '\n'; break; }
+    _buf="$_buf$_line$_NL"
+    _balanced "$_buf" || continue
+    SRC=$_buf; _buf=""
+    while rd_expr; do
+      case $R in EOF) break ;; RPAREN) printf 'unexpected )\n' >&2; break ;; esac
+      repl_form "$R"
+    done
+  done
+}
+
 # ---- loader: partition forms, compile all, source, run thunks in program order -------------------
 # Top-level forms are one of: a LAMBDA define -> compiled fn; an ATOM define -> G_<name> constant
 # (compiler-emitted); a COMPUTED define (define x EXPR) -> a 0-arg thunk run in order whose result is
@@ -15000,6 +15054,8 @@ _mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define 
   hp_cons "$_def" "$_xf";    _xf=$R
   _thunks="$_thunks __ev$_n=$2"; _n=$((_n+1))   # '=' separator: mksh treats '|' as glob-alternation
 }
+# ---- dispatch: a file arg runs the program (always-JIT); no arg starts the JIT REPL ---------------
+if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
 while [ "$_cur" != NIL ]; do

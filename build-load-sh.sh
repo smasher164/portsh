@@ -60,6 +60,84 @@ _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) print
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
 show_val() { _relem "$1"; printf "\n"; }
 
+# ---- interactive JIT REPL (no-arg mode; the repl-sh.sh behavior, unified into the one artifact) ----
+# State threaded across inputs: CTR (next lambda-lift index), GFNS/GVARS (accumulated known globals),
+# EVN (next __ev thunk index, monotonic). Each input compiles incrementally via repl_compile_sh.
+_balanced() {
+  _b=$1; _depth=0; _instr=0; _incom=0; _seen=0
+  while [ -n "$_b" ]; do
+    _c=${_b%"${_b#?}"}; _b=${_b#?}
+    if [ "$_incom" = 1 ]; then case $_c in "$_NL") _incom=0 ;; esac; continue; fi
+    if [ "$_instr" = 1 ]; then [ "$_c" = '"' ] && _instr=0; continue; fi
+    case $_c in
+      ';') _incom=1 ;;
+      '"') _instr=1; _seen=1 ;;
+      '(') _depth=$((_depth+1)); _seen=1 ;;
+      ')') _depth=$((_depth-1)); _seen=1 ;;
+      ' '|"$_TAB"|"$_NL") ;;
+      *) _seen=1 ;;
+    esac
+  done
+  [ "$_instr" = 0 ] && [ "$_depth" -le 0 ] && [ "$_seen" = 1 ]
+}
+_mkthunk1() {   # $1 = body heap-ref, $2 = action -> REPLXF = ((define __evEVN (lambda () body)))
+  hp_cons "$1" NIL;            _b=$R
+  hp_cons NIL "$_b";           _ll=$R
+  hp_cons "S:lambda" "$_ll";   _lam=$R
+  hp_cons "$_lam" NIL;         _d3=$R
+  hp_cons "S:__ev$EVN" "$_d3"; _d2=$R
+  hp_cons "S:define" "$_d2";   _def=$R
+  hp_cons "$_def" NIL;         REPLXF=$R
+  REPLTH="__ev$EVN"; REPLACT="$2"; EVN=$((EVN+1))
+}
+repl_form() {   # classify one input form, compile it incrementally (threading CTR/GFNS/GVARS), run+show
+  _form=$1; REPLXF=NIL; REPLTH=""; REPLACT=""
+  _hd=NIL; case $_form in P:*) hp_car "$_form"; _hd=$R ;; esac
+  if [ "$_hd" = "S:define" ]; then
+    hp_cdr "$_form"; _nv=$R; hp_car "$_nv"; _name=$R
+    hp_cdr "$_nv"; _vv=$R;   hp_car "$_vv"; _val=$R
+    case $_val in
+      P:*) hp_car "$_val"; _vhd=$R
+           if [ "$_vhd" = "S:lambda" ]; then hp_cons "$_form" NIL; REPLXF=$R
+           else _mkthunk1 "$_val" "G:${_name#S:}"; fi ;;
+      *)   hp_cons "$_form" NIL; REPLXF=$R ;;
+    esac
+  else
+    _mkthunk1 "$_form" "S"
+  fi
+  _tmp=$(mktemp)
+  FP=0; RSP=0; PC=0; CLO=""; F0=$REPLXF; F1="T:$_tmp"; F2="I:$CTR"; F3=$GFNS; F4=$GVARS; CURFN=repl_compile_sh; drive
+  _res=$R; hp_car "$_res"; CTR=${R#I:}; hp_cdr "$_res"; _gg=$R    # R = (newctr . (newgfns . newgvars))
+  hp_car "$_gg"; GFNS=$R; hp_cdr "$_gg"; GVARS=$R
+  # a COMPUTED define is compiled as a thunk, so gvar-names can't see its name -- add it here (the
+  # thunk binds G_<name>), so a later input calling it in operator position applies.
+  case $REPLACT in G:*) hp_cons "S:${REPLACT#G:}" "$GVARS"; GVARS=$R ;; esac
+  . "$_tmp"; rm -f "$_tmp"
+  if [ -n "$REPLTH" ]; then
+    FP=0; RSP=0; PC=0; CLO=""; CURFN=$REPLTH; drive
+    case $REPLACT in
+      S)   show_val "$R" ;;
+      G:*) eval "G_${REPLACT#G:}=\$R" ;;
+    esac
+  fi
+}
+jit_repl() {
+  CTR=0; GFNS=NIL; GVARS=NIL; EVN=0
+  [ -t 0 ] && printf 'portsh repl -- JIT-backed. ctrl-d to exit.\n'
+  _buf=""
+  while :; do
+    if [ -t 0 ]; then [ -z "$_buf" ] && printf '> ' || printf '... '; fi
+    IFS= read -r _line || { [ -n "$_buf" ] && printf '\n'; break; }
+    _buf="$_buf$_line$_NL"
+    _balanced "$_buf" || continue
+    SRC=$_buf; _buf=""
+    while rd_expr; do
+      case $R in EOF) break ;; RPAREN) printf 'unexpected )\n' >&2; break ;; esac
+      repl_form "$R"
+    done
+  done
+}
+
 # ---- loader: partition forms, compile all, source, run thunks in program order -------------------
 # Top-level forms are one of: a LAMBDA define -> compiled fn; an ATOM define -> G_<name> constant
 # (compiler-emitted); a COMPUTED define (define x EXPR) -> a 0-arg thunk run in order whose result is
@@ -76,6 +154,8 @@ _mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define 
   hp_cons "$_def" "$_xf";    _xf=$R
   _thunks="$_thunks __ev$_n=$2"; _n=$((_n+1))   # '=' separator: mksh treats '|' as glob-alternation
 }
+# ---- dispatch: a file arg runs the program (always-JIT); no arg starts the JIT REPL ---------------
+if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
 while [ "$_cur" != NIL ]; do
