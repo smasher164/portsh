@@ -85,7 +85,7 @@ for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ
 done
 echo "runtime: rdfield/write-lines/append-lines/gc/print/read-lines/file-existszzQ/run_cmd/run_capture/read/type-of .cmd"
 
-# 3. Driver comp.cmd = the BARE cmd kernel (portsh.cmd, NOT portsh-full.cmd) + `call _consts.cmd`.
+# 3. Driver comp.cmd = the BARE cmd kernel (portsh-kernel.cmd, NOT portsh-full.cmd) + `call _consts.cmd`.
 #    Crucially NO stdlib: the native comp needs only the reader + eval dispatch + heap, and comp's
 #    own stdlib deps (caar/cadr/...) are compiled to their own .cmd files. Booting the interpreted
 #    stdlib is the single slowest thing on the VM (linear env lookups over a file-backed heap), so
@@ -97,7 +97,7 @@ echo "runtime: rdfield/write-lines/append-lines/gc/print/read-lines/file-existsz
 awk '
   { print }
   /call :setup_global\r?$/ && !done { print "call _consts.cmd"; done=1 }
-' portsh.cmd | grep -v '^__PORTSH_PAYLOAD__' | perl -pe 's/\r?\n/\r\n/' > "$out/comp.cmd"
+' portsh-kernel.cmd | grep -v '^__PORTSH_PAYLOAD__' | perl -pe 's/\r?\n/\r\n/' > "$out/comp.cmd"
 echo "driver: comp.cmd ($(wc -c < "$out/comp.cmd") bytes)"
 
 echo "built comp-cmd/ ($(ls "$out" | wc -l | tr -d ' ') files)"

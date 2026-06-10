@@ -1,13 +1,12 @@
 #!/bin/sh
-# Weave the SHIPPING polyglot `portsh-osr.cmd` -- ONE file, valid as both POSIX sh and Windows batch,
+# Weave the SHIPPING polyglot `portsh.cmd` -- ONE file, valid as both POSIX sh and Windows batch,
 # running the REAL engines (#31):
 #   sh  half: the unified always-JIT loader (load-sh.sh) -- file arg = compile+run; no arg = JIT REPL.
 #   cmd half: the OSR front-end -- tooling cold = self-extract (the comp-cmd tree is EMBEDDED as a
-#             pure-cmd self-extractor section, dispatched via `portsh-osr.cmd __extract DIR`) once per
+#             pure-cmd self-extractor section, dispatched via `portsh.cmd __extract DIR`) once per
 #             build; program cold = interp + background warmer + flip-as-artifacts-land; warm = all
 #             fns flip at first call; no arg = the warming interp REPL.
-# This replaces the vau-:ev polyglot as the shipping artifact (build.sh's portsh.cmd remains for the
-# kernel tests until #19 retires the operative core).
+
 #
 # Dual-validity (same trick as build.sh): the file is CRLF throughout (cmd needs CR for labels); sh
 # line 1 re-execs a CR-stripped copy of itself; cmd sees lines 1-2 as ':' labels and `goto`s over the
@@ -23,7 +22,7 @@ fi
 BUILD=$(sed -n 's/^set "PORTSH_BUILD=\([0-9a-f][0-9a-f]*\)".*/\1/p' comp-cmd.selfx.cmd | head -1)
 [ -n "$BUILD" ] || { echo "could not read build id from comp-cmd.selfx.cmd"; exit 1; }
 
-python3 - load-sh.sh comp-cmd.selfx.cmd portsh-osr.cmd "$BUILD" <<'PY'
+python3 - load-sh.sh comp-cmd.selfx.cmd portsh.cmd "$BUILD" <<'PY'
 import sys
 loadsh, selfx, out, build = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
@@ -111,4 +110,4 @@ whole = hdr + sh_half.rstrip('\n') + '\nexit $?\n:CMDSTART\n' + cmd_half
 whole = whole.replace('\r\n', '\n').replace('\n', '\r\n')
 open(out, 'wb').write(whole.encode('latin-1'))
 PY
-echo "built portsh-osr.cmd ($(wc -c < portsh-osr.cmd) bytes, build $BUILD)"
+echo "built portsh.cmd ($(wc -c < portsh.cmd) bytes, build $BUILD)"

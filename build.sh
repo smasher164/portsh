@@ -1,5 +1,5 @@
 #!/bin/sh
-# Weave src/kernel.sh + src/kernel.cmd into a single polyglot `portsh.cmd`
+# Weave src/kernel.sh + src/kernel.cmd into the vau-kernel weave `portsh-kernel.cmd` (the bootstrap evaluator + the cmd-kernel source for build-comp-cmd; the SHIPPING portsh.cmd is built by build-polyglot.sh)
 # that is BOTH a valid POSIX sh script AND a Windows batch file.
 #
 # Why it works:
@@ -31,14 +31,14 @@ printf '__PORTSH_PAYLOAD__\n' >> "$tmp"   # marker as the final line; pack = app
 # no-`call` replaces (a `call` re-parses and would DOUBLE any live '^' in the line),
 # so those sentinel bytes are baked in here at weave time. @LT@/@GT@/@AMP@/@PIPE@ ->
 # the operators < > & | (baked inside quoted sets that protect them at parse time).
-perl -pe 's/\@B1\@/\x01/g; s/\@B7\@/\x07/g; s/\@B8\@/\x08/g; s/\@LT\@/\x3c/g; s/\@GT\@/\x3e/g; s/\@AMP\@/\x26/g; s/\@PIPE\@/\x7c/g; s/\r?\n/\r\n/' "$tmp" > portsh.cmd
+perl -pe 's/\@B1\@/\x01/g; s/\@B7\@/\x07/g; s/\@B8\@/\x08/g; s/\@LT\@/\x3c/g; s/\@GT\@/\x3e/g; s/\@AMP\@/\x26/g; s/\@PIPE\@/\x7c/g; s/\r?\n/\r\n/' "$tmp" > portsh-kernel.cmd
 rm -f "$tmp"
-echo "built portsh.cmd ($(wc -c < portsh.cmd) bytes)"
+echo "built portsh-kernel.cmd ($(wc -c < portsh-kernel.cmd) bytes)"
 
 # full distribution = bare interpreter + stdlib appended past the marker (loads
 # at boot). Comments are kept verbatim now — both readers strip ';' themselves.
 if [ -f src/stdlib.lisp ]; then
-  { cat portsh.cmd; cat src/stdlib.lisp; } | perl -pe 's/\r?\n/\r\n/' > portsh-full.cmd
+  { cat portsh-kernel.cmd; cat src/stdlib.lisp; } | perl -pe 's/\r?\n/\r\n/' > portsh-full.cmd
   echo "built portsh-full.cmd ($(wc -c < portsh-full.cmd) bytes)"
 fi
 

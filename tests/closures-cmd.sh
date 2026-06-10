@@ -17,10 +17,10 @@ if [ -z "${PORTSH_WIN_SSH:-}" ]; then
 fi
 VM=$PORTSH_WIN_SSH
 
-[ -f portsh.cmd ] || sh build.sh >/dev/null 2>&1
+[ -f portsh-kernel.cmd ] || sh build.sh >/dev/null 2>&1
 [ -f portsh-full.cmd ] || sh build.sh >/dev/null 2>&1
 [ -f portsh-runtime.cmd ] || sh build.sh >/dev/null 2>&1
-grep -q ev_tcall_clo portsh.cmd || { echo "FAIL closures-cmd: portsh.cmd lacks the K: driver (rebuild)"; exit 1; }
+grep -q ev_tcall_clo portsh-kernel.cmd || { echo "FAIL closures-cmd: portsh-kernel.cmd lacks the K: driver (rebuild)"; exit 1; }
 
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 interp="$work/portsh.sh"; tr -d '\r' < portsh-full.cmd > "$interp"
@@ -77,7 +77,7 @@ for entry in rdfield write-lines append-lines gc; do
   { printf 'goto :%s\r\n' "$entry"; cat portsh-runtime.cmd; } > "$run/$entry.cmd"
 done
 # 3. driver = bare kernel + `call _consts.cmd` after setup_global (mirrors build-comp-cmd.sh)
-awk '{print} /call :setup_global\r?$/ && !done {print "call _consts.cmd"; done=1}' portsh.cmd \
+awk '{print} /call :setup_global\r?$/ && !done {print "call _consts.cmd"; done=1}' portsh-kernel.cmd \
   | grep -v '^__PORTSH_PAYLOAD__' | perl -pe 's/\r?\n/\r\n/' > "$run/driver.cmd"
 # 4. wrapper = residual binds (make-compiled) + invoke each entry through the trampoline + print
 { tr -d '\r' < "$run/main.lisp"
