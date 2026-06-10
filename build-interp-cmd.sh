@@ -371,8 +371,19 @@ goto in_run
 goto :eof
 
 '''
-s = s.rstrip('\r\n') + '\n' + main.replace('\r\n','\n') + interp_rt + '\n' + jit_tail
-s = s.replace('\r\n','\n').replace('\n','\r\n')
+# LAYOUT IS PERFORMANCE: cmd `call :label` is O(label byte-offset) and `goto` is a forward-then-wrap
+# scan -- a dispatch loop living at the END of the file pays a FULL-FILE scan per iteration (measured:
+# 0.45ms at the top vs 10.7ms after 90KB). So the HOT code (el_drive + the interp machine, then the
+# loader main, then the renderer) is INSERTED right after the kernel's hp_* block (~13KB in): the
+# per-char reader and the per-op heap stay at the front, and what gets pushed deep is the cold vau-:ev
+# half of the kernel that the interp path never calls. Appending at the end (the old layout) made every
+# interp step and every comp-driving dispatch ~10ms.
+hot = '\n' + interp_rt + '\n' + main.replace('\r\n','\n') + '\n' + jit_tail + '\n'
+s_lf = s.replace('\r\n','\n')
+anchor = '\n:hp_setcar\n'
+i = s_lf.index(anchor)
+s = s_lf[:i] + hot + s_lf[i:]
+s = s.replace('\n','\r\n')
 open(out,'wb').write(s.encode('latin-1'))
 print("wrote comp-cmd/interp-cmd.cmd")
 PY

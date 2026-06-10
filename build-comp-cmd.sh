@@ -95,9 +95,12 @@ echo "runtime: rdfield/write-lines/append-lines/gc/print/read-lines/file-existsz
 #    Also DROP the __PORTSH_PAYLOAD__ marker: with it, boot wastes time `set /p`-skipping the whole
 #    kernel looking for a (nonexistent) stdlib payload -- pure overhead on the slow VM.
 awk '
-  { print }
-  /call :setup_global\r?$/ && !done { print "call _consts.cmd"; done=1 }
+  /^:CMDSTART\r?$/ { go=1; next }
+  go { print }
+  go && /call :setup_global\r?$/ && !done { print "call _consts.cmd"; done=1 }
 ' portsh-kernel.cmd | grep -v '^__PORTSH_PAYLOAD__' | perl -pe 's/\r?\n/\r\n/' > "$out/comp.cmd"
+# the sh half (everything before :CMDSTART) is STRIPPED: comp.cmd is cmd-only, and cmd label scans are
+# O(file size) -- ~28KB of never-executed sh text in front taxed every call/goto in the whole driver.
 echo "driver: comp.cmd ($(wc -c < "$out/comp.cmd") bytes)"
 
 echo "built comp-cmd/ ($(ls "$out" | wc -l | tr -d ' ') files)"
