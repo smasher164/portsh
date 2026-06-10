@@ -383,7 +383,7 @@ prim_oper() {
         po_cmd="$po_cmd ${po_tok#?:}"
         hp_cdr "$po_lst"; po_lst=$R
       done
-      sh -c "$po_cmd"; R="I:$?"; lg_out run "$R" ;;   # log exit code (world result); stdout was a live terminal effect
+      sh -c "$po_cmd"; R="I:$?" ;;   # exit code (world result); stdout was a live terminal effect
     'run-capture')
       po_cmd=; po_lst=$2
       while [ "$po_lst" != NIL ]; do
@@ -397,7 +397,7 @@ $po_out
 RCEOF
       po_rev=NIL
       while [ "$po_acc" != NIL ]; do hp_car "$po_acc"; po_v=$R; hp_cdr "$po_acc"; po_acc=$R; eval "ROOT$po_b=\"\$po_acc\""; hp_cons "$po_v" "$po_rev"; po_rev=$R; done
-      R=$po_rev; RSP=$po_b; lg_rc=$R; lg_list 'run-capture' "$lg_rc"; R=$lg_rc ;;
+      R=$po_rev; RSP=$po_b ;;
     vau)
       hp_car "$2"; po_formals=$R
       hp_cdr "$2"; po_r=$R; hp_car "$po_r"; po_eformal=$R
@@ -432,27 +432,6 @@ RCEOF
 arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
-# ---- record-and-replay log (the two-tier handoff) ------------------------------------------------
-# When PORTSH_LOG is set, the interpreter (:ev) RECORDS every I/O effect, in execution order, so the
-# warm JIT can re-run from source, REPLAY the logged prefix (suppress output / return logged world
-# results), and go LIVE where the log ends -- each effect happening exactly once. Record format:
-#   <op>\t<count>\n   then <count> payload lines.  Output ops log their rendered text; scalar world
-# ops log their tagged result. With PORTSH_LOG unset every helper is a no-op (zero behaviour change).
-# PORTSH_LOG_STOP=K abandons after K logged ops (exit 42) -- the deterministic stand-in, for tests,
-# for "the JIT became warm"; the real cold path checks the .ok marker instead.
-LG_TAB=$(printf '\t'); LG_N=0
-lg_tick() { LG_N=$((LG_N + 1))   # between ops, AFTER the effect+record: safe to abandon here
-  [ -n "${PORTSH_LOG_STOP:-}" ] && [ "$LG_N" -ge "$PORTSH_LOG_STOP" ] && exit 42   # deterministic stand-in (tests)
-  [ -n "${PORTSH_OK:-}" ] && [ -e "$PORTSH_OK" ] && exit 42                          # REAL warm signal: the JIT is ready
-  return 0; }
-lg_out()  { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s1\n%s\n' "$1" "$LG_TAB" "$2" >> "$PORTSH_LOG"; lg_tick; }
-lg_mark() { [ -n "${PORTSH_LOG:-}" ] || return 0; printf '%s%s0\n' "$1" "$LG_TAB" >> "$PORTSH_LOG"; lg_tick; }   # effect-only op (file write); replay just suppresses the re-do
-lg_list() { [ -n "${PORTSH_LOG:-}" ] || return 0   # $1=op, $2=heap list of T: strings (multi-line result)
-  lg_c=0; lg_l=$2; while [ "$lg_l" != NIL ]; do lg_c=$((lg_c + 1)); hp_cdr "$lg_l"; lg_l=$R; done
-  printf '%s%s%s\n' "$1" "$LG_TAB" "$lg_c" >> "$PORTSH_LOG"
-  lg_l=$2; while [ "$lg_l" != NIL ]; do hp_car "$lg_l"; printf '%s\n' "${R#T:}" >> "$PORTSH_LOG"; hp_cdr "$lg_l"; lg_l=$R; done
-  lg_tick; }
-
 prim_app() {
   # No locals (ksh93). name/args + scratch are globals; none is live across a prim_app
   # re-entry (only `eval`->ev and `read`->rd_expr re-enter, and neither needs them after).
@@ -471,7 +450,7 @@ prim_app() {
     '-')     arg2 "$args"; R="I:$(( ${ARG1#I:} - ${ARG2#I:} ))" ;;
     '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
     '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
-    'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL; lg_out 'file-exists?' "$R" ;;
+    'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
     'string-append') _sa=; _l=$args
              while [ "$_l" != NIL ]; do hp_car "$_l"; _sa="$_sa${R#T:}"; hp_cdr "$_l"; _l=$R; done
              R="T:$_sa" ;;
@@ -500,22 +479,19 @@ prim_app() {
              while IFS= read -r _ln || [ -n "$_ln" ]; do hp_cons "T:$_ln" "$_acc"; _acc=$R; done < "$_f"
              _rev=NIL; pa_b=$RSP; RSP=$((pa_b + 1))
              while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; eval "ROOT$pa_b=\"\$_acc\""; hp_cons "$_v" "$_rev"; _rev=$R; done
-             R=$_rev; RSP=$pa_b; lg_rl=$R; lg_list 'read-lines' "$lg_rl"; R=$lg_rl ;;
+             R=$_rev; RSP=$pa_b ;;
     'write-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2; : > "$_f"
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
-             R="S:t"; lg_mark 'write-lines' ;;
+             R="S:t" ;;
     'append-lines') arg2 "$args"; _f=${ARG1#T:}; _l=$ARG2
              while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done
-             R="S:t"; lg_mark 'append-lines' ;;
+             R="S:t" ;;
     hmark)   R="I:$HEAP_N" ;;          # current heap bump pointer (region reclamation)
     hreset)  arg1 "$args"; HEAP_N=${ARG1#I:}; R="S:t" ;;   # reset bump pointer -> reuse slots
     wrap)    arg1 "$args"; hp_cons "$ARG1" NIL; R="A:${R#P:}" ;;
     unwrap)  arg1 "$args"; hp_car "P:${ARG1#A:}" ;;
     eval)    arg2 "$args"; ev "$ARG1" "$ARG2" ;;
-    print)   arg1 "$args"
-             if [ -n "${PORTSH_LOG:-}" ]; then lg_pt=$(lisp_write "$ARG1"); printf '%s\n' "$lg_pt"; lg_out print "$lg_pt"   # capture to log
-             else lisp_write "$ARG1"; printf '\n'; fi                                                                       # fast path (no fork)
-             R=NIL ;;
+    print)   arg1 "$args"; lisp_write "$ARG1"; printf '\n'; R=NIL ;;
     *)       die "unknown primitive: $name" ;;
   esac
 }
@@ -6019,6 +5995,13 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 16)
+if [ "${p0}" = "S:split" ]; then PC=17; else PC=18; fi
+ACTION=jump; return
+;;
+17)
+R="S:t"; ACTION=ret; return
+;;
+18)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -15227,6 +15210,350 @@ hp_cons "${sht1}" "${sht49}"
 eval "sht1=\"\$F$((FP+NP+0))\""
 sht50="${R}"
 R="${sht50}"; ACTION=ret; return
+;;
+esac; }
+SIZE_lift_program_c=10
+lift_program_c() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE_lift_program_c))
+NP=2
+case $PC in
+0)
+if [ "${p0}" = NIL ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+hp_cons "NIL" "${p1}"
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+2)
+hp_car "${p0}"
+sht1="${R}"
+sht2="${sht1}"
+if [ "${sht2#P:}" != "${sht2}" ]; then PC=3; else PC=4; fi
+ACTION=jump; return
+;;
+3)
+hp_car "${sht2}"
+sht4="${R}"
+if [ "${sht4}" = "S:define" ]; then PC=6; else PC=7; fi
+ACTION=jump; return
+;;
+4)
+sht3="NIL"
+PC=5; ACTION=jump; return
+;;
+5)
+if [ "${sht3}" != NIL ]; then PC=12; else PC=13; fi
+ACTION=jump; return
+;;
+6)
+hp_cdr "${sht2}"
+sht6="${R}"
+hp_cdr "${sht6}"
+sht7="${R}"
+hp_car "${sht7}"
+sht8="${R}"
+if [ "${sht8#P:}" != "${sht8}" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+7)
+sht5="NIL"
+PC=8; ACTION=jump; return
+;;
+8)
+sht3="${sht5}"
+PC=5; ACTION=jump; return
+;;
+9)
+hp_cdr "${sht2}"
+sht10="${R}"
+hp_cdr "${sht10}"
+sht11="${R}"
+hp_car "${sht11}"
+sht12="${R}"
+hp_car "${sht12}"
+sht13="${R}"
+if [ "${sht13}" = "S:lambda" ]; then
+sht14="S:t"
+else
+sht14="NIL"
+fi
+sht9="${sht14}"
+PC=11; ACTION=jump; return
+;;
+10)
+sht9="NIL"
+PC=11; ACTION=jump; return
+;;
+11)
+sht5="${sht9}"
+PC=8; ACTION=jump; return
+;;
+12)
+hp_cdr "${sht2}"
+sht15="${R}"
+hp_car "${sht15}"
+sht16="${R}"
+sht17="${sht16}"
+hp_cdr "${sht2}"
+sht18="${R}"
+hp_cdr "${sht18}"
+sht19="${R}"
+hp_car "${sht19}"
+sht20="${R}"
+hp_cdr "${sht20}"
+sht21="${R}"
+hp_car "${sht21}"
+sht22="${R}"
+sht23="${sht22}"
+hp_cdr "${sht2}"
+sht24="${R}"
+hp_cdr "${sht24}"
+sht25="${R}"
+hp_car "${sht25}"
+sht26="${R}"
+hp_cdr "${sht26}"
+sht27="${R}"
+hp_cdr "${sht27}"
+sht28="${R}"
+hp_car "${sht28}"
+sht29="${R}"
+sht30="${sht29}"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht23}\""
+eval "F$((FP+NP+2))=\"\${sht17}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht30}\""
+eval "F$((NFP+1))=\"\${sht23}\""
+eval "F$((NFP+2))=\"\${p1}\""
+CALLEE=lift
+RPC=14; ACTION=call; return
+;;
+13)
+hp_cdr "${p0}"
+sht53="${R}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht53}\""
+eval "F$((NFP+1))=\"\${p1}\""
+CALLEE=lift_program_c
+RPC=17; ACTION=call; return
+;;
+14)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht23=\"\$F$((FP+NP+1))\""
+eval "sht17=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht31="${R}"
+sht32="${sht31}"
+hp_cdr "${p0}"
+sht33="${R}"
+hp_cdr "${sht32}"
+sht34="${R}"
+hp_cdr "${sht34}"
+sht35="${R}"
+hp_car "${sht35}"
+sht36="${R}"
+eval "F$((FP+NP+0))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht23}\""
+eval "F$((FP+NP+3))=\"\${sht17}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht33}\""
+eval "F$((NFP+1))=\"\${sht36}\""
+CALLEE=lift_program_c
+RPC=15; ACTION=call; return
+;;
+15)
+eval "sht32=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht23=\"\$F$((FP+NP+2))\""
+eval "sht17=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht37="${R}"
+sht38="${sht37}"
+hp_car "${sht32}"
+sht39="${R}"
+eval "F$((FP+NP+0))=\"\${sht23}\""
+eval "F$((FP+NP+1))=\"\${sht17}\""
+eval "F$((FP+NP+2))=\"\${sht38}\""
+eval "F$((FP+NP+3))=\"\${sht32}\""
+eval "F$((FP+NP+4))=\"\${sht30}\""
+eval "F$((FP+NP+5))=\"\${sht23}\""
+eval "F$((FP+NP+6))=\"\${sht17}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+hp_cons "${sht39}" "NIL"
+eval "sht23=\"\$F$((FP+NP+0))\""
+eval "sht17=\"\$F$((FP+NP+1))\""
+eval "sht38=\"\$F$((FP+NP+2))\""
+eval "sht32=\"\$F$((FP+NP+3))\""
+eval "sht30=\"\$F$((FP+NP+4))\""
+eval "sht23=\"\$F$((FP+NP+5))\""
+eval "sht17=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht40="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht23}" "${sht40}"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht41="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "S:lambda" "${sht41}"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht42="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht42}" "NIL"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht43="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht17}" "${sht43}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht44="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "S:define" "${sht44}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht45="${R}"
+hp_cdr "${sht32}"
+sht46="${R}"
+hp_car "${sht46}"
+sht47="${R}"
+hp_car "${sht38}"
+sht48="${R}"
+eval "F$((FP+NP+0))=\"\${sht45}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht47}\""
+eval "F$((NFP+1))=\"\${sht48}\""
+CALLEE=append
+RPC=16; ACTION=call; return
+;;
+16)
+eval "sht45=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht49="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht45}" "${sht49}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht50="${R}"
+hp_cdr "${sht38}"
+sht51="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht50}" "${sht51}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht52="${R}"
+R="${sht52}"; ACTION=ret; return
+;;
+17)
+eval "sht2=\"\$F$((FP+NP+0))\""
+sht54="${R}"
+sht55="${sht54}"
+hp_car "${sht55}"
+sht56="${R}"
+eval "F$((FP+NP+0))=\"\${sht55}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht2}" "${sht56}"
+eval "sht55=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht57="${R}"
+hp_cdr "${sht55}"
+sht58="${R}"
+eval "F$((FP+NP+0))=\"\${sht55}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht57}" "${sht58}"
+eval "sht55=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht59="${R}"
+R="${sht59}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_mkclo_caps=2

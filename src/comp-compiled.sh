@@ -5428,6 +5428,13 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 16)
+if [ "${p0}" = "S:split" ]; then PC=17; else PC=18; fi
+ACTION=jump; return
+;;
+17)
+R="S:t"; ACTION=ret; return
+;;
+18)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -14636,6 +14643,350 @@ hp_cons "${sht1}" "${sht49}"
 eval "sht1=\"\$F$((FP+NP+0))\""
 sht50="${R}"
 R="${sht50}"; ACTION=ret; return
+;;
+esac; }
+SIZE_lift_program_c=10
+lift_program_c() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE_lift_program_c))
+NP=2
+case $PC in
+0)
+if [ "${p0}" = NIL ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+hp_cons "NIL" "${p1}"
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+2)
+hp_car "${p0}"
+sht1="${R}"
+sht2="${sht1}"
+if [ "${sht2#P:}" != "${sht2}" ]; then PC=3; else PC=4; fi
+ACTION=jump; return
+;;
+3)
+hp_car "${sht2}"
+sht4="${R}"
+if [ "${sht4}" = "S:define" ]; then PC=6; else PC=7; fi
+ACTION=jump; return
+;;
+4)
+sht3="NIL"
+PC=5; ACTION=jump; return
+;;
+5)
+if [ "${sht3}" != NIL ]; then PC=12; else PC=13; fi
+ACTION=jump; return
+;;
+6)
+hp_cdr "${sht2}"
+sht6="${R}"
+hp_cdr "${sht6}"
+sht7="${R}"
+hp_car "${sht7}"
+sht8="${R}"
+if [ "${sht8#P:}" != "${sht8}" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+7)
+sht5="NIL"
+PC=8; ACTION=jump; return
+;;
+8)
+sht3="${sht5}"
+PC=5; ACTION=jump; return
+;;
+9)
+hp_cdr "${sht2}"
+sht10="${R}"
+hp_cdr "${sht10}"
+sht11="${R}"
+hp_car "${sht11}"
+sht12="${R}"
+hp_car "${sht12}"
+sht13="${R}"
+if [ "${sht13}" = "S:lambda" ]; then
+sht14="S:t"
+else
+sht14="NIL"
+fi
+sht9="${sht14}"
+PC=11; ACTION=jump; return
+;;
+10)
+sht9="NIL"
+PC=11; ACTION=jump; return
+;;
+11)
+sht5="${sht9}"
+PC=8; ACTION=jump; return
+;;
+12)
+hp_cdr "${sht2}"
+sht15="${R}"
+hp_car "${sht15}"
+sht16="${R}"
+sht17="${sht16}"
+hp_cdr "${sht2}"
+sht18="${R}"
+hp_cdr "${sht18}"
+sht19="${R}"
+hp_car "${sht19}"
+sht20="${R}"
+hp_cdr "${sht20}"
+sht21="${R}"
+hp_car "${sht21}"
+sht22="${R}"
+sht23="${sht22}"
+hp_cdr "${sht2}"
+sht24="${R}"
+hp_cdr "${sht24}"
+sht25="${R}"
+hp_car "${sht25}"
+sht26="${R}"
+hp_cdr "${sht26}"
+sht27="${R}"
+hp_cdr "${sht27}"
+sht28="${R}"
+hp_car "${sht28}"
+sht29="${R}"
+sht30="${sht29}"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht23}\""
+eval "F$((FP+NP+2))=\"\${sht17}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht30}\""
+eval "F$((NFP+1))=\"\${sht23}\""
+eval "F$((NFP+2))=\"\${p1}\""
+CALLEE=lift
+RPC=14; ACTION=call; return
+;;
+13)
+hp_cdr "${p0}"
+sht53="${R}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht53}\""
+eval "F$((NFP+1))=\"\${p1}\""
+CALLEE=lift_program_c
+RPC=17; ACTION=call; return
+;;
+14)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht23=\"\$F$((FP+NP+1))\""
+eval "sht17=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht31="${R}"
+sht32="${sht31}"
+hp_cdr "${p0}"
+sht33="${R}"
+hp_cdr "${sht32}"
+sht34="${R}"
+hp_cdr "${sht34}"
+sht35="${R}"
+hp_car "${sht35}"
+sht36="${R}"
+eval "F$((FP+NP+0))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht23}\""
+eval "F$((FP+NP+3))=\"\${sht17}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht33}\""
+eval "F$((NFP+1))=\"\${sht36}\""
+CALLEE=lift_program_c
+RPC=15; ACTION=call; return
+;;
+15)
+eval "sht32=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht23=\"\$F$((FP+NP+2))\""
+eval "sht17=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht37="${R}"
+sht38="${sht37}"
+hp_car "${sht32}"
+sht39="${R}"
+eval "F$((FP+NP+0))=\"\${sht23}\""
+eval "F$((FP+NP+1))=\"\${sht17}\""
+eval "F$((FP+NP+2))=\"\${sht38}\""
+eval "F$((FP+NP+3))=\"\${sht32}\""
+eval "F$((FP+NP+4))=\"\${sht30}\""
+eval "F$((FP+NP+5))=\"\${sht23}\""
+eval "F$((FP+NP+6))=\"\${sht17}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+hp_cons "${sht39}" "NIL"
+eval "sht23=\"\$F$((FP+NP+0))\""
+eval "sht17=\"\$F$((FP+NP+1))\""
+eval "sht38=\"\$F$((FP+NP+2))\""
+eval "sht32=\"\$F$((FP+NP+3))\""
+eval "sht30=\"\$F$((FP+NP+4))\""
+eval "sht23=\"\$F$((FP+NP+5))\""
+eval "sht17=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht40="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht23}" "${sht40}"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht41="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "S:lambda" "${sht41}"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht42="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht42}" "NIL"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht43="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht17}" "${sht43}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht44="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "S:define" "${sht44}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht45="${R}"
+hp_cdr "${sht32}"
+sht46="${R}"
+hp_car "${sht46}"
+sht47="${R}"
+hp_car "${sht38}"
+sht48="${R}"
+eval "F$((FP+NP+0))=\"\${sht45}\""
+eval "F$((FP+NP+1))=\"\${sht38}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht47}\""
+eval "F$((NFP+1))=\"\${sht48}\""
+CALLEE=append
+RPC=16; ACTION=call; return
+;;
+16)
+eval "sht45=\"\$F$((FP+NP+0))\""
+eval "sht38=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht49="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht45}" "${sht49}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht50="${R}"
+hp_cdr "${sht38}"
+sht51="${R}"
+eval "F$((FP+NP+0))=\"\${sht38}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht50}" "${sht51}"
+eval "sht38=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht52="${R}"
+R="${sht52}"; ACTION=ret; return
+;;
+17)
+eval "sht2=\"\$F$((FP+NP+0))\""
+sht54="${R}"
+sht55="${sht54}"
+hp_car "${sht55}"
+sht56="${R}"
+eval "F$((FP+NP+0))=\"\${sht55}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht2}" "${sht56}"
+eval "sht55=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht57="${R}"
+hp_cdr "${sht55}"
+sht58="${R}"
+eval "F$((FP+NP+0))=\"\${sht55}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht57}" "${sht58}"
+eval "sht55=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht59="${R}"
+R="${sht59}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_mkclo_caps=2
