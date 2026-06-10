@@ -32,6 +32,12 @@ s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd ca
 n_addsrc = 'call :addsrc'
 assert s.count(n_addsrc) == 1, "addsrc not unique"
 s = s.replace(n_addsrc, 'call :addsrc\r\nif defined RDMODE if not "!RDRESULT!"=="NIL" goto :eof', 1)
+# (3) REPL session capture: append each raw input line to the session file RIGHT AFTER set /p, before
+# any sentinel encoding (delayed expansion is still on; a single !line! term expands without rescanning
+# the value, so the bytes go out faithfully). The bg warmer recompiles this file.
+n_setp = 'set /p "line=" || goto :eof'
+assert s.count(n_setp) == 1, "readall set/p not unique"
+s = s.replace(n_setp, n_setp + '\r\nif defined PORTSH_REPL if defined PORTSH_SESS >>"!PORTSH_SESS!" echo(!line!', 1)
 main = r'''
 :in_main
 rem CTR threads the lambda-lift counter, NN the thunk counter -- both persist across proc_forms calls so
@@ -52,6 +58,29 @@ exit /b 0
 :in_repl
 rem interactive REPL: readall in RDMODE returns after each complete top-level form (one form/submit);
 rem interpret it on the SAME engine, show the value. State (CTR/NN/ILAM_*/G_*/heap) persists across forms.
+rem
+rem PER-INPUT OSR WARM: every raw input line is appended to a SESSION FILE (readall does it -- the line
+rem is captured right after set /p, before any sentinel encoding, so it's byte-faithful). After each
+rem input, a BACKGROUND warmer recompiles the whole session file (compile-only + grow-only publish into
+rem the session cache); the live route (PORTSH_OSRDIR) flips defined fns to compiled at their next call.
+rem Whole-session recompile means the warmer's __lamN/__evN numbering always matches the live session's
+rem threaded counters (whole-file lift == per-input threading over the same forms). A lock file skips
+rem spawning while a warmer runs; the next input re-spawns, covering everything up to then.
+set "IC_SELF=%~f0"
+set "PORTSH_SESS=%TEMP%\psess_!HD!.lsp"
+set "SESSC=%TEMP%\psessc_!HD!"
+set "SESSLOCK=%TEMP%\psessw_!HD!.lock"
+set "SESSW=%TEMP%\psessw_!HD!.cmd"
+break>"!PORTSH_SESS!"
+> "!SESSW!" echo @echo off
+>>"!SESSW!" echo set "PORTSH_OSRCOMPILE=%%~1"
+>>"!SESSW!" echo set "PORTSH_OSRPUB=%%~2"
+>>"!SESSW!" echo set "PORTSH_OSRDIR="
+>>"!SESSW!" echo call "!IC_SELF!" "%%~3"
+>>"!SESSW!" echo del "%%~4" 2^>nul
+set "PORTSH_OSRDIR=!SESSC!"
+set "PATH=!SESSC!;!PATH!"
+set "WARMN=0"
 1>&2 echo portsh cmd interp repl -- ctrl-z then enter to exit.
 :irl_loop
 set "SP=0" & set "DEPTH=0" & set "RDMODE=1" & set "RDRESULT=NIL" & set "PORTSH_REPL=1"
@@ -61,6 +90,11 @@ if "!RDRESULT!"=="NIL" goto irl_eof
 call :hp_cons "!RDRESULT!" "NIL"
 set "PFIN=!R!"
 call :proc_forms
+rem spawn the session warmer (skip if one is already running; it covers inputs up to its spawn)
+if exist "!SESSLOCK!" goto irl_loop
+break>"!SESSLOCK!"
+set /a WARMN+=1
+start "" /b cmd /c ""!SESSW!" "!SESSC!.t!WARMN!" "!SESSC!" "!PORTSH_SESS!" "!SESSLOCK!"" >nul 2>&1
 goto irl_loop
 :irl_eof
 1>&2 echo.
@@ -183,6 +217,9 @@ set "BODY=!R!"
 set "IMS=!NMRAW!"
 call :imangle
 set "MN=!R!"
+rem REDEFINITION: any cached compiled artifact for this name is now STALE -- never flip it again this
+rem session (OSRSKIP) and un-memoize a prior flip. Semantics stay exact; the fn just stays interpreted.
+if defined ILAM_!MN!_body (set "OSRSKIP_!MN!=1" & set "COMPILED_!MN!=")
 set "ILL=!PS!"
 call :ilen
 set "ILAM_!MN!_np=!R!"
@@ -228,6 +265,7 @@ goto in_rc_a2
 set "IMS=!NMRAW!"
 call :imangle
 set "MN=!R!"
+if defined ILAM_!MN!_body (set "OSRSKIP_!MN!=1" & set "COMPILED_!MN!=")
 set "ILL=!PS!"
 call :ilen
 set "ILAM_!MN!_np=!R!"
@@ -243,6 +281,20 @@ if not exist "!PORTSH_OSRCOMPILE!" mkdir "!PORTSH_OSRCOMPILE!"
 set "F0=!XF!" & set "F1=T:!PORTSH_OSRCOMPILE!" & set "F2=T:!PORTSH_OSRCOMPILE!/_main"
 set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO=" & set "ICUR="
 call :el_drive
+rem optional GROW-ONLY publish (the REPL session warmer). Never move/delete in place -- a live session
+rem may have memoized flips into existing artifacts (yanking them mid-call would halt it). Copy only
+rem files that don't exist yet, and each fn's _pc0 LAST: the route keys its flip on _pc0, so a fn only
+rem becomes flippable once its full pc-set is present. Stale artifacts of REDEFINED names stay but are
+rem unreachable (the session OSRSKIPs redefined names).
+if not defined PORTSH_OSRPUB exit /b 0
+if not exist "!PORTSH_OSRPUB!" mkdir "!PORTSH_OSRPUB!"
+for %%f in ("!PORTSH_OSRCOMPILE!\*.cmd") do (
+  echo %%~nxf | findstr /e "_pc0.cmd" >nul || if not exist "!PORTSH_OSRPUB!\%%~nxf" copy "%%f" "!PORTSH_OSRPUB!\%%~nxf" >nul
+)
+for %%f in ("!PORTSH_OSRCOMPILE!\*_pc0.cmd") do (
+  if not exist "!PORTSH_OSRPUB!\%%~nxf" copy "%%f" "!PORTSH_OSRPUB!\%%~nxf" >nul
+)
+rmdir /s /q "!PORTSH_OSRCOMPILE!" 2>nul
 exit /b 0
 
 :in_run0
