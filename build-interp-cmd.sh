@@ -24,6 +24,12 @@ jit_tail = jit_rt[jit_rt.index(marker):]
 needle = 'if not "%~1"=="" call :feedfile "%~1" 0'
 assert needle in s, "boot line not found"
 s = s.replace(needle, 'goto :in_main', 1)
+# the vau GLOBAL env is :ev-only and :ev is unreachable here (the reader's emit_top ev-branch is
+# guarded in reader.cmd; all other :ev calls are its own recursion). setup_global's ~46 env_define
+# calls cost ~2.4s of EVERY boot (each `call :env_define`/`call :hp_setcar` label-scans past the
+# ~40KB hot blob) -- skip it. The resumable interp resolves via ILAM_*/G_*/iprim instead.
+assert s.count('call :setup_global') == 1
+s = s.replace('call :setup_global', 'rem setup_global SKIPPED (vau env unused by the resumable interp; ~2.4s/boot)', 1)
 s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd call _consts_std.cmd', 1)
 # REPL hooks on the kernel reader's per-line loop (readall): (1) in RDMODE, stop once a complete top-
 # level form is captured (RDRESULT set) so the REPL gets one form per call -- harmless in file mode,
