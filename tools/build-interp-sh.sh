@@ -156,14 +156,30 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
        while [ "$pa_l" != NIL ]; do hp_car "$pa_l"; printf '%s\n' "${R#T:}" >> "$pa_f"; hp_cdr "$pa_l"; pa_l=$R; done; ips "S:t" ;;
     S:append-lines) pa_f=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; pa_l=$R
        while [ "$pa_l" != NIL ]; do hp_car "$pa_l"; printf '%s\n' "${R#T:}" >> "$pa_f"; hp_cdr "$pa_l"; pa_l=$R; done; ips "S:t" ;;
-    *) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R                       # 2-arg arith / compare
-       case $1 in
-         S:+)    ips "I:$(( ${ipa#??} + ${ipb#??} ))" ;;
-         S:-)    ips "I:$(( ${ipa#??} - ${ipb#??} ))" ;;
-         'S:*')  ips "I:$(( ${ipa#??} * ${ipb#??} ))" ;;
-         'S:<')  [ "${ipa#??}" -lt "${ipb#??}" ] && ips "S:t" || ips "NIL" ;;
-         'S:<=') [ "${ipa#??}" -le "${ipb#??}" ] && ips "S:t" || ips "NIL" ;;
-         S:=)    [ "${ipa#??}" = "${ipb#??}" ] && ips "S:t" || ips "NIL" ;;
+    *) hp_cdr "$ip_args"; hp_car "$R"; ipb=$R                       # arith / compare (n-ary: fold/chain,
+       case $1 in                                                    # matching the JIT desugars exactly)
+         S:+)    ip_acc=${ipa#??}; hp_cdr "$ip_args"; ip_r=$R
+                 while [ "$ip_r" != NIL ]; do hp_car "$ip_r"; ip_acc=$((ip_acc + ${R#??})); hp_cdr "$ip_r"; ip_r=$R; done
+                 ips "I:$ip_acc" ;;
+         S:-)    ip_acc=${ipa#??}; hp_cdr "$ip_args"; ip_r=$R
+                 if [ "$ip_r" = NIL ]; then ips "I:$((0 - ip_acc))"; else
+                   while [ "$ip_r" != NIL ]; do hp_car "$ip_r"; ip_acc=$((ip_acc - ${R#??})); hp_cdr "$ip_r"; ip_r=$R; done
+                   ips "I:$ip_acc"; fi ;;
+         'S:*')  ip_acc=${ipa#??}; hp_cdr "$ip_args"; ip_r=$R
+                 while [ "$ip_r" != NIL ]; do hp_car "$ip_r"; ip_acc=$((ip_acc * ${R#??})); hp_cdr "$ip_r"; ip_r=$R; done
+                 ips "I:$ip_acc" ;;
+         'S:<'|'S:<='|S:=)
+                 ip_prev=${ipa#??}; hp_cdr "$ip_args"; ip_r=$R; ip_ok=1
+                 while [ "$ip_r" != NIL ]; do
+                   hp_car "$ip_r"; ip_nx=${R#??}
+                   case $1 in
+                     'S:<')  [ "$ip_prev" -lt "$ip_nx" ] || ip_ok=0 ;;
+                     'S:<=') [ "$ip_prev" -le "$ip_nx" ] || ip_ok=0 ;;
+                     S:=)    [ "$ip_prev" = "$ip_nx" ]   || ip_ok=0 ;;
+                   esac
+                   ip_prev=$ip_nx; hp_cdr "$ip_r"; ip_r=$R
+                 done
+                 [ "$ip_ok" = 1 ] && ips "S:t" || ips "NIL" ;;
          S:eq?)  [ "$ipa" = "$ipb" ] && ips "S:t" || ips "NIL" ;;
        esac ;;
   esac
@@ -265,6 +281,9 @@ interp() {
               S:case)                                    # eval key once; CASEK matches a clause
                 hp_car "$ip_rest"; cs_k=$R; hp_cdr "$ip_rest"; cs_cl=$R
                 hp_cons "S:CASEK" "$cs_cl"; ics "$R"; hp_cons "S:EVAL" "$cs_k"; ics "$R" ;;
+              S:apply)                                   # (apply fn arglist): APPLYK then fn/arglist EVALs.
+                hp_cons "S:APPLYK" "NIL"; ics "$R"       # Mirrors the JIT's apply codegen (driver spreads
+                ipush_args "$ip_rest" ;;                 # APLIST) -- cold/warm MUST agree.
               S:run)                                     # operative: join UNEVALUATED operand tokens -> host cmd
                 rn_c=""; rn_l=$ip_rest
                 while [ "$rn_l" != NIL ]; do hp_car "$rn_l"; rn_c="$rn_c ${R#??}"; hp_cdr "$rn_l"; rn_l=$R; done
@@ -306,6 +325,13 @@ RC_EOF
         while [ "$ip_a" != NIL ]; do hp_car "$ip_a"; eval "F$((NFP+ip_i))=\$R"; hp_cdr "$ip_a"; ip_a=$R; ip_i=$((ip_i+1)); done
         eval "ISCS_$FP=\$ICS; ISVS_$FP=\$IVS; ISSCOPE_$FP=\$SCOPE; ISTOP_$FP=\$ITOP"
         CALLEE=$ip_fv; RPC=1; ACTION=call; return ;;
+      S:APPLYK)                                          # pop (fn arglist); the driver's apply arm stages
+        ipop_n 2                                         # APLIST into the callee frame at runtime count
+        hp_car "$ip_args"; ap_f=$R
+        hp_cdr "$ip_args"; hp_car "$R"; ap_l=$R
+        NFP=$((FP+ITOP))
+        eval "ISCS_$FP=\$ICS; ISVS_$FP=\$IVS; ISSCOPE_$FP=\$SCOPE; ISTOP_$FP=\$ITOP"
+        CALLEE=$ap_f; APLIST=$ap_l; RPC=1; ACTION=apply; return ;;
       S:LETK) SCOPE=$ip_pl ;;                            # restore the pre-let scope (body value stays on VS)
       S:BINDK)                                           # bind a let value: pop it, give it a fresh frame slot, extend SCOPE
         hp_car "$IVS"; bk_v=$R; hp_cdr "$IVS"; IVS=$R

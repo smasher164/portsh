@@ -7,6 +7,7 @@
 (define __p_sub (lambda (a b) (- a b)))
 (define __p_mul (lambda (a b) (* a b)))
 (define __p_lt  (lambda (a b) (< a b)))
+(define __p_le  (lambda (a b) (<= a b)))
 (define __p_neq (lambda (a b) (= a b)))
 (define __p_cons (lambda (a b) (cons a b)))
 (define __p_car (lambda (x) (car x)))

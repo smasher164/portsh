@@ -139,7 +139,7 @@ for /l %%Y in (1,1,1000) do if not defined ITDONE (
     set /p iptag=<%HD%\car!ipi!
     set /p ippl=<%HD%\cdr!ipi!
     set "iptag=!iptag:~0,-1!" & set "ippl=!ippl:~0,-1!"
-    if "!iptag!"=="S:EVAL" (call :itk_eval) else if "!iptag!"=="S:PRIMK" (call :itk_primk2) else if "!iptag!"=="S:IFK" (call :itk_ifk) else if "!iptag!"=="S:CALLK" (call :itk_callk) else if "!iptag!"=="S:LETK" (call :itk_letk) else if "!iptag!"=="S:BINDK" (call :itk_bindk) else if "!iptag!"=="S:POPK" (call :itk_popk) else call :itk_unknown
+    if "!iptag!"=="S:EVAL" (call :itk_eval) else if "!iptag!"=="S:PRIMK" (call :itk_primk2) else if "!iptag!"=="S:IFK" (call :itk_ifk) else if "!iptag!"=="S:CALLK" (call :itk_callk) else if "!iptag!"=="S:APPLYK" (call :itk_applyk) else if "!iptag!"=="S:LETK" (call :itk_letk) else if "!iptag!"=="S:BINDK" (call :itk_bindk) else if "!iptag!"=="S:POPK" (call :itk_popk) else call :itk_unknown
     if defined ACTION set "ITDONE=1"
   )
 )
@@ -196,6 +196,7 @@ if "!iph!"=="S:begin" goto itk_begin
 if "!iph!"=="S:make-closure" goto itk_mkclo
 if "!iph!"=="S:run" goto itk_run
 if "!iph!"=="S:run-capture" goto itk_runcap
+if "!iph!"=="S:apply" goto itk_apply
 set "IPO=!iph!"
 call :isprim
 if "!R!"=="1" goto itk_prim
@@ -376,6 +377,15 @@ set "ICS=!R!"
 set "IPA=!iprest!"
 call :ipush_args
 goto :eof
+:itk_apply
+rem (apply fn arglist): APPLYK then fn/arglist EVALs (leftmost on top). Mirrors the JIT's apply
+rem codegen (the driver's apply arm spreads APLIST into the callee frame) -- cold/warm MUST agree.
+call :hp_cons "S:APPLYK" "NIL"
+call :hp_cons "!R!" "!ICS!"
+set "ICS=!R!"
+set "IPA=!iprest!"
+call :ipush_args
+goto :eof
 :itk_call
 rem general call: CALLK(n), arg EVALs, then EVAL operator on TOP (eval'd first)
 set "ILL=!iprest!"
@@ -461,6 +471,25 @@ set "IST_!FP!=!ITOP!"
 set "CALLEE=!ipfv!"
 set "RPC=1"
 set "ACTION=call"
+goto :eof
+:itk_applyk
+rem pop (fn arglist); the driver's apply arm stages APLIST into the callee frame at runtime count
+set "IPN=2"
+call :ipop_n
+call :hp_car "!ip_args!"
+set "ipfv=!R!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "ipal0=!R!"
+set /a NFP=!FP!+!ITOP!
+set "ISC_!FP!=!ICS!"
+set "ISV_!FP!=!IVS!"
+set "ISS_!FP!=!ISCP!"
+set "IST_!FP!=!ITOP!"
+set "CALLEE=!ipfv!"
+set "APLIST=!ipal0!"
+set "RPC=1"
+set "ACTION=apply"
 goto :eof
 rem -- helpers ---------------------------------------------------------------------------------------
 :ilen
@@ -600,6 +629,7 @@ if "!IPO!"=="S:+" set "R=1"
 if "!IPO!"=="S:-" set "R=1"
 if "!IPO!"=="S:*" set "R=1"
 if "!IPO!"=="S:!LT!" set "R=1"
+if "!IPO!"=="S:!LT!=" set "R=1"
 if "!IPO!"=="S:=" set "R=1"
 if "!IPO!"=="S:type-of" set "R=1"
 if "!IPO!"=="S:symbol->string" set "R=1"
@@ -656,6 +686,7 @@ if "!IPO!"=="S:+" (set /a ipr=!ipna!+!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
 if "!IPO!"=="S:-" (set /a ipr=!ipna!-!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
 if "!IPO!"=="S:*" (set /a ipr=!ipna!*!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
 if "!IPO!"=="S:!LT!" goto ipr_lt
+if "!IPO!"=="S:!LT!=" goto ipr_le
 if "!IPO!"=="S:=" goto ipr_neq
 echo interp: unknown prim !IPO! 1>&2
 set "IPV=NIL"
@@ -677,6 +708,9 @@ if "!ipa!"=="!ipb!" (set "IPV=S:t") else (set "IPV=NIL")
 goto itk_push
 :ipr_lt
 if !ipna! LSS !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_le
+if !ipna! LEQ !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
 goto itk_push
 :ipr_neq
 if !ipna!==!ipnb! (set "IPV=S:t") else (set "IPV=NIL")

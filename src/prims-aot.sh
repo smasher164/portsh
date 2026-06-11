@@ -53,6 +53,22 @@ fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE___p_le=2
+__p_le() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE___p_le))
+NP=2
+case $PC in
+0)
+if [ ${p0#??} -le ${p1#??} ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
 SIZE___p_neq=2
 __p_neq() {
 eval "p0=\"\$F$((FP+0))\""

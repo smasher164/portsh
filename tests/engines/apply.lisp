@@ -1,0 +1,6 @@
+(define sum3 (lambda (a b c) (+ a b c)))
+(print (apply sum3 (list 1 2 3)))
+(define pick2 (lambda (a b) (cons b a)))
+(print (apply pick2 (list 1 2)))
+(define use (lambda (f xs) (apply f xs)))
+(print (use sum3 (list 10 20 30)))

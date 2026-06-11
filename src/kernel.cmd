@@ -758,8 +758,9 @@ if "!paN!"=="atom?" goto pa_atom
 if "!paN!"=="+" goto pa_add
 if "!paN!"=="-" goto pa_sub
 if "!paN!"=="*" goto pa_mul
-if "!paN!"=="<" goto pa_lt
-if "!paN!"=="=" goto pa_numeq
+if "!paN!"=="<" set "paCmp=LSS" & goto pa_cmp
+if "!paN!"=="<=" set "paCmp=LEQ" & goto pa_cmp
+if "!paN!"=="=" set "paCmp=EQU" & goto pa_cmp
 if "!paN!"=="wrap" goto pa_wrap
 if "!paN!"=="unwrap" goto pa_unwrap
 if "!paN!"=="eval" goto pa_eval
@@ -1047,28 +1048,44 @@ call :hp_cdr "!paLst!"
 set "paLst=!R!"
 goto pa_mul_loop
 :pa_sub
+rem n-ary left fold; unary (- a) negates (mirror kernel.sh)
 call :hp_car "%~3"
 set "paA1=!R!"
+set /a paD=!paA1:~2!
 call :hp_cdr "%~3"
-call :hp_car "!R!"
-set /a paD=!paA1:~2! - !R:~2!
+set "paLst=!R!"
+if not "!paLst!"=="NIL" goto pa_sub_loop
+set /a paD=0-!paD!
 set "R=I:!paD!"
 goto :eof
-:pa_lt
+:pa_sub_loop
+if "!paLst!"=="NIL" set "R=I:!paD!" & goto :eof
+call :hp_car "!paLst!"
+set /a paD=!paD! - !R:~2!
+call :hp_cdr "!paLst!"
+set "paLst=!R!"
+goto pa_sub_loop
+:pa_cmp
+rem chained < / <= / = (paCmp = LSS/LEQ/EQU): every adjacent pair must hold (mirror kernel.sh)
 call :hp_car "%~3"
 set "paA1=!R!"
+set /a paP=!paA1:~2!
 call :hp_cdr "%~3"
-call :hp_car "!R!"
-set /a paX1=!paA1:~2!, paX2=!R:~2!
-if !paX1! LSS !paX2! (set "R=S:t") else (set "R=NIL")
-goto :eof
-:pa_numeq
-call :hp_car "%~3"
-set "paA1=!R!"
-call :hp_cdr "%~3"
-call :hp_car "!R!"
-set /a paX1=!paA1:~2!, paX2=!R:~2!
-if !paX1! EQU !paX2! (set "R=S:t") else (set "R=NIL")
+set "paLst=!R!"
+set "paOk=1"
+:pa_cmp_loop
+if "!paLst!"=="NIL" goto pa_cmp_done
+call :hp_car "!paLst!"
+set /a paV=!R:~2!
+if "!paCmp!"=="LSS" if !paP! GEQ !paV! set "paOk=0"
+if "!paCmp!"=="LEQ" if !paP! GTR !paV! set "paOk=0"
+if "!paCmp!"=="EQU" if !paP! NEQ !paV! set "paOk=0"
+set /a paP=!paV!
+call :hp_cdr "!paLst!"
+set "paLst=!R!"
+goto pa_cmp_loop
+:pa_cmp_done
+if "!paOk!"=="1" (set "R=S:t") else (set "R=NIL")
 goto :eof
 :pa_wrap
 call :hp_car "%~3"
@@ -1168,6 +1185,7 @@ call :env_define "!GLOBAL!" "S:+" "R:+"
 call :env_define "!GLOBAL!" "S:-" "R:-"
 call :env_define "!GLOBAL!" "S:*" "R:*"
 call :env_define "!GLOBAL!" "S:<" "R:<"
+call :env_define "!GLOBAL!" "S:<=" "R:<="
 call :env_define "!GLOBAL!" "S:=" "R:="
 call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"

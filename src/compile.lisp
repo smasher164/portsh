@@ -18,12 +18,12 @@
 
 (define cadddr (lambda (x) (car (cdr (cdr (cdr x))))))
 (define op->batch  (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
-(define cmp->batch (lambda (o) (cond ((eq? o (quote <)) "LSS") ((eq? o (quote =)) "EQU") (t "?"))))
+(define cmp->batch (lambda (o) (cond ((eq? o (quote <)) "LSS") ((eq? o (quote <=)) "LEQ") ((eq? o (quote =)) "EQU") (t "?"))))
 (define arith? (lambda (o) (if (eq? o (quote +)) t (if (eq? o (quote -)) t (eq? o (quote *))))))
 ;; predicates test-stmts can evaluate; in VALUE position we wrap them in an if so
 ;; the result becomes S:t / NIL (e.g. comp's is? returns (eq? (car f) h)).
 (define tpred? (lambda (o) (cond ((eq? o (quote eq?)) t) ((eq? o (quote null?)) t) ((eq? o (quote pair?)) t)
-  ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote =)) t) (t nil))))
+  ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) (t nil))))
 (define is? (lambda (f h) (if (pair? f) (eq? (car f) h) nil)))
 
 ;; ref kinds: lit (literal int) | raw (var, raw int) | val (var, tagged value) |
@@ -223,7 +223,7 @@
 ;; compile to a C:<label> wrapper -- a fixed-arity applicative fn (src/prims.lisp) named __p_<op>.
 (define prim-wrap (lambda (s)
   (cond ((eq? s (quote +)) "__p_add") ((eq? s (quote -)) "__p_sub") ((eq? s (quote *)) "__p_mul")
-        ((eq? s (quote <)) "__p_lt")  ((eq? s (quote =)) "__p_neq")
+        ((eq? s (quote <)) "__p_lt")  ((eq? s (quote <=)) "__p_le") ((eq? s (quote =)) "__p_neq")
         ((eq? s (quote cons)) "__p_cons") ((eq? s (quote car)) "__p_car") ((eq? s (quote cdr)) "__p_cdr")
         ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
         ((eq? s (quote not)) "__p_not")
@@ -540,6 +540,43 @@
 (define let*->lets (lambda (binds body)
   (if (null? binds) (cons (quote begin) body)
     (list (quote let) (list (car binds)) (let*->lets (cdr binds) body)))))
+;; n-ary arithmetic and chained comparisons, matching the bootstrap kernel's variadic prims
+;; (the engines-suite migration caught (+ 1 2 (* 3 4)) silently compiling to (+ 1 2)).
+;; Arithmetic left-folds onto the binary core ops: (+ a b c) -> (+ (+ a b) c); unary (+ a)/(* a)
+;; are identity. Unary (- a) stays untouched (the kernel errors on it too). Comparisons bind
+;; every operand ONCE in order (applicative, like the kernel prim), then AND adjacent tests:
+;; (< a b c) -> (let ((__cmp0 a)) (let ((__cmp1 b)) (let ((__cmp2 c))
+;;                (and (< __cmp0 __cmp1) (< __cmp1 __cmp2))))).
+;; __cmpN is reserved like __or/__case: an inner chain's bindings are consumed before the
+;; outer's next bind, so nesting shadows safely.
+(define arith-op? (lambda (s) (if (eq? s (quote +)) t (if (eq? s (quote -)) t (eq? s (quote *))))))
+(define cmp-op? (lambda (s) (if (eq? s (quote <)) t (if (eq? s (quote <=)) t (eq? s (quote =))))))
+(define extra-args? (lambda (as) (if (null? as) nil (if (null? (cdr as)) nil (if (null? (cdr (cdr as))) nil t)))))
+(define unary-args? (lambda (as) (if (null? as) nil (null? (cdr as)))))
+(define nary->bin (lambda (op acc rest)
+  (if (null? rest) acc (nary->bin op (list op acc (car rest)) (cdr rest)))))
+(define cmp-names (lambda (as i)
+  (if (null? as) nil
+    (cons (string->symbol (string-append "__cmp" (number->string i))) (cmp-names (cdr as) (+ i 1))))))
+(define cmp-pairs (lambda (op ns)
+  (if (null? (cdr ns)) nil (cons (list op (car ns) (car (cdr ns))) (cmp-pairs op (cdr ns))))))
+(define cmp-wrap (lambda (ns as body)
+  (if (null? ns) body
+    (list (quote let) (list (list (car ns) (car as))) (cmp-wrap (cdr ns) (cdr as) body)))))
+(define chain->and (lambda (op as)
+  (let ((ns (cmp-names as 0)))
+    (cmp-wrap ns as (cons (quote and) (cmp-pairs op ns))))))
+;; one small dispatcher pair so mexpand's if-chain grows by ONE level (comp compile time for a fn
+;; grows steeply with chain depth).
+(define nary-form? (lambda (f)
+  (if (if (arith-op? (car f)) (extra-args? (cdr f)) nil) t
+    (if (if (arith-op? (car f)) (unary-args? (cdr f)) nil) t
+      (if (cmp-op? (car f)) (extra-args? (cdr f)) nil)))))
+(define nary-rw (lambda (f)
+  (if (if (arith-op? (car f)) (extra-args? (cdr f)) nil) (nary->bin (car f) (car (cdr f)) (cdr (cdr f)))
+    (if (if (eq? (car f) (quote -)) (unary-args? (cdr f)) nil) (list (quote -) 0 (car (cdr f)))
+      (if (arith-op? (car f)) (car (cdr f))
+        (chain->and (car f) (cdr f)))))))
 (define mexpand (lambda (f)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) f
@@ -555,12 +592,14 @@
       (if (eq? (car f) (quote unless)) (mexpand (unless->if (car (cdr f)) (cdr (cdr f))))
       (if (eq? (car f) (quote case)) (mexpand (case->cond (car (cdr f)) (cdr (cdr f))))
       (if (eq? (car f) (quote let*)) (mexpand (let*->lets (car (cdr f)) (cdr (cdr f))))
+      (if (nary-form? f)
+        (mexpand (nary-rw f))
         (if (eq? (car f) (quote str)) (str->app (map-mexpand (cdr f)))
           (if (eq? (car f) (quote list)) (list->cons (map-mexpand (cdr f)))
             ;; structural sharing: if neither sub-tree changed, return f rather than
             ;; re-consing, so most of comp's source isn't copied.
             (let ((a (mexpand (car f))) (d (mexpand (cdr f))))
-              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))))))))
+              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d)))))))))))))))
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 

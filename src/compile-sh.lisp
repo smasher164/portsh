@@ -50,8 +50,40 @@
     (list f nil ctr))))
 (define arith? (lambda (o) (if (eq? o (quote +)) t (if (eq? o (quote -)) t (eq? o (quote *))))))
 (define shop (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
-(define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote =)) "-eq") (t "?"))))
-(define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote =)) t) (t nil))))
+(define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote <=)) "-le") ((eq? o (quote =)) "-eq") (t "?"))))
+;; n-ary arithmetic and chained comparisons (mirrors compile.lisp's mexpand arms -- the sh backend
+;; desugars inline in codegen, so the rewrite lives here). (+ a b c) left-folds to (+ (+ a b) c);
+;; unary (+ a)/(* a) are identity. (< a b c) binds every operand ONCE in order, then ANDs adjacent
+;; binary tests; __cmpN is reserved like __or (inner chains shadow safely).
+(define extra-args? (lambda (as) (if (null? as) nil (if (null? (cdr as)) nil (if (null? (cdr (cdr as))) nil t)))))
+(define unary-args? (lambda (as) (if (null? as) nil (null? (cdr as)))))
+(define nary->bin (lambda (op acc rest)
+  (if (null? rest) acc (nary->bin op (list op acc (car rest)) (cdr rest)))))
+(define cmpch? (lambda (o) (cond ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) (t nil))))
+(define cmp-names (lambda (as i)
+  (if (null? as) nil
+    (cons (string->symbol (string-append "__cmp" (number->string i))) (cmp-names (cdr as) (+ i 1))))))
+(define cmp-pairs (lambda (op ns)
+  (if (null? (cdr ns)) nil (cons (list op (car ns) (car (cdr ns))) (cmp-pairs op (cdr ns))))))
+(define cmp-wrap (lambda (ns as body)
+  (if (null? ns) body
+    (list (quote let) (list (list (car ns) (car as))) (cmp-wrap (cdr ns) (cdr as) body)))))
+(define chain->and (lambda (op as)
+  (let ((ns (cmp-names as 0)))
+    (cmp-wrap ns as (cons (quote and) (cmp-pairs op ns))))))
+;; one small dispatcher pair so the giant lval cond grows by ONE arm (the comp's compile time for
+;; a fn grows steeply with cond depth -- adding several arms to lval pushed self-host past 10min).
+(define nary-form? (lambda (f)
+  (cond ((and (arith? (car f)) (extra-args? (cdr f))) t)
+        ((and (arith? (car f)) (unary-args? (cdr f))) t)
+        ((and (cmpch? (car f)) (extra-args? (cdr f))) t)
+        (t nil))))
+(define nary-rw (lambda (f)
+  (cond ((and (arith? (car f)) (extra-args? (cdr f))) (nary->bin (car f) (car (cdr f)) (cdr (cdr f))))
+        ((and (eq? (car f) (quote -)) (unary-args? (cdr f))) (list (quote -) 0 (car (cdr f))))
+        ((arith? (car f)) (car (cdr f)))
+        (t (chain->and (car f) (cdr f))))))
+(define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) (t nil))))
 (define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) (t nil))))
 ;; runtime fn name for a builtin: usually the mangle, but `read` would shadow the shell `read`
 ;; builtin (the driver uses it), so the read primitive's runtime fn is read_str.
@@ -64,7 +96,7 @@
 ;; runtime) named __p_<op>. nil = not a wrappable primitive.
 (define prim-wrap (lambda (s)
   (cond ((eq? s (quote +)) "__p_add") ((eq? s (quote -)) "__p_sub") ((eq? s (quote *)) "__p_mul")
-        ((eq? s (quote <)) "__p_lt")  ((eq? s (quote =)) "__p_neq")
+        ((eq? s (quote <)) "__p_lt")  ((eq? s (quote <=)) "__p_le") ((eq? s (quote =)) "__p_neq")
         ((eq? s (quote cons)) "__p_cons") ((eq? s (quote car)) "__p_car") ((eq? s (quote cdr)) "__p_cdr")
         ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
         ((eq? s (quote not)) "__p_not")
@@ -143,6 +175,7 @@
            (if (mem? f (lookup (quote __gfns) pmap)) (cons b (cons (quote cst) (str "C:" (sh-mangle (symbol->string f)))))
              (cons b (cons (quote loc) (str "G_" (symbol->string f))))))
          (cons b (cons (quote loc) p)))))
+    ((nary-form? f) (lval (nary-rw f) pmap b live))
     ((arith? (car f))
       (let ((ra (lval (car (cdr f)) pmap b live)))
         (let ((rb (lval (car (cdr (cdr f))) pmap (car ra) (let ((v (rvar (cdr ra)))) (if (null? v) live (cons v live))))))
@@ -329,6 +362,10 @@
 (define lretag (lambda (f newtag pmap b live) (let ((rx (lval (car (cdr f)) pmap b live))) (let ((tmp (tmpn (car rx)))) (cons (bk+ (emit (car rx) (str tmp "=" (dq) newtag (shdet (cdr rx)) (dq)))) (cons (quote loc) tmp))))))
 ;; ctest: if-test -> (b . condstr)
 (define ctest (lambda (f pmap b live)
+  ;; chained comparison in test position: rewrite first (the chain desugars to let+and, which the
+  ;; non-predicate truthiness path below compiles).
+  (if (if (pair? f) (if (cmpch? (car f)) (extra-args? (cdr f)) nil) nil)
+    (ctest (chain->and (car f) (cdr f)) pmap b live)
   (if (if (pair? f) (pred? (car f)) nil)
   (cond
     ((eq? (car f) (quote null?)) (let ((ra (lval (car (cdr f)) pmap b live))) (cons (car ra) (str "[ " (dq) (shval (cdr ra)) (dq) " = NIL ]"))))
@@ -346,7 +383,7 @@
            (cons (car rb) (str "[ " (shdet (cdr ra)) " " (shcmp (car f)) " " (shdet (cdr rb)) " ]"))))))
     ;; non-predicate test (bare var, general call, inlined if): eval -> truthiness
     (let ((rx (lval f pmap b live)))
-      (cons (car rx) (str "[ " (dq) (shval (cdr rx)) (dq) " != NIL ]"))))))
+      (cons (car rx) (str "[ " (dq) (shval (cdr rx)) (dq) " != NIL ]")))))))
 
 ;; ltail: TAIL position -> b (each path terminates)
 (define ltail (lambda (f pmap fname np b live)

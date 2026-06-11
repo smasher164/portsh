@@ -448,9 +448,15 @@ prim_app() {
     'atom?') arg1 "$args"; case $ARG1 in P:*) R=NIL ;; *) R="S:t" ;; esac ;;
     '+')     sum=0;  lst=$args; while [ "$lst" != NIL ]; do hp_car "$lst"; v=$R; sum=$((sum + ${v#I:}));  hp_cdr "$lst"; lst=$R; done; R="I:$sum" ;;
     '*')     prod=1; lst=$args; while [ "$lst" != NIL ]; do hp_car "$lst"; v=$R; prod=$((prod * ${v#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$prod" ;;
-    '-')     arg2 "$args"; R="I:$(( ${ARG1#I:} - ${ARG2#I:} ))" ;;
-    '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
-    '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
+    '-')     hp_car "$args"; _d=${R#I:}; hp_cdr "$args"; lst=$R
+             if [ "$lst" = NIL ]; then R="I:$((0 - _d))"; else
+               while [ "$lst" != NIL ]; do hp_car "$lst"; _d=$((_d - ${R#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$_d"; fi ;;
+    '<'|'<='|'=')                       # chained: every adjacent pair must hold ((< 1 3 2) is nil)
+             hp_car "$args"; _p=${R#I:}; hp_cdr "$args"; lst=$R; _ok=1
+             while [ "$lst" != NIL ]; do hp_car "$lst"; _v=${R#I:}
+               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
+               _p=$_v; hp_cdr "$lst"; lst=$R; done
+             [ "$_ok" = 1 ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
     'string-append') _sa=; _l=$args
              while [ "$_l" != NIL ]; do hp_car "$_l"; _sa="$_sa${R#T:}"; hp_cdr "$_l"; _l=$R; done
@@ -534,7 +540,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -1329,8 +1335,9 @@ if "!paN!"=="atom?" goto pa_atom
 if "!paN!"=="+" goto pa_add
 if "!paN!"=="-" goto pa_sub
 if "!paN!"=="*" goto pa_mul
-if "!paN!"=="<" goto pa_lt
-if "!paN!"=="=" goto pa_numeq
+if "!paN!"=="<" set "paCmp=LSS" & goto pa_cmp
+if "!paN!"=="<=" set "paCmp=LEQ" & goto pa_cmp
+if "!paN!"=="=" set "paCmp=EQU" & goto pa_cmp
 if "!paN!"=="wrap" goto pa_wrap
 if "!paN!"=="unwrap" goto pa_unwrap
 if "!paN!"=="eval" goto pa_eval
@@ -1618,28 +1625,44 @@ call :hp_cdr "!paLst!"
 set "paLst=!R!"
 goto pa_mul_loop
 :pa_sub
+rem n-ary left fold; unary (- a) negates (mirror kernel.sh)
 call :hp_car "%~3"
 set "paA1=!R!"
+set /a paD=!paA1:~2!
 call :hp_cdr "%~3"
-call :hp_car "!R!"
-set /a paD=!paA1:~2! - !R:~2!
+set "paLst=!R!"
+if not "!paLst!"=="NIL" goto pa_sub_loop
+set /a paD=0-!paD!
 set "R=I:!paD!"
 goto :eof
-:pa_lt
+:pa_sub_loop
+if "!paLst!"=="NIL" set "R=I:!paD!" & goto :eof
+call :hp_car "!paLst!"
+set /a paD=!paD! - !R:~2!
+call :hp_cdr "!paLst!"
+set "paLst=!R!"
+goto pa_sub_loop
+:pa_cmp
+rem chained < / <= / = (paCmp = LSS/LEQ/EQU): every adjacent pair must hold (mirror kernel.sh)
 call :hp_car "%~3"
 set "paA1=!R!"
+set /a paP=!paA1:~2!
 call :hp_cdr "%~3"
-call :hp_car "!R!"
-set /a paX1=!paA1:~2!, paX2=!R:~2!
-if !paX1! LSS !paX2! (set "R=S:t") else (set "R=NIL")
-goto :eof
-:pa_numeq
-call :hp_car "%~3"
-set "paA1=!R!"
-call :hp_cdr "%~3"
-call :hp_car "!R!"
-set /a paX1=!paA1:~2!, paX2=!R:~2!
-if !paX1! EQU !paX2! (set "R=S:t") else (set "R=NIL")
+set "paLst=!R!"
+set "paOk=1"
+:pa_cmp_loop
+if "!paLst!"=="NIL" goto pa_cmp_done
+call :hp_car "!paLst!"
+set /a paV=!R:~2!
+if "!paCmp!"=="LSS" if !paP! GEQ !paV! set "paOk=0"
+if "!paCmp!"=="LEQ" if !paP! GTR !paV! set "paOk=0"
+if "!paCmp!"=="EQU" if !paP! NEQ !paV! set "paOk=0"
+set /a paP=!paV!
+call :hp_cdr "!paLst!"
+set "paLst=!R!"
+goto pa_cmp_loop
+:pa_cmp_done
+if "!paOk!"=="1" (set "R=S:t") else (set "R=NIL")
 goto :eof
 :pa_wrap
 call :hp_car "%~3"
@@ -1739,6 +1762,7 @@ call :env_define "!GLOBAL!" "S:+" "R:+"
 call :env_define "!GLOBAL!" "S:-" "R:-"
 call :env_define "!GLOBAL!" "S:*" "R:*"
 call :env_define "!GLOBAL!" "S:<" "R:<"
+call :env_define "!GLOBAL!" "S:<=" "R:<="
 call :env_define "!GLOBAL!" "S:=" "R:="
 call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"

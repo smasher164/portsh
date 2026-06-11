@@ -1,0 +1,5 @@
+(print (type-of 5))
+(print (type-of "x"))
+(print (type-of (quote a)))
+(print (type-of (cons 1 2)))
+(print (type-of nil))
