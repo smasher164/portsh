@@ -19,7 +19,10 @@ Programs produce byte-identical output on both platforms.
 
 (`./portsh.cmd` works because a shebang is impossible in a file `cmd.exe` must
 also parse, and POSIX shells run an executable that isn't a binary as an `sh`
-script. Invoking it from something that isn't a shell needs `sh portsh.cmd`.)
+script. Invoking it from something that isn't a shell needs `sh portsh.cmd`.
+If you fetched `portsh.cmd` with `curl`/a browser rather than building it,
+the execute bit doesn't survive the download — `chmod +x portsh.cmd` once,
+or just use `sh portsh.cmd`. On Windows it's a `.cmd`; it just runs.)
 
 ## How it executes
 

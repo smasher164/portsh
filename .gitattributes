@@ -1,0 +1,5 @@
+# Every byte in this repo is load-bearing: the .cmd artifacts (and the woven kernels) are
+# CRLF-critical (cmd label lookup needs CR), the sh sources are LF, and several files carry
+# literal control bytes (0x01/0x02/0x07/0x08 sentinels). Disable ALL git eol/text conversion
+# so a clone with core.autocrlf=true (the Windows default) can never mangle them.
+* -text
