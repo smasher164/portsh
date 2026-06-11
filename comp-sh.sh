@@ -447,9 +447,15 @@ prim_app() {
     'atom?') arg1 "$args"; case $ARG1 in P:*) R=NIL ;; *) R="S:t" ;; esac ;;
     '+')     sum=0;  lst=$args; while [ "$lst" != NIL ]; do hp_car "$lst"; v=$R; sum=$((sum + ${v#I:}));  hp_cdr "$lst"; lst=$R; done; R="I:$sum" ;;
     '*')     prod=1; lst=$args; while [ "$lst" != NIL ]; do hp_car "$lst"; v=$R; prod=$((prod * ${v#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$prod" ;;
-    '-')     arg2 "$args"; R="I:$(( ${ARG1#I:} - ${ARG2#I:} ))" ;;
-    '<')     arg2 "$args"; [ "${ARG1#I:}" -lt "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
-    '=')     arg2 "$args"; [ "${ARG1#I:}" -eq "${ARG2#I:}" ] && R="S:t" || R=NIL ;;
+    '-')     hp_car "$args"; _d=${R#I:}; hp_cdr "$args"; lst=$R
+             if [ "$lst" = NIL ]; then R="I:$((0 - _d))"; else
+               while [ "$lst" != NIL ]; do hp_car "$lst"; _d=$((_d - ${R#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$_d"; fi ;;
+    '<'|'<='|'=')                       # chained: every adjacent pair must hold ((< 1 3 2) is nil)
+             hp_car "$args"; _p=${R#I:}; hp_cdr "$args"; lst=$R; _ok=1
+             while [ "$lst" != NIL ]; do hp_car "$lst"; _v=${R#I:}
+               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
+               _p=$_v; hp_cdr "$lst"; lst=$R; done
+             [ "$_ok" = 1 ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
     'string-append') _sa=; _l=$args
              while [ "$_l" != NIL ]; do hp_car "$_l"; _sa="$_sa${R#T:}"; hp_cdr "$_l"; _l=$R; done
@@ -533,7 +539,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
