@@ -8,7 +8,6 @@ language — one script that runs commands, checks for files, and computes text
 identically on Unix and Windows.
 
 ```sh
-sh build-polyglot.sh          # build the single-file artifact, portsh.cmd
 ./portsh.cmd prog.lisp        # run a program on Unix
 portsh.cmd prog.lisp          # run it on Windows (real cmd.exe)
 ./portsh.cmd                  # REPL (Unix)
@@ -17,12 +16,13 @@ portsh.cmd                    # REPL (Windows)
 
 Programs produce byte-identical output on both platforms.
 
-(`./portsh.cmd` works because a shebang is impossible in a file `cmd.exe` must
+`portsh.cmd` is committed prebuilt (rebuild it with `sh build-polyglot.sh`).
+`./portsh.cmd` works because a shebang is impossible in a file `cmd.exe` must
 also parse, and POSIX shells run an executable that isn't a binary as an `sh`
 script. Invoking it from something that isn't a shell needs `sh portsh.cmd`.
-If you fetched `portsh.cmd` with `curl`/a browser rather than building it,
-the execute bit doesn't survive the download — `chmod +x portsh.cmd` once,
-or just use `sh portsh.cmd`. On Windows it's a `.cmd`; it just runs.)
+A clone keeps the execute bit; a `curl`/browser fetch of the single file does
+not — `chmod +x portsh.cmd` once, or just use `sh portsh.cmd`. On Windows
+it's a `.cmd`; it just runs.
 
 ## How it executes
 
