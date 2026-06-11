@@ -140,11 +140,15 @@
         (cons (car rest) (cons (cdr r1) (cdr rest))))))))
 (define bargs (lambda (refs) (if (null? refs) "" (str " " (vref (car refs)) (bargs (cdr refs))))))
 (define lcell (lambda (f field pmap b live)
+  ;; INLINE file-heap read -- `for %%v in (!zi!) do set /p tmp=<%HD%\<field>%%v` gives a
+  ;; DYNAMIC-address redirect with no helper-file call (the redirect path takes the for-var;
+  ;; set /p keeps & | < > ! raw). Measured 0.15ms vs 0.82ms for `call rdfield.cmd` -- car/cdr
+  ;; is the hottest compiled op. The ~0,-1 substring drops the trailing guard byte (#).
   (let ((rx (lval (car (cdr f)) pmap b live)))
     (let ((zi (str "zi" (number->string (b-k (car rx))))) (tmp (tmpn (car rx))))
       (let ((b1 (emit (car rx) (qset (str zi "=!" (cdr (cdr rx)) ":~2!")))))
-        (let ((b2 (emit b1 (str "call rdfield.cmd " field " !" zi "!"))))
-          (cons (bk+ (emit b2 (qset (str tmp "=!R!")))) (cons (quote val) tmp))))))))
+        (let ((b2 (emit b1 (str "for %%v in (!" zi "!) do set /p " tmp "=<%HD%\" field "%%v"))))
+          (cons (bk+ (emit b2 (qset (str tmp "=!" tmp ":~0,-1!")))) (cons (quote val) tmp))))))))
 (define ltagtest (lambda (e ch pmap b live neg)
   (let ((rx (lval e pmap b live)))
     (let ((zp (str "zp" (number->string (b-k (car rx))))))
@@ -742,10 +746,10 @@
 (define mkclo-caps (lambda (caps) (if (null? caps) (quote nil) (list (quote cons) (car caps) (mkclo-caps (cdr caps))))))
 (define cap-loads-go (lambda (cap i)
   (if (null? cap) nil
-    (append (list (str "call rdfield.cmd car !_cl!") (qset (str "p" (number->string i) "=!R!")) (str "call rdfield.cmd cdr !_cl!") (qset "_cl=!R:~2!"))
+    (append (list "for %%v in (!_cl!) do set /p R=<%HD%\car%%v" (qset (str "p" (number->string i) "=!R:~0,-1!")) "for %%v in (!_cl!) do set /p R=<%HD%\cdr%%v" (qset "_cl=!R:~2,-1!"))
             (cap-loads-go (cdr cap) (+ i 1))))))
 (define cap-loads (lambda (cap np)
-  (if (null? cap) nil (cons (str "call rdfield.cmd cdr !CLO!") (cons (qset "_cl=!R:~2!") (cap-loads-go cap np))))))
+  (if (null? cap) nil (cons "for %%v in (!CLO!) do set /p R=<%HD%\cdr%%v" (cons (qset "_cl=!R:~2,-1!") (cap-loads-go cap np))))))
 ;; operator-position symbols in a body (over-collects; filtered to defined fns).
 (define callees (lambda (f acc)
   (if (pair? f)

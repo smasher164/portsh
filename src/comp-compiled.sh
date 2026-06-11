@@ -2130,17 +2130,19 @@ eval "sht8=\"\$F$((FP+NP+1))\""
 eval "sht3=\"\$F$((FP+NP+2))\""
 sht19="${R}"
 sht20="${sht19}"
-sht21="T:${sht8#??}!"
-sht22="T: !${sht21#??}"
-sht23="T:${p1#??}${sht22#??}"
-sht24="T:call rdfield.cmd ${sht23#??}"
+sht21="T:${p1#??}%%v"
+sht22="T:=<%HD%\\${sht21#??}"
+sht23="T:${sht11#??}${sht22#??}"
+sht24="T:!) do set /p ${sht23#??}"
+sht25="T:${sht8#??}${sht24#??}"
+sht26="T:for %%v in (!${sht25#??}"
 eval "F$((FP+NP+0))=\"\${sht20}\""
 eval "F$((FP+NP+1))=\"\${sht11}\""
 eval "F$((FP+NP+2))=\"\${sht8}\""
 eval "F$((FP+NP+3))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht20}\""
-eval "F$((NFP+1))=\"\${sht24}\""
+eval "F$((NFP+1))=\"\${sht26}\""
 CALLEE=emit
 RPC=6; ACTION=call; return
 ;;
@@ -2149,90 +2151,92 @@ eval "sht20=\"\$F$((FP+NP+0))\""
 eval "sht11=\"\$F$((FP+NP+1))\""
 eval "sht8=\"\$F$((FP+NP+2))\""
 eval "sht3=\"\$F$((FP+NP+3))\""
-sht25="${R}"
-sht26="${sht25}"
-sht27="T:${sht11#??}=!R!"
-eval "F$((FP+NP+0))=\"\${sht26}\""
-eval "F$((FP+NP+1))=\"\${sht26}\""
+sht27="${R}"
+sht28="${sht27}"
+sht29="T:${sht11#??}:~0,-1!"
+sht30="T:=!${sht29#??}"
+sht31="T:${sht11#??}${sht30#??}"
+eval "F$((FP+NP+0))=\"\${sht28}\""
+eval "F$((FP+NP+1))=\"\${sht28}\""
 eval "F$((FP+NP+2))=\"\${sht20}\""
 eval "F$((FP+NP+3))=\"\${sht11}\""
 eval "F$((FP+NP+4))=\"\${sht8}\""
 eval "F$((FP+NP+5))=\"\${sht3}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht27}\""
+eval "F$((NFP+0))=\"\${sht31}\""
 CALLEE=qset
 RPC=7; ACTION=call; return
 ;;
 7)
-eval "sht26=\"\$F$((FP+NP+0))\""
-eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht28=\"\$F$((FP+NP+0))\""
+eval "sht28=\"\$F$((FP+NP+1))\""
 eval "sht20=\"\$F$((FP+NP+2))\""
 eval "sht11=\"\$F$((FP+NP+3))\""
 eval "sht8=\"\$F$((FP+NP+4))\""
 eval "sht3=\"\$F$((FP+NP+5))\""
-sht28="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
+sht32="${R}"
+eval "F$((FP+NP+0))=\"\${sht28}\""
 eval "F$((FP+NP+1))=\"\${sht20}\""
 eval "F$((FP+NP+2))=\"\${sht11}\""
 eval "F$((FP+NP+3))=\"\${sht8}\""
 eval "F$((FP+NP+4))=\"\${sht3}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht26}\""
-eval "F$((NFP+1))=\"\${sht28}\""
+eval "F$((NFP+0))=\"\${sht28}\""
+eval "F$((NFP+1))=\"\${sht32}\""
 CALLEE=emit
 RPC=8; ACTION=call; return
 ;;
 8)
-eval "sht26=\"\$F$((FP+NP+0))\""
+eval "sht28=\"\$F$((FP+NP+0))\""
 eval "sht20=\"\$F$((FP+NP+1))\""
 eval "sht11=\"\$F$((FP+NP+2))\""
 eval "sht8=\"\$F$((FP+NP+3))\""
 eval "sht3=\"\$F$((FP+NP+4))\""
-sht29="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
+sht33="${R}"
+eval "F$((FP+NP+0))=\"\${sht28}\""
 eval "F$((FP+NP+1))=\"\${sht20}\""
 eval "F$((FP+NP+2))=\"\${sht11}\""
 eval "F$((FP+NP+3))=\"\${sht8}\""
 eval "F$((FP+NP+4))=\"\${sht3}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht29}\""
+eval "F$((NFP+0))=\"\${sht33}\""
 CALLEE=bkzzP
 RPC=9; ACTION=call; return
 ;;
 9)
-eval "sht26=\"\$F$((FP+NP+0))\""
+eval "sht28=\"\$F$((FP+NP+0))\""
 eval "sht20=\"\$F$((FP+NP+1))\""
 eval "sht11=\"\$F$((FP+NP+2))\""
 eval "sht8=\"\$F$((FP+NP+3))\""
 eval "sht3=\"\$F$((FP+NP+4))\""
-sht30="${R}"
-eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht26}\""
+sht34="${R}"
+eval "F$((FP+NP+0))=\"\${sht34}\""
+eval "F$((FP+NP+1))=\"\${sht28}\""
 eval "F$((FP+NP+2))=\"\${sht20}\""
 eval "F$((FP+NP+3))=\"\${sht11}\""
 eval "F$((FP+NP+4))=\"\${sht8}\""
 eval "F$((FP+NP+5))=\"\${sht3}\""
 hp_cons "S:val" "${sht11}"
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht34=\"\$F$((FP+NP+0))\""
+eval "sht28=\"\$F$((FP+NP+1))\""
 eval "sht20=\"\$F$((FP+NP+2))\""
 eval "sht11=\"\$F$((FP+NP+3))\""
 eval "sht8=\"\$F$((FP+NP+4))\""
 eval "sht3=\"\$F$((FP+NP+5))\""
-sht31="${R}"
-eval "F$((FP+NP+0))=\"\${sht26}\""
+sht35="${R}"
+eval "F$((FP+NP+0))=\"\${sht28}\""
 eval "F$((FP+NP+1))=\"\${sht20}\""
 eval "F$((FP+NP+2))=\"\${sht11}\""
 eval "F$((FP+NP+3))=\"\${sht8}\""
 eval "F$((FP+NP+4))=\"\${sht3}\""
-hp_cons "${sht30}" "${sht31}"
-eval "sht26=\"\$F$((FP+NP+0))\""
+hp_cons "${sht34}" "${sht35}"
+eval "sht28=\"\$F$((FP+NP+0))\""
 eval "sht20=\"\$F$((FP+NP+1))\""
 eval "sht11=\"\$F$((FP+NP+2))\""
 eval "sht8=\"\$F$((FP+NP+3))\""
 eval "sht3=\"\$F$((FP+NP+4))\""
-sht32="${R}"
-R="${sht32}"; ACTION=ret; return
+sht36="${R}"
+R="${sht36}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_ltagtest=10
@@ -15702,7 +15706,7 @@ R="NIL"; ACTION=ret; return
 ;;
 2)
 sht0="T:${p1#??}"
-sht1="T:${sht0#??}=!R!"
+sht1="T:${sht0#??}=!R:~0,-1!"
 sht2="T:p${sht1#??}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
@@ -15713,7 +15717,7 @@ RPC=3; ACTION=call; return
 sht3="${R}"
 eval "F$((FP+NP+0))=\"\${sht3}\""
 NFP=$FTOP
-STGV="T:_cl=!R:~2!"
+STGV="T:_cl=!R:~2,-1!"
 eval "F$((NFP+0))=\"\$STGV\""
 CALLEE=qset
 RPC=4; ACTION=call; return
@@ -15726,12 +15730,12 @@ hp_cons "${sht4}" "NIL"
 eval "sht3=\"\$F$((FP+NP+0))\""
 sht5="${R}"
 eval "F$((FP+NP+0))=\"\${sht3}\""
-hp_cons "T:call rdfield.cmd cdr !_cl!" "${sht5}"
+hp_cons "T:for %%v in (!_cl!) do set /p R=<%HD%\\cdr%%v" "${sht5}"
 eval "sht3=\"\$F$((FP+NP+0))\""
 sht6="${R}"
 hp_cons "${sht3}" "${sht6}"
 sht7="${R}"
-hp_cons "T:call rdfield.cmd car !_cl!" "${sht7}"
+hp_cons "T:for %%v in (!_cl!) do set /p R=<%HD%\\car%%v" "${sht7}"
 sht8="${R}"
 hp_cdr "${p0}"
 sht9="${R}"
@@ -15773,7 +15777,7 @@ R="NIL"; ACTION=ret; return
 ;;
 2)
 NFP=$FTOP
-STGV="T:_cl=!R:~2!"
+STGV="T:_cl=!R:~2,-1!"
 eval "F$((NFP+0))=\"\$STGV\""
 CALLEE=qset
 RPC=3; ACTION=call; return
@@ -15792,7 +15796,7 @@ eval "sht0=\"\$F$((FP+NP+0))\""
 sht1="${R}"
 hp_cons "${sht0}" "${sht1}"
 sht2="${R}"
-hp_cons "T:call rdfield.cmd cdr !CLO!" "${sht2}"
+hp_cons "T:for %%v in (!CLO!) do set /p R=<%HD%\\cdr%%v" "${sht2}"
 sht3="${R}"
 R="${sht3}"; ACTION=ret; return
 ;;

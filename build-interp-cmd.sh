@@ -398,8 +398,60 @@ s_lf = s_lf[:j] + hp_dup + s_lf[j:]
 anchor = '\n:hp_setcar\n'
 i = s_lf.index(anchor)
 s = s_lf[:i] + hot + s_lf[i:]
+
+# ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
+# backward goto costs a FULL-FILE scan (~8ms in this ~80KB file) -- measured ~8s of an ~72s cold run,
+# ~270ms per source line. Relocating readall+reader into a SMALL side file (comp-cmd/reader.cmd,
+# ~5KB) makes each of those gotos ~0.4ms: `call reader.cmd` shares the process env (SRC, the parse
+# stack ST_n/SP/DEPTH, RDRESULT, the heap), the redirected stdin follows the call, and `goto :eof`
+# returns to the caller. Entries: `ra <skip>` = readall (line loop), `rf` = run_forms (drain SRC).
+# The only label dependencies are hp_cons (open-coded below, PRE-inc) and emit_top's non-RDMODE
+# :ev branch (dead here -- every interp-cmd read runs RDMODE=1; guarded with an error echo).
+ra_start = s.index('\nrem readall: set/p reads a raw line')
+rd_marker = '\nrem ============================ reader (iterative) ============================\n'
+rf_start = s.index(rd_marker)
+heap_marker = '\nrem ===================== heap (FILES:'
+rf_end = s.index(heap_marker)
+readall_txt = s[ra_start:rf_start]
+reader_txt = s[rf_start:rf_end]
+# skip-count arg shifts: entry arg 1 is the dispatch tag
+readall_txt = readall_txt.replace('set "rdskip=%1"', 'set "rdskip=%~2"')
+# open-code the two hp_cons sites (PRE-increment, guard byte '#', %HN% parse-time per line)
+old = 'call :hp_cons "!top!" "!acc!"\nset "acc=!R!"'
+assert reader_txt.count(old) == 1
+reader_txt = reader_txt.replace(old, '''set /a HN+=1
+>%HD%\\car%HN% echo(!top!#
+>%HD%\\cdr%HN% echo(!acc!#
+set "acc=P:%HN%"''')
+old = 'call :hp_cons "!R!" "NIL"\ncall :hp_cons "S:quote" "!R!"'
+assert reader_txt.count(old) == 1
+reader_txt = reader_txt.replace(old, '''set /a HN+=1
+>%HD%\\car%HN% echo(!R!#
+>%HD%\\cdr%HN% echo(NIL#
+set "aqq=P:%HN%"
+set /a HN+=1
+>%HD%\\car%HN% echo(S:quote#
+>%HD%\\cdr%HN% echo(!aqq!#
+set "R=P:%HN%"''')
+old = 'call :ev 1 "!R!" "!GLOBAL!"'
+assert reader_txt.count(old) == 1
+reader_txt = reader_txt.replace(old, 'echo reader.cmd: non-RDMODE emit unsupported 1>&2')
+reader_cmd = ('@if "%~1"=="rf" goto run_forms\n@goto readall\n'
+              + readall_txt + reader_txt + '\n')
+open('comp-cmd/reader.cmd','wb').write(reader_cmd.replace('\n','\r\n').encode('latin-1'))
+# excise the moved blocks and retarget the three call sites
+s = s[:ra_start] + '\n' + s[rf_end:]
+old = 'call :readall %2 < "%TEMP%\\portsh_in_!HD!.txt"'
+assert s.count(old) == 1
+s = s.replace(old, 'call reader.cmd ra %2 < "%TEMP%\\portsh_in_!HD!.txt"')
+old = 'call :readall 0'
+assert s.count(old) == 1
+s = s.replace(old, 'call reader.cmd ra 0')
+assert s.count('call :run_forms') == 2
+s = s.replace('call :run_forms', 'call reader.cmd rf')
+
 s = s.replace('\n','\r\n')
 open(out,'wb').write(s.encode('latin-1'))
-print("wrote comp-cmd/interp-cmd.cmd")
+print("wrote comp-cmd/interp-cmd.cmd + comp-cmd/reader.cmd")
 PY
 echo "built comp-cmd/interp-cmd.cmd ($(wc -c < comp-cmd/interp-cmd.cmd) bytes)"
