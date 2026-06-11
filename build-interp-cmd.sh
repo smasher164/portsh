@@ -167,6 +167,17 @@ if not "!DVAL:~0,2!"=="P:" goto in_keepform
 call :hp_car "!DVAL!"
 set "DVHD=!R!"
 if "!DVHD!"=="S:lambda" goto in_keepform
+rem computed define: ALSO emit a (define <name> nil) placeholder so gvar-names sees <name> as a
+rem global VAR -- a later call of it in operator position loads G_<name> and applies (the thunk's
+rem value is a closure); without this the comp emits a direct call to a fn that doesn't exist
+rem (d2_pc0.cmd not recognized -- caught by tests/pack.sh on closures.lisp). Mirrors load-sh.sh.
+call :hp_cons "S:nil" "NIL"
+set "PH=!R!"
+call :hp_cons "!DNAME!" "!PH!"
+set "PH=!R!"
+call :hp_cons "S:define" "!PH!"
+call :hp_cons "!R!" "!XF!"
+set "XF=!R!"
 call :in_wrap "!DVAL!"
 set "THUNKS=!THUNKS! __ev!NN!=G:!DNAME:~2!"
 set /a NN+=1

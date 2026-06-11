@@ -45,6 +45,19 @@ Interpreted and compiled code interoperate live on one execution substrate
 a call boundary — no restarts, no replays, every side effect happens exactly
 once.
 
+## Packing an app
+
+```sh
+sh tools/pack-app.sh prog.lisp app.cmd
+```
+
+`app.cmd` is a single self-contained polyglot with `prog.lisp` AOT-compiled
+and embedded: on Windows it starts **warm on its first run** (~1s — no
+interpreter, no background compile, ever), on Unix it compiles at startup like
+any sh run. Packed apps and `portsh.cmd` share the same per-machine caches.
+(The bootstrap kernel has a slower low-tech cousin: `cat portsh-full.cmd
+prog.lisp > app.cmd` — see "The bootstrap kernel".)
+
 ## The language
 
 ```lisp
