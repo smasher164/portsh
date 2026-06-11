@@ -189,4 +189,9 @@ whole = hdr + sh_half.rstrip('\n') + '\nexit $?\n:CMDSTART\n' + cmd_half
 whole = whole.replace('\r\n', '\n').replace('\n', '\r\n')
 open(out, 'wb').write(whole.encode('latin-1'))
 PY
+# `./portsh.cmd` must work directly. A shebang is impossible (cmd would echo it as an error before
+# @echo off), so this rides the POSIX ENOEXEC fallback: an executable file without a shebang is run
+# as an sh script by the invoking shell, and line 1 re-execs the CR-stripped copy and exits before
+# anything else is parsed.
+chmod +x portsh.cmd
 echo "built portsh.cmd ($(wc -c < portsh.cmd) bytes, build $BUILD)"

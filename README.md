@@ -9,13 +9,17 @@ identically on Unix and Windows.
 
 ```sh
 sh build-polyglot.sh          # build the single-file artifact, portsh.cmd
-sh   portsh.cmd prog.lisp     # run a program on Unix
-cmd /c portsh.cmd prog.lisp   # run it on Windows (real cmd.exe)
-sh   portsh.cmd               # REPL (Unix)
-cmd /c portsh.cmd             # REPL (Windows)
+./portsh.cmd prog.lisp        # run a program on Unix
+portsh.cmd prog.lisp          # run it on Windows (real cmd.exe)
+./portsh.cmd                  # REPL (Unix)
+portsh.cmd                    # REPL (Windows)
 ```
 
 Programs produce byte-identical output on both platforms.
+
+(`./portsh.cmd` works because a shebang is impossible in a file `cmd.exe` must
+also parse, and POSIX shells run an executable that isn't a binary as an `sh`
+script. Invoking it from something that isn't a shell needs `sh portsh.cmd`.)
 
 ## How it executes
 
@@ -52,7 +56,9 @@ once.
 
 Special forms: `define`, `lambda`, `if`, `quote`, `let`, `let*`, `cond`,
 `and`, `or`, `when`, `unless`, `case`, `begin`, `list`, `str`. Primitives:
-`cons`/`car`/`cdr`, `eq?`/`null?`/`pair?`/`atom?`/`number?`/`not`, `+ - * < =`,
+`cons`/`car`/`cdr`, `eq?`/`null?`/`pair?`/`atom?`/`number?`/`not`, `apply`,
+arithmetic `+ - *` (n-ary, left fold; `(- x)` negates) and comparisons
+`< <= =` (chained, each operand evaluated once: `(< 1 3 2)` is nil),
 `type-of`, `eval`, `read`, `print`; `run`/`run-capture` and `file-exists?` for
 the host; `string-append`/`string-length`/`substring`/`split` plus the
 `symbol`/`number`/`string` converters; `read-lines`/`write-lines`/
@@ -87,16 +93,17 @@ self-contained app (`copy /b` on Windows).
 
 ## Testing
 
-The same Lisp fixtures (`tests/lisp/*.lisp`, each with a golden `.out`) run on
-every engine — the sh JIT, the cmd JIT, both resumable interpreters, and the
-bootstrap kernels — and are diffed; differential testing across hosts and
-engines is the conformance metric. All fixtures are byte-identical on
-`dash`/`bash`/`mksh`/`zsh`/`ksh93` and real Windows `cmd.exe`.
+The same Lisp fixtures (`tests/engines/*.lisp`, each with a golden `.out`) run
+on every engine — the sh JIT, the sh interpreter, the shipped polyglot, the
+cmd JIT, and the cmd interpreter — and must be byte-identical to the golden;
+differential testing across hosts and engines is the conformance metric. The
+bootstrap kernels have their own fixture suite (`tests/lisp/`), byte-identical
+across `dash`/`bash`/`mksh`/`zsh`/`ksh93` and real Windows `cmd.exe`.
 
 ```sh
+sh tests/engines.sh                            # every engine, local legs
+PORTSH_WIN_SSH=user@vm sh tests/engines.sh     # + the batch engines on a Windows VM
 sh tests/kernel.sh                             # bootstrap kernel, across every shell found
-sh tests/weave.sh                              # the woven kernel, run as sh
-PORTSH_WIN_SSH=user@vm sh tests/kernel-cmd.sh  # batch engines on a Windows VM
 ```
 
 ## Authorship
