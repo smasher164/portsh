@@ -10,22 +10,23 @@ VM). No micro-optimization escapes it; it's inherent to interpreting.
 
 But the same function, hand-compiled to a batch subroutine, runs in ~0.002s — a
 **~1000× gap**. Interpretation is the wall; compilation is the only way through.
-So the plan for a genuinely fast Windows host is a **Lisp→batch compiler (JIT)**.
+That observation became the architecture: today **everything that runs, runs
+compiled** — `eval` *is* compile-then-execute on both hosts. The `vau`/operative
+core survives only as the stage-0 bootstrap kernel (the trust root that can run
+the compiler from readable source); the shipped engines never tree-walk.
 
-## The approach: JIT the hot path, interpret the dynamic core
-
-portsh's `vau`/operative core is what makes it elegant (a tiny kernel, the rest
-userspace) and *also* what resists full compilation: operatives (fexprs) receive
-their operands unevaluated plus the dynamic environment and decide at runtime
-what to evaluate — the antithesis of compilation. So:
-
-- **Compile** applicative functions (`lambda`) over arithmetic, `if`, comparisons,
-  and calls — the iterative/numeric guts of a build script.
-- **Interpret** the dynamic remainder (`vau`, `eval`, fexprs). It stays correct;
-  it just isn't fast — and that's fine, because the hot path is compiled.
+What replaced "JIT the hot path" is the two-tier OSR model (see the README):
+on sh, every run compiles immediately (sub-second); on cmd, a cold program runs
+on a *resumable interpreter* — itself a segment machine on the same execution
+substrate as compiled code — while a background process compiles it into a
+content-hash-keyed cache, and the running program switches to compiled code
+function-by-function, mid-run, at call boundaries. Warm runs execute compiled
+from the first call. `tools/pack-app.sh` goes one further: it AOT-compiles a
+program at pack time and embeds the artifacts, so a packed app starts warm on
+its first run.
 
 A compiled call resolves dispatch, variable lookups (lexical addressing →
-`%1`/temps), and argument shape **at compile time**, not per call.
+frame slots/temps), and argument shape **at compile time**, not per call.
 
 ### Generated code is quote-free
 
@@ -46,11 +47,15 @@ goto :eof
 ### Where generated code lives
 
 You can't add labels to a running batch script, and cmd has no in-memory code —
-so compiled functions are **files**. A per-run temp dir holds one generated
-`.cmd` (all compiled functions as labels, dispatched by `goto %1`); the
-interpreter binds a compiled function to a `C:label` tag and dispatches it with
-`call …\compiled.cmd label args`. External calls measured ~2.7ms — as cheap as
-an internal `call :label`, so this is free.
+so compiled functions are **files**: one tiny `.cmd` *per resumable segment*
+(`<fn>_pc<N>.cmd`), dispatched by a driver loop. Per-segment files matter twice
+over on cmd: `call :label` inside a big file costs O(label-offset) — it re-scans
+the file — while `call file.cmd` opens a small file at a flat ~0.3ms; and the
+driver `call`s every segment at host depth 1, which is what makes recursion
+unbounded (cmd's native call stack dies at ~341 frames). The same explicit
+control stack (CURFN/PC, return stack, frame slots) is shared with the
+resumable interpreter — that shared substrate is what lets a running program
+flip from interpreted to compiled at a call boundary with no restart.
 
 ## The compiler is a portsh program
 
@@ -63,18 +68,19 @@ sets up the genuinely beautiful part.
 Let `interp` be portsh's evaluator and `comp` the Lisp→batch compiler (a portsh
 program). The classic projections describe a ladder portsh can actually climb:
 
-1. **`comp(P)` = compiled P.** Specializing the interpreter to a program yields a
-   compiled program. This is the JIT: the interpreter runs and compiles hot
-   functions as it meets them. *(Where we are.)*
+1. **`comp(P)` = compiled P.** Specializing the interpreter to a program yields
+   a compiled program. *Done, both hosts* — this is every warm run, and
+   `tools/pack-app.sh` makes it a shippable artifact.
 
 2. **`comp(comp)` = a standalone compiler.** Because `comp` is itself a portsh
-   program, it can compile *itself* into a batch program — call it `portshc.cmd`
-   — that turns Lisp into batch **with no interpreter involved**. That is exactly
-   "invoke the compiler without first running the interpreter": you've compiled
-   the compiler. portsh becomes **self-hosting**.
+   program, it compiles *itself*. *Done, both hosts*: `comp.sh` (the compiler
+   compiled to sh — it also cross-emits the batch backend) and `comp-cmd/`
+   (compiled to batch) are exactly this, validated byte-identical to the
+   interpreted compiler's output. portsh is **self-hosting**; the shipped
+   toolchain contains no interpreter in the compile path.
 
 3. **A compiler-generator** (`comp` applied to itself once more) — the deep end,
-   aspirational.
+   still aspirational.
 
 The discipline the 2nd projection demands: `comp` must be written in the
 **compilable subset**, so it can compile itself. That bootstrap constraint is the
@@ -83,49 +89,30 @@ bootstrapping tower, with as much as possible lifted into shared Lisp.
 
 ## Measured performance
 
-Program: `g(x)=x*x`, `run(n,acc)=if n=0 then acc else run(n-1, acc+g(n))` — each
-iteration makes a function call, so the interpreter pays its full per-call cost.
-On the (battery/emulated, so inflated) test VM:
+Numbers from the (emulated, so inflated) Windows test VM, current architecture:
 
-| n | compiled | interpreted |
-|---|---|---|
-| 15 | 18.8s | 114s |
-| 50 | 20.2s | ~350s (extrapolated) |
+| path | time |
+|---|---|
+| packed app (`tools/pack-app.sh`), any run | ~1s |
+| warm cached run (`portsh.cmd prog.lisp`, cache hit) | ~4s |
+| cold first-contact run (interp + background compile, flips mid-run) | ~2min |
+| REPL first prompt / per input | ~0.4s / 2–4s |
+| sh, everything | ~1s |
 
-The compiled times are dominated by a **~12s one-time, per-process cost on the
-first execution of the generated `compiled.cmd`** (independent of iteration count
-— `run(5)` and `run(15)` both ≈18s; a double call pays it once). This is
-consistent with on-access AV scanning a freshly-written script: an environment
-artifact, not the compiler. The **per-iteration** compiled cost is ~40–70ms
-(mostly the external `call` to `g`) versus the interpreter's ~7s/iter — roughly
-**100×**. So the headline isn't the small-n ratio; it's that compiled work is
-~two orders of magnitude cheaper per operation, with a one-time first-exec cost
-that amortizes (and largely vanishes on real hardware / with a dev-dir AV
-exclusion). Inlining small functions (no external `call`) would cut the
-per-iteration cost further.
+The compiled-vs-interpreted gap that motivated all of this held up: the
+resumable interpreter's floor is file-heap I/O per step (~6ms), while compiled
+code runs the same step in microseconds-to-millis — which is why every tier of
+the system exists to get programs onto compiled code and keep them there.
 
 ## Status
 
-- ✅ codegen (`src/compile.lisp`) for arithmetic, comparisons, `if`
-  (goto-based), params, value return, and **tail self-recursion** (loops →
-  `goto`, TCO for free). Quote-free batch, developed on `sh`.
-- ✅ verified on **real cmd.exe**: a compiled `loop(1000)` returns the right
-  answer, runs ~8× faster per iteration than the interpreter, and — unlike the
-  interpreter — does **not** hit the recursion-stack crash at large N. (Absolute
-  times are inflated by the battery/emulated test VM; relative win holds, and
-  closes most of the gap to bash on real hardware.)
-- ✅ **kernel integration**: `C:<label>` dispatch in `combine` (eval operands →
-  call the generated sub → `R` back), `make-compiled` to bind a name to its
-  label. A `(define f (make-compiled …))` + `(f …)` runs native compiled batch;
-  all fixtures still interpret correctly.
-- ✅ **the driver + full AOT flow**: `compile-program` (with a Lisp `show`
-  printer) rewrites a program — each compilable `(define f (lambda …))` becomes a
-  compiled sub in `compiled.cmd` plus a `make-compiled` binding in the residual;
-  everything else passes through. Verified end-to-end: **compiled on the fast sh
-  kernel, the residual runs on real cmd.exe** and returns the right answer by
-  executing compiled batch. This is "compile on sh, run on batch."
-- ✅ inlining: non-recursive functions are inlined at call sites (removes the
-  external `call`; (g n) with g=x*x becomes (* n n) inline), verified on cmd.
-- ▢ broaden codegen: cons/list/string via direct primitive calls (toward
-  covering what `comp` itself needs — and tagged values, not just raw numbers).
-- ▢ self-hosting: compile `comp` with `comp` → `portshc.cmd`.
+The ladder got climbed. The compiler (`src/compile.lisp` for batch,
+`src/compile-sh.lisp` for sh) covers the whole language — closures via
+lambda-lifting, first-class functions, the full primitive set, n-ary
+arithmetic/chained comparisons, `apply` — and is self-hosted on both backends
+with byte-identical-output guards (`tests/native-comp.sh`, `tests/cmd-parity.sh`).
+The conformance bar is `tests/engines.sh`: every fixture, byte-identical across
+five engines (sh JIT, sh interpreter, the shipped polyglot, cmd JIT, cmd
+interpreter) plus `tests/pack.sh` for packed apps. What's deliberately *not*
+here anymore: the record/replay bridge (retired for live OSR) and any
+interpreter in the production compile path.

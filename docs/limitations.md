@@ -1,53 +1,77 @@
 # Limitations & possible future work
 
-What portsh deliberately doesn't do yet, why, and what it would take. None of
-these block its purpose (short-lived build/installer scripts); they'd matter for
-longer-running or more demanding programs.
+What portsh doesn't do, why, and what it would take. None of these block its
+purpose (build/installer scripts); they'd matter for longer-running or more
+demanding programs.
 
-## No garbage collection
+## Variadic lambda
 
-The cons heap is **append-only**. `cons` only ever increments the next-cell
-counter (`HEAP_N` in sh, `HN` in batch); nothing is ever reclaimed, so a program
-that allocates in a loop grows memory without bound. This is fine for a build
-script that runs once and exits, but it rules out long-running processes.
+`(lambda args body)` — a rest-parameter binding all arguments as a list — works
+only on the bootstrap kernel, not on the shipped engines (the compilers and the
+resumable interpreters use fixed-arity frames). `apply` exists and is the
+workaround in the other direction (spreading a list into a fixed-arity call).
+Supporting rest-args needs a dynamic argument count in the calling convention;
+`apply`'s spread machinery is the natural starting point.
 
-A real GC is possible but awkward in this substrate: cells live in shell
-variables (`H_i_a`/`CAR_i`), so collection means tracing from the roots (the
-global env + the active call frames) and *unsetting* the dead cells' variables —
-plus a free list or compaction to reuse the names. Mark-and-sweep is the natural
-fit. Until then, the heap is a bump allocator with no free.
+## No argv
 
-## No REPL
+A program can't see its command-line arguments yet; `./app.cmd foo bar` ignores
+`foo bar`. Build scripts mostly read their environment via `run-capture`, but an
+`(argv)` primitive is an obvious gap.
 
-portsh runs a program — a file argument, or the Lisp packed after the marker —
-straight through to completion. There's no interactive read-eval-print loop.
+## Strings are single lines
 
-Now that `read` (string → datum) and `eval` are primitives, a REPL is just
-userspace Lisp: loop over `read-lines`/stdin, `read` each line, `eval` it in the
-global env, `print` the result. The likely path is a small `examples/repl.lisp`
-rather than anything in the kernel.
-
-## Recursion is bounded by the host
-
-There's no tail-call optimization; Lisp recursion uses host-shell recursion. On
-**batch** that hits a hard wall fast — `****** BATCH RECURSION exceeds STACK
-limits ******` at a few hundred frames (see `docs/batch-quirks.md`). `sh` goes
-much deeper but is still bounded. Deeply recursive algorithms should be written
-iteratively, or wait for trampolining/TCO in the evaluator.
+A batch variable can't hold a newline, so a portsh string is always one line and
+multi-line text is a *list of line-strings*; file and command I/O are
+line-oriented (`read-lines`, `write-lines`, `run-capture`). This is a design
+contract, not a bug, but it surprises people.
 
 ## Integers only, and the widths differ across hosts
 
 Arithmetic is the host shell's: `$(( ))` on sh (64-bit on most shells) and
-`set /a` on batch (**32-bit signed**). So a computation that overflows 32 bits
+`set /a` on batch (**32-bit signed**). A computation that overflows 32 bits
 agrees on the two hosts only below that threshold — a real cross-host divergence
-for large numbers, currently unguarded. There are no floats and no bignums. A
-portable fixed-width contract (or software bignums) is future work.
+for large numbers, currently unguarded. No floats, no bignums.
+
+## Garbage collection is asymmetric
+
+The **sh** engines have a real mark-sweep GC (free-list reuse, triggered on
+heap growth; frames and an index-slot root stack make the root set precise), so
+allocate-in-a-loop programs run in bounded memory. The **cmd** heap is
+file-backed (two small files per cell) and effectively append-only within a
+run: nothing reclaims cells, so a cmd program that allocates unboundedly grows
+its heap directory until the process exits (the per-run heap dir is deleted on
+exit, so nothing persists). File-backed cells don't slow down as the heap grows
+— this is a disk-space ceiling, not a speed one — but a long-running allocating
+loop on cmd will eventually feel it.
+
+## Recursion is unbounded, but cmd recursion is slow
+
+Both engines run on an explicit-control-stack trampoline: logical recursion
+depth is bounded by memory, not the host call stack (cmd's native `call` dies
+at ~341 frames; compiled portsh recurses hundreds of thousands deep). Deep
+non-tail recursion on cmd still costs file-heap I/O per frame, so prefer
+iteration/tail calls for hot loops there.
 
 ## Speed, on Windows
 
-The `sh` kernel is fast (the reader is O(n); a build script's stdlib loads in
-well under a second). The **batch** kernel is the slow host: every `cons`/`car`/
-`cdr` is several `cmd` `call`s/`set`s, and the reader still advances the source
-one char at a time (O(n²)). Optimizing the batch reader and cutting per-op
-overhead is the open perf frontier; cmd's fundamental per-command cost bounds how
-far it can go.
+The asymmetry between hosts is permanent — cmd executes roughly one command per
+millisecond and every heap access is file I/O — but the architecture works
+around it: programs are compiled (never tree-walked) once warm, caches are
+keyed by content hash, and a cold run interprets while a background process
+compiles, flipping function-by-function as artifacts land. Current shape, on
+an emulated test VM: a packed app (AOT, `tools/pack-app.sh`) starts in ~1s; a
+warm cached run ~4s; a first-contact cold run of a small script ~2min with
+output streaming as it executes; the REPL prompts in under half a second and
+costs a few seconds per input. sh runs everything in about a second. The
+remaining cold floor is the resumable interpreter's per-step file I/O —
+architectural, and only paid until the cache warms.
+
+## Mid-call OSR
+
+A function flips from interpreted to compiled at its next *call*, not in the
+middle of an in-flight activation. A long-running single call (one giant loop
+in one function) therefore never flips within that call. Call-boundary flips
+cover recursion and repeated calls, which is why this hasn't mattered in
+practice; true on-stack replacement (translating a live interpreter frame to a
+compiled frame mid-activation) is designed but unimplemented.
