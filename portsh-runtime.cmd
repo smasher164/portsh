@@ -225,6 +225,42 @@ if "!toT!"=="T:" (set "R=S:string" & goto :eof)
 if "!toT!"=="P:" (set "R=S:pair" & goto :eof)
 set "R=S:unknown"
 goto :eof
+rem :argv -- R = list of the user arguments (T: strings), built per call from PORTSH_ARGV_<n> /
+rem PORTSH_ARGC (set by the front-end or the engine's own arg capture). REPL/no-args -> NIL.
+rem Values with ! are best-effort on cmd (delayed expansion); see docs/limitations.md.
+:argv
+set "avL=NIL"
+if not defined PORTSH_ARGC (set "R=NIL" & goto :eof)
+set /a avI=PORTSH_ARGC
+:av_loop
+if !avI! LEQ 0 (set "R=!avL!" & goto :eof)
+set /a avI-=1
+call set "avV=%%PORTSH_ARGV_!avI!%%"
+call :rl_cons "T:!avV!" "!avL!"
+set "avL=!R!"
+goto av_loop
+rem :getenv -- A1 = T:name. R = T:value, or NIL when unset (cmd cannot store an empty env var, so
+rem empty == unset == nil -- the sh side matches). Name must be A-Za-z0-9_ (mirror sh). The value is
+rem read from `set <name>` output so & | < > survive; ! is best-effort (delayed expansion).
+:getenv
+set "gnN=!A1:~2!"
+if not defined gnN (set "R=NIL" & goto :eof)
+set "gnT=!gnN!"
+:gn_chk
+if not defined gnT goto gn_ok
+set "gnC=!gnT:~0,1!"
+set "gnT=!gnT:~1!"
+if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+if "!gnC!"=="_" goto gn_chk
+set "R=NIL"
+goto :eof
+:gn_ok
+if not defined !gnN! (set "R=NIL" & goto :eof)
+set "R=NIL"
+for /f "tokens=1* delims==" %%a in ('set !gnN! 2^>nul') do if /i "%%a"=="!gnN!" set "R=T:%%b"
+goto :eof
 rem :run_cmd -- A1 = T:<command> (baked by comp via enc-mc, the SAME sentinel encoding the reader
 rem applies to heap tokens). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 rem ( cmd /c "!rcCmd!" ): operators are real bytes inside the quotes -> live, sentinels pass through

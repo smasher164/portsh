@@ -478,6 +478,10 @@ prim_app() {
                hp_cons "T:$_sa" "$_acc"; _acc=$R
                _rev=NIL; pa_b=$RSP; RSP=$((pa_b + 1)); while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; eval "ROOT$pa_b=\"\$_acc\""; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; RSP=$pa_b
              fi ;;
+    'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
+             while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'getenv') arg1 "$args"; _gn=${ARG1#T:}
+             case $_gn in *[!A-Za-z0-9_]*|'') R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac ;;
     'type-of') arg1 "$args"; case $ARG1 in
              NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
              P:*) R="S:pair" ;; O:*|F:*) R="S:operative" ;; A:*|R:*) R="S:applicative" ;; *) R="S:unknown" ;; esac ;;
@@ -539,7 +543,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -555,6 +559,15 @@ run_forms() {
 
 main() {
   setup_global
+  # capture user args (after the program path) for (argv), unless a front-end already did
+  if [ -z "${PORTSH_ARGC:-}" ] && [ "$#" -ge 1 ]; then
+    _an=0; _askip=1
+    for _aa in "$@"; do
+      if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+      eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+    done
+    PORTSH_ARGC=$_an; export PORTSH_ARGC
+  fi
   # Boot order: minimal prelude -> embedded Lisp after the marker (stdlib
   # and/or program) -> explicit file-arg program -> stdin (standalone only).
   # The marker is built from fragments so it never appears literally here (else
@@ -2497,6 +2510,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 18)
+if [ "${p0}" = "S:argv" ]; then PC=19; else PC=20; fi
+ACTION=jump; return
+;;
+19)
+R="S:t"; ACTION=ret; return
+;;
+20)
+if [ "${p0}" = "S:getenv" ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
+21)
+R="S:t"; ACTION=ret; return
+;;
+22)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -15732,6 +15759,15 @@ split()          { _sp_s=${1#T:}; _sp_sep=${2#T:}; _sp_acc=NIL
                    fi
                    _sp_rev=NIL; while [ "$_sp_acc" != NIL ]; do hp_car "$_sp_acc"; _sp_v=$R; hp_cdr "$_sp_acc"; _sp_acc=$R; hp_cons "$_sp_v" "$_sp_rev"; _sp_rev=$R; done; R=$_sp_rev; }
 type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }  # pure: a kernel prim the comp now emits as a builtin call
+# argv/getenv. The entry dispatch captures user args (after the program path) into PORTSH_ARGV_<n> /
+# PORTSH_ARGC env vars -- front-ends may pre-set them, and child processes inherit them, so no arg
+# re-quoting is ever needed. (argv) builds the list PER CALL (a boot-time list would need gc rooting).
+# getenv: empty == unset == nil on BOTH hosts (cmd cannot store an empty env var; sh matches for
+# consistency); non-identifier names return nil (also keeps the eval safe).
+argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
+           while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+getenv() { _gn=${1#T:}
+           case $_gn in *[!A-Za-z0-9_]*|"") R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str). run/run-capture
 # EXECUTE a host command (live effects); read_str parses a source string.
@@ -15857,6 +15893,15 @@ _mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define 
 }
 # ---- dispatch: a file arg runs the program (always-JIT); no arg starts the JIT REPL ---------------
 if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
+# capture user args (after the program path) for (argv), unless a front-end already did
+if [ -z "${PORTSH_ARGC:-}" ]; then
+  _an=0; _askip=1
+  for _aa in "$@"; do
+    if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+    eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+  done
+  PORTSH_ARGC=$_an; export PORTSH_ARGC
+fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
 while [ "$_cur" != NIL ]; do

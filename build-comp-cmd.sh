@@ -80,7 +80,7 @@ echo "comp(comp): $nfn compiled fn .cmd files + _consts.cmd"
 #    then falls through the full runtime body (all the internal :wl_emit_c/:al_loop_c labels are
 #    present for the same-file `call :helper`/`goto` to resolve). No setlocal -> R reaches caller,
 #    and delayed expansion + !HD!/!BANG!/!LT!/G_* are inherited in-process from comp.cmd.
-for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture read type-of split; do
+for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture read type-of split argv getenv; do
   { printf 'goto :%s\r\n' "$entry"; cat portsh-runtime.cmd; } > "$out/$entry.cmd"
 done
 echo "runtime: rdfield/write-lines/append-lines/gc/print/read-lines/file-existszzQ/run_cmd/run_capture/read/type-of .cmd"

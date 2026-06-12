@@ -632,6 +632,8 @@ if "!IPO!"=="S:!LT!" set "R=1"
 if "!IPO!"=="S:!LT!=" set "R=1"
 if "!IPO!"=="S:=" set "R=1"
 if "!IPO!"=="S:type-of" set "R=1"
+if "!IPO!"=="S:argv" set "R=1"
+if "!IPO!"=="S:getenv" set "R=1"
 if "!IPO!"=="S:symbol->string" set "R=1"
 if "!IPO!"=="S:number->string" set "R=1"
 if "!IPO!"=="S:string->symbol" set "R=1"
@@ -660,6 +662,8 @@ if "!IPO!"=="S:atom?" goto ipr_atom
 if "!IPO!"=="S:number?" goto ipr_num
 if "!IPO!"=="S:not" goto ipr_null
 if "!IPO!"=="S:type-of" goto ipr_typeof
+if "!IPO!"=="S:argv" goto ipr_argv
+if "!IPO!"=="S:getenv" goto ipr_getenv
 if "!IPO!"=="S:symbol->string" (set "IPV=T:!ipa:~2!" & goto itk_push)
 if "!IPO!"=="S:number->string" (set "IPV=T:!ipa:~2!" & goto itk_push)
 if "!IPO!"=="S:string->symbol" (set "IPV=S:!ipa:~2!" & goto itk_push)
@@ -718,6 +722,15 @@ goto itk_push
 :ipr_typeof
 set "A1=!ipa!"
 call type-of.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_argv
+call argv.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_getenv
+set "A1=!ipa!"
+call getenv.cmd
 set "IPV=!R!"
 goto itk_push
 :ipr_slen

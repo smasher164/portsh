@@ -40,6 +40,15 @@ split()          { _sp_s=${1#T:}; _sp_sep=${2#T:}; _sp_acc=NIL
                    fi
                    _sp_rev=NIL; while [ "$_sp_acc" != NIL ]; do hp_car "$_sp_acc"; _sp_v=$R; hp_cdr "$_sp_acc"; _sp_acc=$R; hp_cons "$_sp_v" "$_sp_rev"; _sp_rev=$R; done; R=$_sp_rev; }
 type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }  # pure: a kernel prim the comp now emits as a builtin call
+# argv/getenv. The entry dispatch captures user args (after the program path) into PORTSH_ARGV_<n> /
+# PORTSH_ARGC env vars -- front-ends may pre-set them, and child processes inherit them, so no arg
+# re-quoting is ever needed. (argv) builds the list PER CALL (a boot-time list would need gc rooting).
+# getenv: empty == unset == nil on BOTH hosts (cmd cannot store an empty env var; sh matches for
+# consistency); non-identifier names return nil (also keeps the eval safe).
+argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
+           while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+getenv() { _gn=${1#T:}
+           case $_gn in *[!A-Za-z0-9_]*|"") R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str). run/run-capture
 # EXECUTE a host command (live effects); read_str parses a source string.
@@ -165,6 +174,15 @@ _mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define 
 }
 # ---- dispatch: a file arg runs the program (always-JIT); no arg starts the JIT REPL ---------------
 if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
+# capture user args (after the program path) for (argv), unless a front-end already did
+if [ -z "${PORTSH_ARGC:-}" ]; then
+  _an=0; _askip=1
+  for _aa in "$@"; do
+    if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+    eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+  done
+  PORTSH_ARGC=$_an; export PORTSH_ARGC
+fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
 while [ "$_cur" != NIL ]; do

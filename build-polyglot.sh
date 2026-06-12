@@ -65,11 +65,22 @@ rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomi
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
 cmd /c call "%~f0" __extract "%CACHE%.tmp" >nul 2>&1
 move "%CACHE%.tmp" "%CACHE%" >nul 2>&1
-break>"%CACHE%\\.ok"
+rem promote only a COMPLETE extraction (a failed extract/move must not poison the cache with .ok)
+if exist "%CACHE%\\interp-cmd.cmd" break>"%CACHE%\\.ok"
 :pcache_ok
 set "PATH=%CACHE%;%PATH%"
 if "%~1"=="" goto prepl
 set "PROG=%~f1"
+rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv) -- env
+rem vars inherit into the interp child, so nothing needs re-quoting downstream.
+set "PORTSH_ARGC=0"
+:pargs
+if "%~2"=="" goto pargs_done
+set "PORTSH_ARGV_!PORTSH_ARGC!=%~2"
+set /a PORTSH_ARGC+=1
+shift /2
+goto pargs
+:pargs_done
 rem program cache key = content hash (edits invalidate; identical content reuses)
 set "H="
 for /f "skip=1 tokens=1" %%h in ('certutil -hashfile "!PROG!" SHA256') do if not defined H set "H=%%h"

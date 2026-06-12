@@ -483,6 +483,10 @@ prim_app() {
                hp_cons "T:$_sa" "$_acc"; _acc=$R
                _rev=NIL; pa_b=$RSP; RSP=$((pa_b + 1)); while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; eval "ROOT$pa_b=\"\$_acc\""; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; RSP=$pa_b
              fi ;;
+    'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
+             while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'getenv') arg1 "$args"; _gn=${ARG1#T:}
+             case $_gn in *[!A-Za-z0-9_]*|'') R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac ;;
     'type-of') arg1 "$args"; case $ARG1 in
              NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
              P:*) R="S:pair" ;; O:*|F:*) R="S:operative" ;; A:*|R:*) R="S:applicative" ;; *) R="S:unknown" ;; esac ;;
@@ -544,7 +548,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -560,6 +564,15 @@ run_forms() {
 
 main() {
   setup_global
+  # capture user args (after the program path) for (argv), unless a front-end already did
+  if [ -z "${PORTSH_ARGC:-}" ] && [ "$#" -ge 1 ]; then
+    _an=0; _askip=1
+    for _aa in "$@"; do
+      if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+      eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+    done
+    PORTSH_ARGC=$_an; export PORTSH_ARGC
+  fi
   # Boot order: minimal prelude -> embedded Lisp after the marker (stdlib
   # and/or program) -> explicit file-arg program -> stdin (standalone only).
   # The marker is built from fragments so it never appears literally here (else
@@ -2502,6 +2515,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 18)
+if [ "${p0}" = "S:argv" ]; then PC=19; else PC=20; fi
+ACTION=jump; return
+;;
+19)
+R="S:t"; ACTION=ret; return
+;;
+20)
+if [ "${p0}" = "S:getenv" ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
+21)
+R="S:t"; ACTION=ret; return
+;;
+22)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -15737,6 +15764,15 @@ split()          { _sp_s=${1#T:}; _sp_sep=${2#T:}; _sp_acc=NIL
                    fi
                    _sp_rev=NIL; while [ "$_sp_acc" != NIL ]; do hp_car "$_sp_acc"; _sp_v=$R; hp_cdr "$_sp_acc"; _sp_acc=$R; hp_cons "$_sp_v" "$_sp_rev"; _sp_rev=$R; done; R=$_sp_rev; }
 type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }  # pure: a kernel prim the comp now emits as a builtin call
+# argv/getenv. The entry dispatch captures user args (after the program path) into PORTSH_ARGV_<n> /
+# PORTSH_ARGC env vars -- front-ends may pre-set them, and child processes inherit them, so no arg
+# re-quoting is ever needed. (argv) builds the list PER CALL (a boot-time list would need gc rooting).
+# getenv: empty == unset == nil on BOTH hosts (cmd cannot store an empty env var; sh matches for
+# consistency); non-identifier names return nil (also keeps the eval safe).
+argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
+           while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+getenv() { _gn=${1#T:}
+           case $_gn in *[!A-Za-z0-9_]*|"") R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str). run/run-capture
 # EXECUTE a host command (live effects); read_str parses a source string.
@@ -15862,6 +15898,15 @@ _mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define 
 }
 # ---- dispatch: a file arg runs the program (always-JIT); no arg starts the JIT REPL ---------------
 if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
+# capture user args (after the program path) for (argv), unless a front-end already did
+if [ -z "${PORTSH_ARGC:-}" ]; then
+  _an=0; _askip=1
+  for _aa in "$@"; do
+    if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+    eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+  done
+  PORTSH_ARGC=$_an; export PORTSH_ARGC
+fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
 while [ "$_cur" != NIL ]; do
@@ -15909,21 +15954,32 @@ rm -f "$_tmp"
 exit $?
 :CMDSTART
 @echo off
-rem ============ portsh cmd OSR front-end (build fc60c7aea00b) -- generated by build-polyglot.sh ============
+rem ============ portsh cmd OSR front-end (build fd9f89ab7080) -- generated by build-polyglot.sh ============
 if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__warm" goto :PWARM
 setlocal enabledelayedexpansion
-set "CACHE=%LOCALAPPDATA%\portsh\fc60c7aea00b"
+set "CACHE=%LOCALAPPDATA%\portsh\fd9f89ab7080"
 if exist "%CACHE%\.ok" goto pcache_ok
 rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomic: tmp -> move -> .ok)
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
 cmd /c call "%~f0" __extract "%CACHE%.tmp" >nul 2>&1
 move "%CACHE%.tmp" "%CACHE%" >nul 2>&1
-break>"%CACHE%\.ok"
+rem promote only a COMPLETE extraction (a failed extract/move must not poison the cache with .ok)
+if exist "%CACHE%\interp-cmd.cmd" break>"%CACHE%\.ok"
 :pcache_ok
 set "PATH=%CACHE%;%PATH%"
 if "%~1"=="" goto prepl
 set "PROG=%~f1"
+rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv) -- env
+rem vars inherit into the interp child, so nothing needs re-quoting downstream.
+set "PORTSH_ARGC=0"
+:pargs
+if "%~2"=="" goto pargs_done
+set "PORTSH_ARGV_!PORTSH_ARGC!=%~2"
+set /a PORTSH_ARGC+=1
+shift /2
+goto pargs
+:pargs_done
 rem program cache key = content hash (edits invalidate; identical content reuses)
 set "H="
 for /f "skip=1 tokens=1" %%h in ('certutil -hashfile "!PROG!" SHA256') do if not defined H set "H=%%h"
@@ -15966,7 +16022,7 @@ set "WPROG=%~2"
 set "WPUB=%~3"
 set "WSTG=%~4"
 set "WTASK=%~5"
-set "PATH=%LOCALAPPDATA%\portsh\fc60c7aea00b;!PATH!"
+set "PATH=%LOCALAPPDATA%\portsh\fd9f89ab7080;!PATH!"
 if exist "!WSTG!" rmdir /s /q "!WSTG!"
 mkdir "!WSTG!"
 if not exist "!WPUB!" mkdir "!WPUB!"
@@ -16776,6 +16832,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -17030,6 +17122,411 @@ echo(set "zt6=!zt6:~0,-1!"
 echo(set "zt7=T:!zt6:~2!:~2!BANG!"
 echo(set "zt8=T:!BANG!!zt7:~2!"
 echo(set "R=!zt8!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\argv.cmd" (
+echo(goto :argv
+echo(rem portsh compiled-program RUNTIME, appended to every compiled.cmd ^(the heap vars
+echo(rem and sentinels come from the host kernel; these are the I/O helpers a compiled
+echo(rem program calls^). Hand-written + build-baked ^(/// -^> the sentinel
+echo(rem bytes 0x01/0x02/0x07/0x08, like the kernel^) so it can use literal bytes and ".
+echo(rem Kept OUT of comp's source/output so its patterns never collide with program data:
+echo(rem write-lines can therefore reproduce this runtime verbatim ^(the comp^(comp^) case^).
+echo(rem
+echo(rem :rdfield -- file-backed heap read: %%1=car^|cdr, %%2=index -^> R = first line of
+echo(rem %%HD%%\^<%%1^>^<%%2^>. set /p reads raw ^(operators ^&^|^<^> in the value survive^). Redirect
+echo(rem path uses %%1/%%2/%%HD%% ^(immediate; parsed before delayed expansion^). Used for car/cdr.
+echo(rem Cells are written with a trailing GUARD byte ^(#^) because set /p STRIPS trailing
+echo(rem control bytes ^(0x01=! 0x08=") -- the guard takes that hit, then we drop it here so
+echo(rem values ending in !/" survive intact. Writers must append the same guard.
+echo(:rdfield
+echo(set /p R=^<%%HD%%\%%1%%2
+echo(set "R=!R:~0,-1!"
+echo(goto :eof
+echo(rem :gc -- compiled-program GC. For now a no-op: returns without collecting, which is
+echo(rem CORRECT ^(gc only reclaims, never changes values^) and fine for small inputs. A real
+echo(rem collector for compiled programs is TODO -- the interpreter's gc roots from the env
+echo(rem chain, which compiled code lacks; a compiled-runtime gc would root from the STK
+echo(rem save-stack + the current frame's live vars instead.
+echo(:gc
+echo(set R=NIL
+echo(goto :eof
+echo(rem :append-lines -- A1=path, A2=list. Like write-lines but does NOT truncate
+echo(rem ^(incremental output: comp's cp appends each fn's lines as it compiles them^).
+echo(:append-lines
+echo(set wlf=!A1:~2!
+echo(set "wlf=!wlf:/=\!"
+echo(set wll=!A2!
+echo(:al_loop_c
+echo(if !wll!==NIL ^(set R=S:t ^& goto :eof^)
+echo(set wli=!wll:~2!
+echo(call :rdfield car !wli!
+echo(set wlline=!R:~2!
+echo(call :wl_emit_c !wlf!
+echo(call :rdfield cdr !wli!
+echo(set wll=!R!
+echo(goto al_loop_c
+echo(rem :write-lines -- A1=path ^(T:..^), A2=list. Truncate, then per line decode+append.
+echo(:write-lines
+echo(set wlf=!A1:~2!
+echo(rem cmd redirection needs backslashes; the codegen builds paths with '/' ^(sh-native^),
+echo(rem so normalise here. The line write ^(wl_emit_c^) gets the already-normalised wlf.
+echo(set "wlf=!wlf:/=\!"
+echo(set wll=!A2!
+echo(break ^> !wlf!
+echo(:wl_loop_c
+echo(if !wll!==NIL ^(set R=S:t ^& goto :eof^)
+echo(set wli=!wll:~2!
+echo(call :rdfield car !wli!
+echo(set wlline=!R:~2!
+echo(call :wl_emit_c !wlf!
+echo(call :rdfield cdr !wli!
+echo(set wll=!R!
+echo(goto wl_loop_c
+echo(rem :wl_emit_c -- write one line ^(in wlline^) to the file ^(%%1^). A line can hold
+echo(rem ! %% ^^ " and operators & | < >. Decode in QUOTED sets (safe for operators --
+echo(rem quotes protect them; the value holds no real " yet, only the 0x08 sentinel),
+echo(rem caret-escaping operators and 0x07-^>^^^^ so an UNQUOTED set/p can emit them; then
+echo(rem 0x01-^>!, 0x02-^>%%, and 0x08-^>" inline at the set/p (an unquoted prompt takes a
+echo(rem bare ", verified). No quoted prompt => a " in the line writes fine.
+echo(:wl_emit_c
+echo(if defined wlline goto wl_enc_c
+echo(^>^>%%~1 echo^(
+echo(goto :eof
+echo(:wl_enc_c
+echo(setlocal enableDelayedExpansion
+echo(set "w=!wlline:&=^&!"
+echo(set "w=!w:|=^|!"
+echo(set "w=!w:<=^<!"
+echo(set "w=!w:>=^>!"
+echo(set "w=!w:=^^!"
+echo(set "w=!w:=%%%%!"
+echo(endlocal ^& set "wcar=%%w%%"
+echo(setlocal disableDelayedExpansion
+echo(set "wd=%%wcar:=!%%"
+echo(^>^>%%~1 ^<nul set /p =%%wd:="%%
+echo(^>^>%%~1 echo^(
+echo(endlocal
+echo(goto :eof
+echo(rem :print -- A1 = a tagged value. Render it ^(byte-identical to the interpreter's print /
+echo(rem the sh JIT's _relem^) into R, then decode sentinels and emit to STDOUT + newline; R=NIL.
+echo(rem :pr_write/:pr_list mirror the kernel's lisp_write/render_list but ^(a^) read car/cdr via
+echo(rem :rdfield ^(file heap^) instead of hp_car/hp_cdr, and ^(b^) render DOTTED pairs ^(^(a . b^)^) and
+echo(rem closures ^(^<closure^>/^<fn:..^>^) like the sh side -- the kernel's render_list omits dotted-tail
+echo(rem handling ^(a latent sh/cmd print divergence^); this is the corrected canonical renderer. The
+echo(rem emit mirrors pa_print exactly: -^>'%%' ^(delayed^), then -^>'^^' and -^>'!' ^(disabled^),
+echo(rem a QUOTED set/p ^(operators ^& ^| ^< ^> ^^ ^( ^) pass verbatim^), then a newline.
+echo(:print
+echo(call :pr_write 0 "!A1!"
+echo(if not defined R goto pr_nl
+echo(setlocal enableDelayedExpansion
+echo(set "pdec=!R:=%%%%!"
+echo(endlocal ^& set "pcar=%%pdec%%"
+echo(setlocal disableDelayedExpansion
+echo(set "pout=%%pcar:=^%%"
+echo(set "pout=%%pout:=!%%"
+echo(^<nul set /p "=%%pout%%"
+echo(endlocal
+echo(:pr_nl
+echo(echo^(
+echo(set "R=NIL"
+echo(goto :eof
+echo(:pr_write
+echo(set "lwV=%%~2"
+echo(if "!lwV!"=="NIL" set "R=()" ^& goto :eof
+echo(set "lwPre=!lwV:~0,2!"
+echo(if "!lwPre!"=="I:" set "R=!lwV:~2!" ^& goto :eof
+echo(if "!lwPre!"=="S:" set "R=!lwV:~2!" ^& goto :eof
+echo(if "!lwPre!"=="T:" set "R=!lwV:~2!" ^& goto :eof
+echo(if "!lwPre!"=="K:" set "R=<closure>" ^& goto :eof
+echo(if "!lwPre!"=="C:" set "R=<fn:!lwV:~2!>" ^& goto :eof
+echo(if "!lwPre!"=="P:" goto pr_pair
+echo(set "R=#<obj>" ^& goto :eof
+echo(:pr_pair
+echo(set /a PRND=%%1+1 ^& call :pr_list !PRND! "%%~2"
+echo(set "R=(!R!)"
+echo(goto :eof
+echo(:pr_list
+echo(set "_pw%%1_lst=%%~2"
+echo(set "_pw%%1_acc="
+echo(set "_pw%%1_first=1"
+echo(:prl2
+echo(set "_pw%%1_i=!_pw%%1_lst:~2!"
+echo(call :rdfield car !_pw%%1_i!
+echo(set /a PRND=%%1+1 ^& call :pr_write !PRND! "!R!"
+echo(if "!_pw%%1_first!"=="1" ^(set "_pw%%1_acc=!R!"^) else ^(set "_pw%%1_acc=!_pw%%1_acc! !R!"^)
+echo(set "_pw%%1_first=0"
+echo(call :rdfield cdr !_pw%%1_i!
+echo(set "_pw%%1_tl=!R!"
+echo(if "!_pw%%1_tl!"=="NIL" set "R=!_pw%%1_acc!" ^& goto :eof
+echo(if "!_pw%%1_tl:~0,2!"=="P:" set "_pw%%1_lst=!_pw%%1_tl!" ^& goto prl2
+echo(set /a PRND=%%1+1 ^& call :pr_write !PRND! "!_pw%%1_tl!"
+echo(set "R=!_pw%%1_acc! . !R!"
+echo(goto :eof
+echo(rem :read-lines -- A1 = path ^(T:..^). Read each line -^> a list of T: cells, in file order.
+echo(rem Mirrors the kernel's read-lines ^(pa_rdlines^): `type file ^| find /v /n ""` prefixes every
+echo(rem line with "[N]" ^(so blank/';'-leading lines survive for/f^), strip it with !rlLn:*]=!, cons
+echo(rem each onto an accumulator, then reverse. Cells are allocated like the codegen's cons ^(bump
+echo(rem HN, write car/cdr at %%HN%% with the trailing guard byte '#'^). KNOWN GAP ^(identical to :ev^):
+echo(rem for/f eats a literal '!' in file content ^(delayed expansion^) -- a separately-tracked sh/cmd
+echo(rem read-lines divergence, not introduced here.
+echo(:read-lines
+echo(set "rlF=!A1:~2!"
+echo(set "rlF=!rlF:/=\!"
+echo(set "rlAcc=NIL"
+echo(type "!rlF!" ^| find /v /n "" ^> "%%TEMP%%\portsh_rl_!HD!.txt"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rl_!HD!.txt"^) do ^(
+echo(  set "rlLn=%%%%L" ^& set "rlLn=!rlLn:*]=!"
+echo(  call :rl_cons "T:!rlLn!" "!rlAcc!"
+echo(  set "rlAcc=!R!"
+echo(^)
+echo(call :rl_reverse "!rlAcc!"
+echo(goto :eof
+echo(:rl_cons
+echo(set "hca=%%~1" ^& set "hcd=%%~2"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!hca!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!hcd!#
+echo(set "R=P:%%HN%%"
+echo(goto :eof
+echo(:rl_reverse
+echo(set "lrL=%%~1" ^& set "lrAcc=NIL"
+echo(:rl_lr
+echo(if "!lrL!"=="NIL" set "R=!lrAcc!" ^& goto :eof
+echo(set "lr_i=!lrL:~2!"
+echo(call :rdfield car !lr_i!
+echo(set "lr_hd=!R!"
+echo(call :rdfield cdr !lr_i!
+echo(set "lrL=!R!"
+echo(call :rl_cons "!lr_hd!" "!lrAcc!"
+echo(set "lrAcc=!R!"
+echo(goto rl_lr
+echo(rem :file-existszzQ -- A1 = path ^(T:..^). R = S:t if it exists, else NIL. Matches pa_fex ^(no
+echo(rem slash normalisation -- consistent with the interpreter; write-lines normalises, fex does not^).
+echo(:file-existszzQ
+echo(set "fexP=!A1:~2!"
+echo(if exist "!fexP!" ^(set "R=S:t"^) else ^(set "R=NIL"^)
+echo(goto :eof
+echo(rem :split -- A1 = T:string, A2 = T:separator. R = list of T: pieces ^(mirrors the kernel/interp split^).
+echo(rem Char-scan ^(handles multi-char separators^); empty separator -^> single-element list. Cells via :rl_cons.
+echo(:split
+echo(set "spS=!A1:~2!"
+echo(set "spSep=!A2:~2!"
+echo(if not defined spSep ^(call :rl_cons "T:!spS!" "NIL" ^& goto :eof^)
+echo(set "spAcc=NIL"
+echo(set "spH="
+echo(set "spR=!spS!"
+echo(:sp_scan
+echo(if not defined spR goto sp_last
+echo(set "spT=!spR!"
+echo(set "spP=!spSep!"
+echo(:sp_cmp
+echo(if not defined spP goto sp_hit
+echo(if not defined spT goto sp_adv
+echo(if not "!spT:~0,1!"=="!spP:~0,1!" goto sp_adv
+echo(set "spT=!spT:~1!"
+echo(set "spP=!spP:~1!"
+echo(goto sp_cmp
+echo(:sp_hit
+echo(call :rl_cons "T:!spH!" "!spAcc!"
+echo(set "spAcc=!R!"
+echo(set "spH="
+echo(set "spR=!spT!"
+echo(goto sp_scan
+echo(:sp_adv
+echo(set "spH=!spH!!spR:~0,1!"
+echo(set "spR=!spR:~1!"
+echo(goto sp_scan
+echo(:sp_last
+echo(call :rl_cons "T:!spH!" "!spAcc!"
+echo(set "spAcc=!R!"
+echo(call :rl_reverse "!spAcc!"
+echo(goto :eof
+echo(rem :type-of -- A1 = a tagged value. R = its type symbol ^(mirrors the kernel/interp type-of^). Pure ^(no
+echo(rem The comp emits this as a builtin call ^(call type-of.cmd^) for ^(type-of x^).
+echo(:type-of
+echo(if "!A1!"=="NIL" ^(set "R=S:nil" ^& goto :eof^)
+echo(set "toT=!A1:~0,2!"
+echo(if "!toT!"=="I:" ^(set "R=S:number" ^& goto :eof^)
+echo(if "!toT!"=="S:" ^(set "R=S:symbol" ^& goto :eof^)
+echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
+echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
+echo(set "R=S:unknown"
+echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
+echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
+echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
+echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
+echo(rem exactly as :ev passes them. R = I:errorlevel.
+echo(:run_cmd
+echo(call :rc_unesc
+echo(cmd /c "!RCMD!"
+echo(set "R=I:!errorlevel!"
+echo(goto :eof
+echo(rem :rc_unesc -- A1 = T:^<command^>. comp bakes the command via enc-mc, but at comp.cmd RUNTIME the
+echo(rem operator bytes survive as RAW ^& ^| ^< ^> ^(a comp.cmd self-host quirk -- enc-mc encodes operators in
+echo(rem build-time string literals but not in a runtime-built command^), so write-lines CARET-escapes them
+echo(rem ^(^^^& ^^^| ^^^< ^^^>^) when emitting the set "A1=..." line. Undo that here so cmd /c sees LIVE operators,
+echo(rem matching the interpreter's cmd /c "!rcCmd!" ^(which has raw operator bytes^). -^> RCMD.
+echo(:rc_unesc
+echo(set "RCMD=!A1:~2!"
+echo(set "RCMD=!RCMD:^&=&!"
+echo(set "RCMD=!RCMD:^|=|!"
+echo(set "RCMD=!RCMD:^<=<!"
+echo(set "RCMD=!RCMD:^>=>!"
+echo(goto :eof
+echo(rem :run_capture -- like :run_cmd but capture stdout+stderr as a line-list ^(mirrors po_runcap exactly:
+echo(rem redirect-FIRST with 2^>^&1 so no trailing token absorbs into the command line; then prefix every line
+echo(rem with "[N]" via find /v /n "" ^(keeps blank/';' lines^), iterate, strip the prefix, cons, reverse^).
+echo(rem Cells allocated via :rl_cons / reversed via :rl_reverse ^(shared with :read-lines^). KNOWN GAP ^(same
+echo(rem as :ev/read-lines^): for/f eats a literal '!' in captured output.
+echo(:run_capture
+echo(call :rc_unesc
+echo(^> "%%TEMP%%\portsh_rc1_!HD!.txt" 2^>^&1 cmd /c "!RCMD!"
+echo(type "%%TEMP%%\portsh_rc1_!HD!.txt" ^| find /v /n "" ^> "%%TEMP%%\portsh_rc_!HD!.txt"
+echo(set "rcAcc=NIL"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rc_!HD!.txt"^) do ^(
+echo(  set "rcLn=%%%%L" ^& set "rcLn=!rcLn:*]=!"
+echo(  call :rl_cons "T:!rcLn!" "!rcAcc!"
+echo(  set "rcAcc=!R!"
+echo(^)
+echo(call :rl_reverse "!rcAcc!"
+echo(goto :eof
+echo(rem :read -- A1 = T:^<source^>. Parse the FIRST datum from the string ^(mirrors the kernel's pa_read^): save
+echo(rem reader state, point SRC at A1's content, run the reader in RDMODE ^(emit_top captures the first datum
+echo(rem into RDRESULT and clears SRC to stop^), then restore. R = the parsed datum ^(heap value^). The reader
+echo(rem below is EMBEDDED here because a `call`ed prim file cannot reach comp.cmd's reader labels; it allocates
+echo(rem into the SHARED heap via :rl_cons. *** KEEP IN SYNC with src/kernel.cmd's reader ^(run_forms / rf_* /
+echo(rem read_atom / reduce_list / emit_top / apply_quotes^) -- this is a copy; build-time sharing is a TODO. ***
+echo(:read
+echo(set "_rdSRC=!SRC!" ^& set "_rdSP=!SP!" ^& set "_rdDEPTH=!DEPTH!"
+echo(set "SRC=!A1:~2!" ^& set "SP=0" ^& set "DEPTH=0" ^& set "RDMODE=1" ^& set "RDRESULT=NIL"
+echo(call :run_forms
+echo(set "RDMODE="
+echo(set "R=!RDRESULT!"
+echo(set "SRC=!_rdSRC!" ^& set "SP=!_rdSP!" ^& set "DEPTH=!_rdDEPTH!"
+echo(goto :eof
+echo(:run_forms
+echo(:rf_loop
+echo(call :skipws
+echo(if "!SRC!"=="" goto :eof
+echo(set "ch=!SRC:~0,1!"
+echo(if "!ch!"=="(" goto rf_open
+echo(if "!ch!"==")" goto rf_close
+echo(if "!ch!"=="'" goto rf_quote
+echo(if "!ch!"=="!BANG8!" goto rf_string
+echo(goto rf_atom
+echo(:rf_quote
+echo(set "ST_!SP!=QM" ^& set /a SP+=1 ^& set "SRC=!SRC:~1!"
+echo(goto rf_loop
+echo(:rf_string
+echo(set "SRC=!SRC:~1!"
+echo(set "rfs="
+echo(:rfs_loop
+echo(if "!SRC!"=="" goto rfs_done
+echo(set "sc=!SRC:~0,1!"
+echo(if "!sc!"=="!BANG8!" set "SRC=!SRC:~1!" ^& goto rfs_done
+echo(set "rfs=!rfs!!sc!" ^& set "SRC=!SRC:~1!"
+echo(goto rfs_loop
+echo(:rfs_done
+echo(set "R=T:!rfs!"
+echo(call :emit_top "!R!"
+echo(goto rf_loop
+echo(:rf_open
+echo(set "ST_!SP!=LP" ^& set /a SP+=1 ^& set /a DEPTH+=1 ^& set "SRC=!SRC:~1!"
+echo(goto rf_loop
+echo(:rf_close
+echo(set "SRC=!SRC:~1!"
+echo(call :reduce_list
+echo(call :emit_top "!R!"
+echo(goto rf_loop
+echo(:rf_atom
+echo(call :read_atom
+echo(call :emit_top "!R!"
+echo(goto rf_loop
+echo(:skipws
+echo(if "!SRC!"=="" goto :eof
+echo(if "!SRC:~0,1!"==" " set "SRC=!SRC:~1!" ^& goto :skipws
+echo(goto :eof
+echo(:read_atom
+echo(set "tok="
+echo(:ra_loop
+echo(if "!SRC!"=="" goto ra_done
+echo(set "ch=!SRC:~0,1!"
+echo(if "!ch!"==" " goto ra_done
+echo(if "!ch!"=="(" goto ra_done
+echo(if "!ch!"==")" goto ra_done
+echo(set "tok=!tok!!ch!" ^& set "SRC=!SRC:~1!"
+echo(goto ra_loop
+echo(:ra_done
+echo(set "t=!tok!"
+echo(if "!t!"=="" set "R=S:" ^& goto :eof
+echo(set "c0=!t:~0,1!"
+echo(set "isnum=0"
+echo(if "!c0!" geq "0" if "!c0!" leq "9" set "isnum=1"
+echo(if "!c0!"=="-" if "!t:~1,1!" geq "0" if "!t:~1,1!" leq "9" set "isnum=1"
+echo(if "!isnum!"=="1" ^(set "R=I:!t!"^) else ^(set "R=S:!t!"^)
+echo(goto :eof
+echo(:reduce_list
+echo(set "acc=NIL"
+echo(:rdl_loop
+echo(set /a SP-=1
+echo(call set "top=%%%%ST_!SP!%%%%"
+echo(if "!top!"=="LP" set /a DEPTH-=1 ^& set "R=!acc!" ^& goto :eof
+echo(call :rl_cons "!top!" "!acc!"
+echo(set "acc=!R!"
+echo(goto rdl_loop
+echo(:emit_top
+echo(call :apply_quotes
+echo(if !DEPTH! GTR 0 goto et_push
+echo(set "RDRESULT=!R!" ^& set "SRC=" ^& goto :eof
+echo(:et_push
+echo(set "ST_!SP!=!R!" ^& set /a SP+=1
+echo(goto :eof
+echo(:apply_quotes
+echo(:aq_loop
+echo(if "!SP!"=="0" goto :eof
+echo(set /a aqsp=SP-1
+echo(call set "aqtop=%%%%ST_!aqsp!%%%%"
+echo(if not "!aqtop!"=="QM" goto :eof
+echo(set "SP=!aqsp!"
+echo(call :rl_cons "!R!" "NIL"
+echo(call :rl_cons "S:quote" "!R!"
+echo(goto aq_loop
 )
 >"%PSDIR%\arith-opzzQ_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -18104,7 +18601,14 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
+echo(if "!p0!"=="S:argv" ^(set "PC=19" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=20" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc19.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -18112,6 +18616,25 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(if "!p0!"=="S:append-lines" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc20.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:getenv" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=22" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc22.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -19385,6 +19908,18 @@ echo(set "MK=!MK!_PAYLOAD__"
 echo(set "MLINE=0"
 echo(findstr /c:"!MK!" "%%~f0" ^>nul 2^>^&1 ^&^& for /f "delims=:" %%%%n in ^('findstr /n /c:"!MK!" "%%~f0"'^) do if "!MLINE!"=="0" set "MLINE=%%%%n"
 echo(if not "%%MLINE%%"=="0" call :feedfile "%%~f0" %%MLINE%%
+echo(rem capture user args ^(after the program path^) into PORTSH_ARGV_^<n^>/PORTSH_ARGC for ^(argv^),
+echo(rem unless a front-end already did ^(env vars inherit into child processes^).
+echo(if defined PORTSH_ARGC goto k_args_done
+echo(if "%%~1"=="" goto k_args_done
+echo(set "PORTSH_ARGC=0"
+echo(:k_args
+echo(if "%%~2"=="" goto k_args_done
+echo(set "PORTSH_ARGV_!PORTSH_ARGC!=%%~2"
+echo(set /a PORTSH_ARGC+=1
+echo(shift /2
+echo(goto k_args
+echo(:k_args_done
 echo(if not "%%~1"=="" call :feedfile "%%~1" 0
 echo(:done_boot
 echo(exit /b 0
@@ -20103,6 +20638,8 @@ echo(if "!paN!"=="hmark" goto pa_hmark
 echo(if "!paN!"=="hreset" goto pa_hreset
 echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
+echo(if "!paN!"=="argv" goto pa_argv
+echo(if "!paN!"=="getenv" goto pa_getenv
 echo(if "!paN!"=="split" goto pa_split
 echo(set "R=NIL" ^& goto :eof
 echo(:pa_split
@@ -20149,6 +20686,40 @@ echo(call :run_forms
 echo(set "RDMODE="
 echo(set "R=!RDRESULT!"
 echo(set "SRC=!_raSRC!" ^& set "SP=!_raSP!" ^& set "DEPTH=!_raDEPTH!"
+echo(goto :eof
+echo(:pa_argv
+echo(rem R = list of user args ^(T:^), from PORTSH_ARGV_^<n^>/PORTSH_ARGC ^(captured at boot or by a front-end^)
+echo(set "paAv=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a paAi=PORTSH_ARGC
+echo(:pa_av_loop
+echo(if !paAi! LEQ 0 ^(set "R=!paAv!" ^& goto :eof^)
+echo(set /a paAi-=1
+echo(call set "paAvV=%%%%PORTSH_ARGV_!paAi!%%%%"
+echo(call :hp_cons "T:!paAvV!" "!paAv!"
+echo(set "paAv=!R!"
+echo(goto pa_av_loop
+echo(:pa_getenv
+echo(rem ^(getenv "NAME"^) -^> T:value ^| NIL when unset ^(cmd cannot store empty -^> empty==unset==nil,
+echo(rem mirrored by sh^). Name restricted to A-Za-z0-9_ ^(mirror kernel.sh^).
+echo(call :hp_car "%%~3"
+echo(set "paGn=!R:~2!"
+echo(if not defined paGn ^(set "R=NIL" ^& goto :eof^)
+echo(set "paGt=!paGn!"
+echo(:pa_gn_chk
+echo(if not defined paGt goto pa_gn_ok
+echo(set "paGc=!paGt:~0,1!"
+echo(set "paGt=!paGt:~1!"
+echo(if "!paGc!" GEQ "a" if "!paGc!" LEQ "z" goto pa_gn_chk
+echo(if "!paGc!" GEQ "A" if "!paGc!" LEQ "Z" goto pa_gn_chk
+echo(if "!paGc!" GEQ "0" if "!paGc!" LEQ "9" goto pa_gn_chk
+echo(if "!paGc!"=="_" goto pa_gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:pa_gn_ok
+echo(if not defined !paGn! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !paGn! 2^^^>nul'^) do if /i "%%%%a"=="!paGn!" set "R=T:%%%%b"
 echo(goto :eof
 echo(:pa_typeof
 echo(call :hp_car "%%~3"
@@ -20529,6 +21100,8 @@ echo(call :env_define "!GLOBAL!" "S:hmark" "R:hmark"
 echo(call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
+echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
+echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 echo(call :env_define "!GLOBAL!" "S:split" "R:split"
 echo(call :env_define "!GLOBAL!" "S:run" "F:run"
 echo(call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
@@ -24454,6 +25027,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -25291,6 +25900,447 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
+echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
+echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
+echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
+echo(rem exactly as :ev passes them. R = I:errorlevel.
+echo(:run_cmd
+echo(call :rc_unesc
+echo(cmd /c "!RCMD!"
+echo(set "R=I:!errorlevel!"
+echo(goto :eof
+echo(rem :rc_unesc -- A1 = T:^<command^>. comp bakes the command via enc-mc, but at comp.cmd RUNTIME the
+echo(rem operator bytes survive as RAW ^& ^| ^< ^> ^(a comp.cmd self-host quirk -- enc-mc encodes operators in
+echo(rem build-time string literals but not in a runtime-built command^), so write-lines CARET-escapes them
+echo(rem ^(^^^& ^^^| ^^^< ^^^>^) when emitting the set "A1=..." line. Undo that here so cmd /c sees LIVE operators,
+echo(rem matching the interpreter's cmd /c "!rcCmd!" ^(which has raw operator bytes^). -^> RCMD.
+echo(:rc_unesc
+echo(set "RCMD=!A1:~2!"
+echo(set "RCMD=!RCMD:^&=&!"
+echo(set "RCMD=!RCMD:^|=|!"
+echo(set "RCMD=!RCMD:^<=<!"
+echo(set "RCMD=!RCMD:^>=>!"
+echo(goto :eof
+echo(rem :run_capture -- like :run_cmd but capture stdout+stderr as a line-list ^(mirrors po_runcap exactly:
+echo(rem redirect-FIRST with 2^>^&1 so no trailing token absorbs into the command line; then prefix every line
+echo(rem with "[N]" via find /v /n "" ^(keeps blank/';' lines^), iterate, strip the prefix, cons, reverse^).
+echo(rem Cells allocated via :rl_cons / reversed via :rl_reverse ^(shared with :read-lines^). KNOWN GAP ^(same
+echo(rem as :ev/read-lines^): for/f eats a literal '!' in captured output.
+echo(:run_capture
+echo(call :rc_unesc
+echo(^> "%%TEMP%%\portsh_rc1_!HD!.txt" 2^>^&1 cmd /c "!RCMD!"
+echo(type "%%TEMP%%\portsh_rc1_!HD!.txt" ^| find /v /n "" ^> "%%TEMP%%\portsh_rc_!HD!.txt"
+echo(set "rcAcc=NIL"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rc_!HD!.txt"^) do ^(
+echo(  set "rcLn=%%%%L" ^& set "rcLn=!rcLn:*]=!"
+echo(  call :rl_cons "T:!rcLn!" "!rcAcc!"
+echo(  set "rcAcc=!R!"
+echo(^)
+echo(call :rl_reverse "!rcAcc!"
+echo(goto :eof
+echo(rem :read -- A1 = T:^<source^>. Parse the FIRST datum from the string ^(mirrors the kernel's pa_read^): save
+echo(rem reader state, point SRC at A1's content, run the reader in RDMODE ^(emit_top captures the first datum
+echo(rem into RDRESULT and clears SRC to stop^), then restore. R = the parsed datum ^(heap value^). The reader
+echo(rem below is EMBEDDED here because a `call`ed prim file cannot reach comp.cmd's reader labels; it allocates
+echo(rem into the SHARED heap via :rl_cons. *** KEEP IN SYNC with src/kernel.cmd's reader ^(run_forms / rf_* /
+echo(rem read_atom / reduce_list / emit_top / apply_quotes^) -- this is a copy; build-time sharing is a TODO. ***
+echo(:read
+echo(set "_rdSRC=!SRC!" ^& set "_rdSP=!SP!" ^& set "_rdDEPTH=!DEPTH!"
+echo(set "SRC=!A1:~2!" ^& set "SP=0" ^& set "DEPTH=0" ^& set "RDMODE=1" ^& set "RDRESULT=NIL"
+echo(call :run_forms
+echo(set "RDMODE="
+echo(set "R=!RDRESULT!"
+echo(set "SRC=!_rdSRC!" ^& set "SP=!_rdSP!" ^& set "DEPTH=!_rdDEPTH!"
+echo(goto :eof
+echo(:run_forms
+echo(:rf_loop
+echo(call :skipws
+echo(if "!SRC!"=="" goto :eof
+echo(set "ch=!SRC:~0,1!"
+echo(if "!ch!"=="(" goto rf_open
+echo(if "!ch!"==")" goto rf_close
+echo(if "!ch!"=="'" goto rf_quote
+echo(if "!ch!"=="!BANG8!" goto rf_string
+echo(goto rf_atom
+echo(:rf_quote
+echo(set "ST_!SP!=QM" ^& set /a SP+=1 ^& set "SRC=!SRC:~1!"
+echo(goto rf_loop
+echo(:rf_string
+echo(set "SRC=!SRC:~1!"
+echo(set "rfs="
+echo(:rfs_loop
+echo(if "!SRC!"=="" goto rfs_done
+echo(set "sc=!SRC:~0,1!"
+echo(if "!sc!"=="!BANG8!" set "SRC=!SRC:~1!" ^& goto rfs_done
+echo(set "rfs=!rfs!!sc!" ^& set "SRC=!SRC:~1!"
+echo(goto rfs_loop
+echo(:rfs_done
+echo(set "R=T:!rfs!"
+echo(call :emit_top "!R!"
+echo(goto rf_loop
+echo(:rf_open
+echo(set "ST_!SP!=LP" ^& set /a SP+=1 ^& set /a DEPTH+=1 ^& set "SRC=!SRC:~1!"
+echo(goto rf_loop
+echo(:rf_close
+echo(set "SRC=!SRC:~1!"
+echo(call :reduce_list
+echo(call :emit_top "!R!"
+echo(goto rf_loop
+echo(:rf_atom
+echo(call :read_atom
+echo(call :emit_top "!R!"
+echo(goto rf_loop
+echo(:skipws
+echo(if "!SRC!"=="" goto :eof
+echo(if "!SRC:~0,1!"==" " set "SRC=!SRC:~1!" ^& goto :skipws
+echo(goto :eof
+echo(:read_atom
+echo(set "tok="
+echo(:ra_loop
+echo(if "!SRC!"=="" goto ra_done
+echo(set "ch=!SRC:~0,1!"
+echo(if "!ch!"==" " goto ra_done
+echo(if "!ch!"=="(" goto ra_done
+echo(if "!ch!"==")" goto ra_done
+echo(set "tok=!tok!!ch!" ^& set "SRC=!SRC:~1!"
+echo(goto ra_loop
+echo(:ra_done
+echo(set "t=!tok!"
+echo(if "!t!"=="" set "R=S:" ^& goto :eof
+echo(set "c0=!t:~0,1!"
+echo(set "isnum=0"
+echo(if "!c0!" geq "0" if "!c0!" leq "9" set "isnum=1"
+echo(if "!c0!"=="-" if "!t:~1,1!" geq "0" if "!t:~1,1!" leq "9" set "isnum=1"
+echo(if "!isnum!"=="1" ^(set "R=I:!t!"^) else ^(set "R=S:!t!"^)
+echo(goto :eof
+echo(:reduce_list
+echo(set "acc=NIL"
+echo(:rdl_loop
+echo(set /a SP-=1
+echo(call set "top=%%%%ST_!SP!%%%%"
+echo(if "!top!"=="LP" set /a DEPTH-=1 ^& set "R=!acc!" ^& goto :eof
+echo(call :rl_cons "!top!" "!acc!"
+echo(set "acc=!R!"
+echo(goto rdl_loop
+echo(:emit_top
+echo(call :apply_quotes
+echo(if !DEPTH! GTR 0 goto et_push
+echo(set "RDRESULT=!R!" ^& set "SRC=" ^& goto :eof
+echo(:et_push
+echo(set "ST_!SP!=!R!" ^& set /a SP+=1
+echo(goto :eof
+echo(:apply_quotes
+echo(:aq_loop
+echo(if "!SP!"=="0" goto :eof
+echo(set /a aqsp=SP-1
+echo(call set "aqtop=%%%%ST_!aqsp!%%%%"
+echo(if not "!aqtop!"=="QM" goto :eof
+echo(set "SP=!aqsp!"
+echo(call :rl_cons "!R!" "NIL"
+echo(call :rl_cons "S:quote" "!R!"
+echo(goto aq_loop
+)
+>"%PSDIR%\getenv.cmd" (
+echo(goto :getenv
+echo(rem portsh compiled-program RUNTIME, appended to every compiled.cmd ^(the heap vars
+echo(rem and sentinels come from the host kernel; these are the I/O helpers a compiled
+echo(rem program calls^). Hand-written + build-baked ^(/// -^> the sentinel
+echo(rem bytes 0x01/0x02/0x07/0x08, like the kernel^) so it can use literal bytes and ".
+echo(rem Kept OUT of comp's source/output so its patterns never collide with program data:
+echo(rem write-lines can therefore reproduce this runtime verbatim ^(the comp^(comp^) case^).
+echo(rem
+echo(rem :rdfield -- file-backed heap read: %%1=car^|cdr, %%2=index -^> R = first line of
+echo(rem %%HD%%\^<%%1^>^<%%2^>. set /p reads raw ^(operators ^&^|^<^> in the value survive^). Redirect
+echo(rem path uses %%1/%%2/%%HD%% ^(immediate; parsed before delayed expansion^). Used for car/cdr.
+echo(rem Cells are written with a trailing GUARD byte ^(#^) because set /p STRIPS trailing
+echo(rem control bytes ^(0x01=! 0x08=") -- the guard takes that hit, then we drop it here so
+echo(rem values ending in !/" survive intact. Writers must append the same guard.
+echo(:rdfield
+echo(set /p R=^<%%HD%%\%%1%%2
+echo(set "R=!R:~0,-1!"
+echo(goto :eof
+echo(rem :gc -- compiled-program GC. For now a no-op: returns without collecting, which is
+echo(rem CORRECT ^(gc only reclaims, never changes values^) and fine for small inputs. A real
+echo(rem collector for compiled programs is TODO -- the interpreter's gc roots from the env
+echo(rem chain, which compiled code lacks; a compiled-runtime gc would root from the STK
+echo(rem save-stack + the current frame's live vars instead.
+echo(:gc
+echo(set R=NIL
+echo(goto :eof
+echo(rem :append-lines -- A1=path, A2=list. Like write-lines but does NOT truncate
+echo(rem ^(incremental output: comp's cp appends each fn's lines as it compiles them^).
+echo(:append-lines
+echo(set wlf=!A1:~2!
+echo(set "wlf=!wlf:/=\!"
+echo(set wll=!A2!
+echo(:al_loop_c
+echo(if !wll!==NIL ^(set R=S:t ^& goto :eof^)
+echo(set wli=!wll:~2!
+echo(call :rdfield car !wli!
+echo(set wlline=!R:~2!
+echo(call :wl_emit_c !wlf!
+echo(call :rdfield cdr !wli!
+echo(set wll=!R!
+echo(goto al_loop_c
+echo(rem :write-lines -- A1=path ^(T:..^), A2=list. Truncate, then per line decode+append.
+echo(:write-lines
+echo(set wlf=!A1:~2!
+echo(rem cmd redirection needs backslashes; the codegen builds paths with '/' ^(sh-native^),
+echo(rem so normalise here. The line write ^(wl_emit_c^) gets the already-normalised wlf.
+echo(set "wlf=!wlf:/=\!"
+echo(set wll=!A2!
+echo(break ^> !wlf!
+echo(:wl_loop_c
+echo(if !wll!==NIL ^(set R=S:t ^& goto :eof^)
+echo(set wli=!wll:~2!
+echo(call :rdfield car !wli!
+echo(set wlline=!R:~2!
+echo(call :wl_emit_c !wlf!
+echo(call :rdfield cdr !wli!
+echo(set wll=!R!
+echo(goto wl_loop_c
+echo(rem :wl_emit_c -- write one line ^(in wlline^) to the file ^(%%1^). A line can hold
+echo(rem ! %% ^^ " and operators & | < >. Decode in QUOTED sets (safe for operators --
+echo(rem quotes protect them; the value holds no real " yet, only the 0x08 sentinel),
+echo(rem caret-escaping operators and 0x07-^>^^^^ so an UNQUOTED set/p can emit them; then
+echo(rem 0x01-^>!, 0x02-^>%%, and 0x08-^>" inline at the set/p (an unquoted prompt takes a
+echo(rem bare ", verified). No quoted prompt => a " in the line writes fine.
+echo(:wl_emit_c
+echo(if defined wlline goto wl_enc_c
+echo(^>^>%%~1 echo^(
+echo(goto :eof
+echo(:wl_enc_c
+echo(setlocal enableDelayedExpansion
+echo(set "w=!wlline:&=^&!"
+echo(set "w=!w:|=^|!"
+echo(set "w=!w:<=^<!"
+echo(set "w=!w:>=^>!"
+echo(set "w=!w:=^^!"
+echo(set "w=!w:=%%%%!"
+echo(endlocal ^& set "wcar=%%w%%"
+echo(setlocal disableDelayedExpansion
+echo(set "wd=%%wcar:=!%%"
+echo(^>^>%%~1 ^<nul set /p =%%wd:="%%
+echo(^>^>%%~1 echo^(
+echo(endlocal
+echo(goto :eof
+echo(rem :print -- A1 = a tagged value. Render it ^(byte-identical to the interpreter's print /
+echo(rem the sh JIT's _relem^) into R, then decode sentinels and emit to STDOUT + newline; R=NIL.
+echo(rem :pr_write/:pr_list mirror the kernel's lisp_write/render_list but ^(a^) read car/cdr via
+echo(rem :rdfield ^(file heap^) instead of hp_car/hp_cdr, and ^(b^) render DOTTED pairs ^(^(a . b^)^) and
+echo(rem closures ^(^<closure^>/^<fn:..^>^) like the sh side -- the kernel's render_list omits dotted-tail
+echo(rem handling ^(a latent sh/cmd print divergence^); this is the corrected canonical renderer. The
+echo(rem emit mirrors pa_print exactly: -^>'%%' ^(delayed^), then -^>'^^' and -^>'!' ^(disabled^),
+echo(rem a QUOTED set/p ^(operators ^& ^| ^< ^> ^^ ^( ^) pass verbatim^), then a newline.
+echo(:print
+echo(call :pr_write 0 "!A1!"
+echo(if not defined R goto pr_nl
+echo(setlocal enableDelayedExpansion
+echo(set "pdec=!R:=%%%%!"
+echo(endlocal ^& set "pcar=%%pdec%%"
+echo(setlocal disableDelayedExpansion
+echo(set "pout=%%pcar:=^%%"
+echo(set "pout=%%pout:=!%%"
+echo(^<nul set /p "=%%pout%%"
+echo(endlocal
+echo(:pr_nl
+echo(echo^(
+echo(set "R=NIL"
+echo(goto :eof
+echo(:pr_write
+echo(set "lwV=%%~2"
+echo(if "!lwV!"=="NIL" set "R=()" ^& goto :eof
+echo(set "lwPre=!lwV:~0,2!"
+echo(if "!lwPre!"=="I:" set "R=!lwV:~2!" ^& goto :eof
+echo(if "!lwPre!"=="S:" set "R=!lwV:~2!" ^& goto :eof
+echo(if "!lwPre!"=="T:" set "R=!lwV:~2!" ^& goto :eof
+echo(if "!lwPre!"=="K:" set "R=<closure>" ^& goto :eof
+echo(if "!lwPre!"=="C:" set "R=<fn:!lwV:~2!>" ^& goto :eof
+echo(if "!lwPre!"=="P:" goto pr_pair
+echo(set "R=#<obj>" ^& goto :eof
+echo(:pr_pair
+echo(set /a PRND=%%1+1 ^& call :pr_list !PRND! "%%~2"
+echo(set "R=(!R!)"
+echo(goto :eof
+echo(:pr_list
+echo(set "_pw%%1_lst=%%~2"
+echo(set "_pw%%1_acc="
+echo(set "_pw%%1_first=1"
+echo(:prl2
+echo(set "_pw%%1_i=!_pw%%1_lst:~2!"
+echo(call :rdfield car !_pw%%1_i!
+echo(set /a PRND=%%1+1 ^& call :pr_write !PRND! "!R!"
+echo(if "!_pw%%1_first!"=="1" ^(set "_pw%%1_acc=!R!"^) else ^(set "_pw%%1_acc=!_pw%%1_acc! !R!"^)
+echo(set "_pw%%1_first=0"
+echo(call :rdfield cdr !_pw%%1_i!
+echo(set "_pw%%1_tl=!R!"
+echo(if "!_pw%%1_tl!"=="NIL" set "R=!_pw%%1_acc!" ^& goto :eof
+echo(if "!_pw%%1_tl:~0,2!"=="P:" set "_pw%%1_lst=!_pw%%1_tl!" ^& goto prl2
+echo(set /a PRND=%%1+1 ^& call :pr_write !PRND! "!_pw%%1_tl!"
+echo(set "R=!_pw%%1_acc! . !R!"
+echo(goto :eof
+echo(rem :read-lines -- A1 = path ^(T:..^). Read each line -^> a list of T: cells, in file order.
+echo(rem Mirrors the kernel's read-lines ^(pa_rdlines^): `type file ^| find /v /n ""` prefixes every
+echo(rem line with "[N]" ^(so blank/';'-leading lines survive for/f^), strip it with !rlLn:*]=!, cons
+echo(rem each onto an accumulator, then reverse. Cells are allocated like the codegen's cons ^(bump
+echo(rem HN, write car/cdr at %%HN%% with the trailing guard byte '#'^). KNOWN GAP ^(identical to :ev^):
+echo(rem for/f eats a literal '!' in file content ^(delayed expansion^) -- a separately-tracked sh/cmd
+echo(rem read-lines divergence, not introduced here.
+echo(:read-lines
+echo(set "rlF=!A1:~2!"
+echo(set "rlF=!rlF:/=\!"
+echo(set "rlAcc=NIL"
+echo(type "!rlF!" ^| find /v /n "" ^> "%%TEMP%%\portsh_rl_!HD!.txt"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rl_!HD!.txt"^) do ^(
+echo(  set "rlLn=%%%%L" ^& set "rlLn=!rlLn:*]=!"
+echo(  call :rl_cons "T:!rlLn!" "!rlAcc!"
+echo(  set "rlAcc=!R!"
+echo(^)
+echo(call :rl_reverse "!rlAcc!"
+echo(goto :eof
+echo(:rl_cons
+echo(set "hca=%%~1" ^& set "hcd=%%~2"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!hca!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!hcd!#
+echo(set "R=P:%%HN%%"
+echo(goto :eof
+echo(:rl_reverse
+echo(set "lrL=%%~1" ^& set "lrAcc=NIL"
+echo(:rl_lr
+echo(if "!lrL!"=="NIL" set "R=!lrAcc!" ^& goto :eof
+echo(set "lr_i=!lrL:~2!"
+echo(call :rdfield car !lr_i!
+echo(set "lr_hd=!R!"
+echo(call :rdfield cdr !lr_i!
+echo(set "lrL=!R!"
+echo(call :rl_cons "!lr_hd!" "!lrAcc!"
+echo(set "lrAcc=!R!"
+echo(goto rl_lr
+echo(rem :file-existszzQ -- A1 = path ^(T:..^). R = S:t if it exists, else NIL. Matches pa_fex ^(no
+echo(rem slash normalisation -- consistent with the interpreter; write-lines normalises, fex does not^).
+echo(:file-existszzQ
+echo(set "fexP=!A1:~2!"
+echo(if exist "!fexP!" ^(set "R=S:t"^) else ^(set "R=NIL"^)
+echo(goto :eof
+echo(rem :split -- A1 = T:string, A2 = T:separator. R = list of T: pieces ^(mirrors the kernel/interp split^).
+echo(rem Char-scan ^(handles multi-char separators^); empty separator -^> single-element list. Cells via :rl_cons.
+echo(:split
+echo(set "spS=!A1:~2!"
+echo(set "spSep=!A2:~2!"
+echo(if not defined spSep ^(call :rl_cons "T:!spS!" "NIL" ^& goto :eof^)
+echo(set "spAcc=NIL"
+echo(set "spH="
+echo(set "spR=!spS!"
+echo(:sp_scan
+echo(if not defined spR goto sp_last
+echo(set "spT=!spR!"
+echo(set "spP=!spSep!"
+echo(:sp_cmp
+echo(if not defined spP goto sp_hit
+echo(if not defined spT goto sp_adv
+echo(if not "!spT:~0,1!"=="!spP:~0,1!" goto sp_adv
+echo(set "spT=!spT:~1!"
+echo(set "spP=!spP:~1!"
+echo(goto sp_cmp
+echo(:sp_hit
+echo(call :rl_cons "T:!spH!" "!spAcc!"
+echo(set "spAcc=!R!"
+echo(set "spH="
+echo(set "spR=!spT!"
+echo(goto sp_scan
+echo(:sp_adv
+echo(set "spH=!spH!!spR:~0,1!"
+echo(set "spR=!spR:~1!"
+echo(goto sp_scan
+echo(:sp_last
+echo(call :rl_cons "T:!spH!" "!spAcc!"
+echo(set "spAcc=!R!"
+echo(call :rl_reverse "!spAcc!"
+echo(goto :eof
+echo(rem :type-of -- A1 = a tagged value. R = its type symbol ^(mirrors the kernel/interp type-of^). Pure ^(no
+echo(rem The comp emits this as a builtin call ^(call type-of.cmd^) for ^(type-of x^).
+echo(:type-of
+echo(if "!A1!"=="NIL" ^(set "R=S:nil" ^& goto :eof^)
+echo(set "toT=!A1:~0,2!"
+echo(if "!toT!"=="I:" ^(set "R=S:number" ^& goto :eof^)
+echo(if "!toT!"=="S:" ^(set "R=S:symbol" ^& goto :eof^)
+echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
+echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
+echo(set "R=S:unknown"
+echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -26030,6 +27080,18 @@ echo(set "MK=!MK!_PAYLOAD__"
 echo(set "MLINE=0"
 echo(findstr /c:"!MK!" "%%~f0" ^>nul 2^>^&1 ^&^& for /f "delims=:" %%%%n in ^('findstr /n /c:"!MK!" "%%~f0"'^) do if "!MLINE!"=="0" set "MLINE=%%%%n"
 echo(if not "%%MLINE%%"=="0" call :feedfile "%%~f0" %%MLINE%%
+echo(rem capture user args ^(after the program path^) into PORTSH_ARGV_^<n^>/PORTSH_ARGC for ^(argv^),
+echo(rem unless a front-end already did ^(env vars inherit into child processes^).
+echo(if defined PORTSH_ARGC goto k_args_done
+echo(if "%%~1"=="" goto k_args_done
+echo(set "PORTSH_ARGC=0"
+echo(:k_args
+echo(if "%%~2"=="" goto k_args_done
+echo(set "PORTSH_ARGV_!PORTSH_ARGC!=%%~2"
+echo(set /a PORTSH_ARGC+=1
+echo(shift /2
+echo(goto k_args
+echo(:k_args_done
 echo(goto :in_main
 echo(:hp_cons
 echo(set "hca=%%~1" ^& set "hcd=%%~2"
@@ -26660,6 +27722,8 @@ echo(if "!IPO!"=="S:!LT!" set "R=1"
 echo(if "!IPO!"=="S:!LT!=" set "R=1"
 echo(if "!IPO!"=="S:=" set "R=1"
 echo(if "!IPO!"=="S:type-of" set "R=1"
+echo(if "!IPO!"=="S:argv" set "R=1"
+echo(if "!IPO!"=="S:getenv" set "R=1"
 echo(if "!IPO!"=="S:symbol->string" set "R=1"
 echo(if "!IPO!"=="S:number->string" set "R=1"
 echo(if "!IPO!"=="S:string->symbol" set "R=1"
@@ -26688,6 +27752,8 @@ echo(if "!IPO!"=="S:atom?" goto ipr_atom
 echo(if "!IPO!"=="S:number?" goto ipr_num
 echo(if "!IPO!"=="S:not" goto ipr_null
 echo(if "!IPO!"=="S:type-of" goto ipr_typeof
+echo(if "!IPO!"=="S:argv" goto ipr_argv
+echo(if "!IPO!"=="S:getenv" goto ipr_getenv
 echo(if "!IPO!"=="S:symbol->string" ^(set "IPV=T:!ipa:~2!" ^& goto itk_push^)
 echo(if "!IPO!"=="S:number->string" ^(set "IPV=T:!ipa:~2!" ^& goto itk_push^)
 echo(if "!IPO!"=="S:string->symbol" ^(set "IPV=S:!ipa:~2!" ^& goto itk_push^)
@@ -26746,6 +27812,15 @@ echo(goto itk_push
 echo(:ipr_typeof
 echo(set "A1=!ipa!"
 echo(call type-of.cmd
+echo(set "IPV=!R!"
+echo(goto itk_push
+echo(:ipr_argv
+echo(call argv.cmd
+echo(set "IPV=!R!"
+echo(goto itk_push
+echo(:ipr_getenv
+echo(set "A1=!ipa!"
+echo(call getenv.cmd
 echo(set "IPV=!R!"
 echo(goto itk_push
 echo(:ipr_slen
@@ -26965,6 +28040,17 @@ echo(rem successive REPL inputs don't collide __lamN / __evN ^(which would clobb
 echo(set "CTR=0" ^& set "NN=0"
 echo(if defined PORTSH_OSRDIR set "PATH=!PORTSH_OSRDIR!;!PATH!"
 echo(if "%%~1"=="" goto in_repl
+echo(rem capture user args ^(after the program path^) into PORTSH_ARGV_^<n^>/PORTSH_ARGC for ^(argv^), unless a
+echo(rem front-end already did ^(env vars inherit into this process -- no arg re-quoting anywhere^).
+echo(if defined PORTSH_ARGC goto in_args_done
+echo(set "PORTSH_ARGC=0"
+echo(:in_args
+echo(if "%%~2"=="" goto in_args_done
+echo(set "PORTSH_ARGV_!PORTSH_ARGC!=%%~2"
+echo(set /a PORTSH_ARGC+=1
+echo(shift /2
+echo(goto in_args
+echo(:in_args_done
 echo(rem WARM FAST PATH: the program cache has the thunk run-list -^> execute the program STRAIGHT from the
 echo(rem cache ^(program consts + compiled thunks on el_drive^). No reader, no mexpand, no lift, no register --
 echo(rem the pipeline is pure waste when every fn is already compiled. Content-hash keying makes this safe
@@ -27852,6 +28938,8 @@ echo(if "!paN!"=="hmark" goto pa_hmark
 echo(if "!paN!"=="hreset" goto pa_hreset
 echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
+echo(if "!paN!"=="argv" goto pa_argv
+echo(if "!paN!"=="getenv" goto pa_getenv
 echo(if "!paN!"=="split" goto pa_split
 echo(set "R=NIL" ^& goto :eof
 echo(:pa_split
@@ -27898,6 +28986,40 @@ echo(call reader.cmd rf
 echo(set "RDMODE="
 echo(set "R=!RDRESULT!"
 echo(set "SRC=!_raSRC!" ^& set "SP=!_raSP!" ^& set "DEPTH=!_raDEPTH!"
+echo(goto :eof
+echo(:pa_argv
+echo(rem R = list of user args ^(T:^), from PORTSH_ARGV_^<n^>/PORTSH_ARGC ^(captured at boot or by a front-end^)
+echo(set "paAv=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a paAi=PORTSH_ARGC
+echo(:pa_av_loop
+echo(if !paAi! LEQ 0 ^(set "R=!paAv!" ^& goto :eof^)
+echo(set /a paAi-=1
+echo(call set "paAvV=%%%%PORTSH_ARGV_!paAi!%%%%"
+echo(call :hp_cons "T:!paAvV!" "!paAv!"
+echo(set "paAv=!R!"
+echo(goto pa_av_loop
+echo(:pa_getenv
+echo(rem ^(getenv "NAME"^) -^> T:value ^| NIL when unset ^(cmd cannot store empty -^> empty==unset==nil,
+echo(rem mirrored by sh^). Name restricted to A-Za-z0-9_ ^(mirror kernel.sh^).
+echo(call :hp_car "%%~3"
+echo(set "paGn=!R:~2!"
+echo(if not defined paGn ^(set "R=NIL" ^& goto :eof^)
+echo(set "paGt=!paGn!"
+echo(:pa_gn_chk
+echo(if not defined paGt goto pa_gn_ok
+echo(set "paGc=!paGt:~0,1!"
+echo(set "paGt=!paGt:~1!"
+echo(if "!paGc!" GEQ "a" if "!paGc!" LEQ "z" goto pa_gn_chk
+echo(if "!paGc!" GEQ "A" if "!paGc!" LEQ "Z" goto pa_gn_chk
+echo(if "!paGc!" GEQ "0" if "!paGc!" LEQ "9" goto pa_gn_chk
+echo(if "!paGc!"=="_" goto pa_gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:pa_gn_ok
+echo(if not defined !paGn! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !paGn! 2^^^>nul'^) do if /i "%%%%a"=="!paGn!" set "R=T:%%%%b"
 echo(goto :eof
 echo(:pa_typeof
 echo(call :hp_car "%%~3"
@@ -28278,6 +29400,8 @@ echo(call :env_define "!GLOBAL!" "S:hmark" "R:hmark"
 echo(call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
+echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
+echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 echo(call :env_define "!GLOBAL!" "S:split" "R:split"
 echo(call :env_define "!GLOBAL!" "S:run" "F:run"
 echo(call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
@@ -42698,6 +43822,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -43078,6 +44238,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -43447,6 +44643,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -43815,6 +45047,42 @@ echo(if "!toT!"=="S:" ^(set "R=S:symbol" ^& goto :eof^)
 echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
+echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
 echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
@@ -44561,6 +45829,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -44929,6 +46233,42 @@ echo(if "!toT!"=="S:" ^(set "R=S:symbol" ^& goto :eof^)
 echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
+echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
 echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
@@ -45860,6 +47200,42 @@ echo(if "!toT!"=="S:" ^(set "R=S:symbol" ^& goto :eof^)
 echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
+echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
 echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
@@ -46903,6 +48279,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -47498,6 +48910,42 @@ echo(if "!toT!"=="T:" ^(set "R=S:string" ^& goto :eof^)
 echo(if "!toT!"=="P:" ^(set "R=S:pair" ^& goto :eof^)
 echo(set "R=S:unknown"
 echo(goto :eof
+echo(rem :argv -- R = list of the user arguments ^(T: strings^), built per call from PORTSH_ARGV_^<n^> /
+echo(rem PORTSH_ARGC ^(set by the front-end or the engine's own arg capture^). REPL/no-args -^> NIL.
+echo(rem Values with ! are best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:argv
+echo(set "avL=NIL"
+echo(if not defined PORTSH_ARGC ^(set "R=NIL" ^& goto :eof^)
+echo(set /a avI=PORTSH_ARGC
+echo(:av_loop
+echo(if !avI! LEQ 0 ^(set "R=!avL!" ^& goto :eof^)
+echo(set /a avI-=1
+echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
+echo(call :rl_cons "T:!avV!" "!avL!"
+echo(set "avL=!R!"
+echo(goto av_loop
+echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
+echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
+echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
+echo(:getenv
+echo(set "gnN=!A1:~2!"
+echo(if not defined gnN ^(set "R=NIL" ^& goto :eof^)
+echo(set "gnT=!gnN!"
+echo(:gn_chk
+echo(if not defined gnT goto gn_ok
+echo(set "gnC=!gnT:~0,1!"
+echo(set "gnT=!gnT:~1!"
+echo(if "!gnC!" GEQ "a" if "!gnC!" LEQ "z" goto gn_chk
+echo(if "!gnC!" GEQ "A" if "!gnC!" LEQ "Z" goto gn_chk
+echo(if "!gnC!" GEQ "0" if "!gnC!" LEQ "9" goto gn_chk
+echo(if "!gnC!"=="_" goto gn_chk
+echo(set "R=NIL"
+echo(goto :eof
+echo(:gn_ok
+echo(if not defined !gnN! ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=NIL"
+echo(for /f "tokens=1* delims==" %%%%a in ^('set !gnN! 2^^^>nul'^) do if /i "%%%%a"=="!gnN!" set "R=T:%%%%b"
+echo(goto :eof
 echo(rem :run_cmd -- A1 = T:^<command^> ^(baked by comp via enc-mc, the SAME sentinel encoding the reader
 echo(rem applies to heap tokens^). So  cmd /c "!A1:~2!"  is byte-identical to the interpreter's po_run
 echo(rem ^( cmd /c "!rcCmd!" ^): operators are real bytes inside the quotes -^> live, sentinels pass through
@@ -47684,6 +49132,6 @@ echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
->"%PSDIR%\.ok" echo fc60c7aea00b
+>"%PSDIR%\.ok" echo fd9f89ab7080
 endlocal
 exit /b 0

@@ -21,7 +21,7 @@ chk() {  # $1 leg, $2 fixture, $3 actual
 for f in tests/engines/*.lisp; do
   b=$(basename "$f" .lisp)
   sh tools/pack-app.sh "$f" "$work/$b.cmd" >/dev/null 2>&1
-  chk "pack-sh" "$f" "$(sh "$work/$b.cmd" 2>&1 | tr -d '\r')"
+  chk "pack-sh" "$f" "$(PORTSH_TEST_VAR=hello sh "$work/$b.cmd" alpha beta-42 2>&1 | tr -d '\r')"
 done
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   VM=$PORTSH_WIN_SSH; DIR="pk$$"
@@ -32,7 +32,7 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   ssh -n "$VM" "cmd /c \"mkdir %USERPROFILE%\\$DIR & cd /d %USERPROFILE%\\$DIR & tar -xzf %USERPROFILE%\\pk.tgz\"" >/dev/null 2>&1
   for f in tests/engines/*.lisp; do
     b=$(basename "$f" .lisp)
-    chk "pack-cmd" "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & call $b.cmd 2>&1\"" 2>&1 | tr -d '\r')"
+    chk "pack-cmd" "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_TEST_VAR=hello& call $b.cmd alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
   done
 fi
 printf '\npack: pass=%d fail=%d\n' "$pass" "$fail"

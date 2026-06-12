@@ -13,11 +13,16 @@ workaround in the other direction (spreading a list into a fixed-arity call).
 Supporting rest-args needs a dynamic argument count in the calling convention;
 `apply`'s spread machinery is the natural starting point.
 
-## No argv
+## argv and getenv carry host caveats
 
-A program can't see its command-line arguments yet; `./app.cmd foo bar` ignores
-`foo bar`. Build scripts mostly read their environment via `run-capture`, but an
-`(argv)` primitive is an obvious gap.
+`(argv)` returns the arguments after the program path (a packed app sees all of
+its arguments); `(getenv "NAME")` returns a string or nil. The caveats are the
+hosts': cmd cannot store an empty environment variable, so **empty == unset ==
+nil on both hosts**; environment names are case-insensitive on cmd and
+case-sensitive on sh (use exact-case names); names are restricted to
+`A-Za-z0-9_`; and argument/value text containing cmd metacharacters (`!`, `%`)
+is best-effort on Windows -- the portable subset is plain tokens, which the
+conformance suite pins byte-identical across every engine.
 
 ## Strings are single lines
 

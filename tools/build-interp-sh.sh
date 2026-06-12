@@ -104,7 +104,7 @@ prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not 
     *) R="" ;;
   esac
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:getenv|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -126,6 +126,10 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
     S:number?) case $ipa in I:*) ips "S:t" ;; *) ips "NIL" ;; esac ;;
     S:not) [ "$ipa" = NIL ] && ips "S:t" || ips "NIL" ;;
     S:type-of) case $ipa in NIL) ips "S:nil" ;; I:*) ips "S:number" ;; S:*) ips "S:symbol" ;; T:*) ips "S:string" ;; P:*) ips "S:pair" ;; *) ips "S:unknown" ;; esac ;;
+    S:argv)   _av=NIL; _ai=${PORTSH_ARGC:-0}
+              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; ips "$_av" ;;
+    S:getenv) _gn=${ipa#T:}
+              case $_gn in *[!A-Za-z0-9_]*|"") ips NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then ips "T:$_gv"; else ips NIL; fi ;; esac ;;
     'S:symbol->string') ips "T:${ipa#S:}" ;;
     'S:number->string') ips "T:${ipa#I:}" ;;
     'S:string->symbol') ips "S:${ipa#T:}" ;;
@@ -470,6 +474,15 @@ _balanced() {
 }
 # ---- dispatch: a file arg runs the program; no arg starts the interactive REPL (state persists) --------
 if [ "$#" -ge 1 ]; then
+  # capture user args (after the program path) for (argv), unless a front-end already did
+  if [ -z "${PORTSH_ARGC:-}" ]; then
+    _an=0; _askip=1
+    for _aa in "$@"; do
+      if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+      eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+    done
+    PORTSH_ARGC=$_an; export PORTSH_ARGC
+  fi
   SRC="($(cat "$1"))"; rd_expr; process_forms "$R"
 else
   [ -t 0 ] && printf 'portsh interp repl -- ctrl-d to exit.\n'

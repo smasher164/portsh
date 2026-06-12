@@ -62,6 +62,18 @@ set "MK=!MK!_PAYLOAD__"
 set "MLINE=0"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 && for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do if "!MLINE!"=="0" set "MLINE=%%n"
 if not "%MLINE%"=="0" call :feedfile "%~f0" %MLINE%
+rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv),
+rem unless a front-end already did (env vars inherit into child processes).
+if defined PORTSH_ARGC goto k_args_done
+if "%~1"=="" goto k_args_done
+set "PORTSH_ARGC=0"
+:k_args
+if "%~2"=="" goto k_args_done
+set "PORTSH_ARGV_!PORTSH_ARGC!=%~2"
+set /a PORTSH_ARGC+=1
+shift /2
+goto k_args
+:k_args_done
 if not "%~1"=="" call :feedfile "%~1" 0
 :done_boot
 exit /b 0
@@ -780,6 +792,8 @@ if "!paN!"=="hmark" goto pa_hmark
 if "!paN!"=="hreset" goto pa_hreset
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
+if "!paN!"=="argv" goto pa_argv
+if "!paN!"=="getenv" goto pa_getenv
 if "!paN!"=="split" goto pa_split
 set "R=NIL" & goto :eof
 :pa_split
@@ -826,6 +840,40 @@ call :run_forms
 set "RDMODE="
 set "R=!RDRESULT!"
 set "SRC=!_raSRC!" & set "SP=!_raSP!" & set "DEPTH=!_raDEPTH!"
+goto :eof
+:pa_argv
+rem R = list of user args (T:), from PORTSH_ARGV_<n>/PORTSH_ARGC (captured at boot or by a front-end)
+set "paAv=NIL"
+if not defined PORTSH_ARGC (set "R=NIL" & goto :eof)
+set /a paAi=PORTSH_ARGC
+:pa_av_loop
+if !paAi! LEQ 0 (set "R=!paAv!" & goto :eof)
+set /a paAi-=1
+call set "paAvV=%%PORTSH_ARGV_!paAi!%%"
+call :hp_cons "T:!paAvV!" "!paAv!"
+set "paAv=!R!"
+goto pa_av_loop
+:pa_getenv
+rem (getenv "NAME") -> T:value | NIL when unset (cmd cannot store empty -> empty==unset==nil,
+rem mirrored by sh). Name restricted to A-Za-z0-9_ (mirror kernel.sh).
+call :hp_car "%~3"
+set "paGn=!R:~2!"
+if not defined paGn (set "R=NIL" & goto :eof)
+set "paGt=!paGn!"
+:pa_gn_chk
+if not defined paGt goto pa_gn_ok
+set "paGc=!paGt:~0,1!"
+set "paGt=!paGt:~1!"
+if "!paGc!" GEQ "a" if "!paGc!" LEQ "z" goto pa_gn_chk
+if "!paGc!" GEQ "A" if "!paGc!" LEQ "Z" goto pa_gn_chk
+if "!paGc!" GEQ "0" if "!paGc!" LEQ "9" goto pa_gn_chk
+if "!paGc!"=="_" goto pa_gn_chk
+set "R=NIL"
+goto :eof
+:pa_gn_ok
+if not defined !paGn! (set "R=NIL" & goto :eof)
+set "R=NIL"
+for /f "tokens=1* delims==" %%a in ('set !paGn! 2^>nul') do if /i "%%a"=="!paGn!" set "R=T:%%b"
 goto :eof
 :pa_typeof
 call :hp_car "%~3"
@@ -1206,6 +1254,8 @@ call :env_define "!GLOBAL!" "S:hmark" "R:hmark"
 call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
+call :env_define "!GLOBAL!" "S:argv" "R:argv"
+call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 call :env_define "!GLOBAL!" "S:split" "R:split"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"

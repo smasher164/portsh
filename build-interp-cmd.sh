@@ -51,6 +51,17 @@ rem successive REPL inputs don't collide __lamN / __evN (which would clobber liv
 set "CTR=0" & set "NN=0"
 if defined PORTSH_OSRDIR set "PATH=!PORTSH_OSRDIR!;!PATH!"
 if "%~1"=="" goto in_repl
+rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv), unless a
+rem front-end already did (env vars inherit into this process -- no arg re-quoting anywhere).
+if defined PORTSH_ARGC goto in_args_done
+set "PORTSH_ARGC=0"
+:in_args
+if "%~2"=="" goto in_args_done
+set "PORTSH_ARGV_!PORTSH_ARGC!=%~2"
+set /a PORTSH_ARGC+=1
+shift /2
+goto in_args
+:in_args_done
 rem WARM FAST PATH: the program cache has the thunk run-list -> execute the program STRAIGHT from the
 rem cache (program consts + compiled thunks on el_drive). No reader, no mexpand, no lift, no register --
 rem the pipeline is pure waste when every fn is already compiled. Content-hash keying makes this safe

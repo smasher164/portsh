@@ -24,9 +24,9 @@ chk() {  # $1 engine-name, $2 fixture, $3 actual-output
   fi
 }
 for f in tests/engines/*.lisp; do
-  chk "sh-jit"    "$f" "$(PORTSH_SCRIPT=1 $SH load-sh.sh "$f" 2>&1 | tr -d '\r')"
-  chk "sh-interp" "$f" "$(PORTSH_SCRIPT=1 $SH interp-sh.sh "$f" 2>&1 | tr -d '\r')"
-  chk "polyglot"  "$f" "$(PORTSH_SCRIPT=1 sh portsh.cmd "$f" 2>&1 | tr -d '\r')"
+  chk "sh-jit"    "$f" "$(PORTSH_SCRIPT=1 PORTSH_TEST_VAR=hello $SH load-sh.sh "$f" alpha beta-42 2>&1 | tr -d '\r')"
+  chk "sh-interp" "$f" "$(PORTSH_SCRIPT=1 PORTSH_TEST_VAR=hello $SH interp-sh.sh "$f" alpha beta-42 2>&1 | tr -d '\r')"
+  chk "polyglot"  "$f" "$(PORTSH_SCRIPT=1 PORTSH_TEST_VAR=hello sh portsh.cmd "$f" alpha beta-42 2>&1 | tr -d '\r')"
 done
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   VM=$PORTSH_WIN_SSH; DIR="eng$$"
@@ -43,8 +43,8 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   ssh -n "$VM" "cmd /c \"mkdir %USERPROFILE%\\$DIR & cd /d %USERPROFILE%\\$DIR & tar -xzf %USERPROFILE%\\eng.tgz\"" >/dev/null 2>&1
   for f in tests/engines/*.lisp; do
     b=$(basename "$f")
-    chk "cmd-jit"    "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& call load-cmd.cmd engines\\$b 2>&1\"" 2>&1 | tr -d '\r')"
-    chk "cmd-interp" "$f" "$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& call interp-cmd.cmd engines\\$b 2>&1\"" 2>&1 | tr -d '\r')"
+    chk "cmd-jit"    "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call load-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
+    chk "cmd-interp" "$f" "$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call interp-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
   done
   ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true
 fi

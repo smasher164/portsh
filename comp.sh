@@ -6037,6 +6037,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 18)
+if [ "${p0}" = "S:argv" ]; then PC=19; else PC=20; fi
+ACTION=jump; return
+;;
+19)
+R="S:t"; ACTION=ret; return
+;;
+20)
+if [ "${p0}" = "S:getenv" ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
+21)
+R="S:t"; ACTION=ret; return
+;;
+22)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }

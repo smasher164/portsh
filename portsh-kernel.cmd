@@ -479,6 +479,10 @@ prim_app() {
                hp_cons "T:$_sa" "$_acc"; _acc=$R
                _rev=NIL; pa_b=$RSP; RSP=$((pa_b + 1)); while [ "$_acc" != NIL ]; do hp_car "$_acc"; _v=$R; hp_cdr "$_acc"; _acc=$R; eval "ROOT$pa_b=\"\$_acc\""; hp_cons "$_v" "$_rev"; _rev=$R; done; R=$_rev; RSP=$pa_b
              fi ;;
+    'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
+             while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'getenv') arg1 "$args"; _gn=${ARG1#T:}
+             case $_gn in *[!A-Za-z0-9_]*|'') R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac ;;
     'type-of') arg1 "$args"; case $ARG1 in
              NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;;
              P:*) R="S:pair" ;; O:*|F:*) R="S:operative" ;; A:*|R:*) R="S:applicative" ;; *) R="S:unknown" ;; esac ;;
@@ -540,7 +544,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -556,6 +560,15 @@ run_forms() {
 
 main() {
   setup_global
+  # capture user args (after the program path) for (argv), unless a front-end already did
+  if [ -z "${PORTSH_ARGC:-}" ] && [ "$#" -ge 1 ]; then
+    _an=0; _askip=1
+    for _aa in "$@"; do
+      if [ "$_askip" = 1 ]; then _askip=0; continue; fi
+      eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
+    done
+    PORTSH_ARGC=$_an; export PORTSH_ARGC
+  fi
   # Boot order: minimal prelude -> embedded Lisp after the marker (stdlib
   # and/or program) -> explicit file-arg program -> stdin (standalone only).
   # The marker is built from fragments so it never appears literally here (else
@@ -639,6 +652,18 @@ set "MK=!MK!_PAYLOAD__"
 set "MLINE=0"
 findstr /c:"!MK!" "%~f0" >nul 2>&1 && for /f "delims=:" %%n in ('findstr /n /c:"!MK!" "%~f0"') do if "!MLINE!"=="0" set "MLINE=%%n"
 if not "%MLINE%"=="0" call :feedfile "%~f0" %MLINE%
+rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv),
+rem unless a front-end already did (env vars inherit into child processes).
+if defined PORTSH_ARGC goto k_args_done
+if "%~1"=="" goto k_args_done
+set "PORTSH_ARGC=0"
+:k_args
+if "%~2"=="" goto k_args_done
+set "PORTSH_ARGV_!PORTSH_ARGC!=%~2"
+set /a PORTSH_ARGC+=1
+shift /2
+goto k_args
+:k_args_done
 if not "%~1"=="" call :feedfile "%~1" 0
 :done_boot
 exit /b 0
@@ -1357,6 +1382,8 @@ if "!paN!"=="hmark" goto pa_hmark
 if "!paN!"=="hreset" goto pa_hreset
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
+if "!paN!"=="argv" goto pa_argv
+if "!paN!"=="getenv" goto pa_getenv
 if "!paN!"=="split" goto pa_split
 set "R=NIL" & goto :eof
 :pa_split
@@ -1403,6 +1430,40 @@ call :run_forms
 set "RDMODE="
 set "R=!RDRESULT!"
 set "SRC=!_raSRC!" & set "SP=!_raSP!" & set "DEPTH=!_raDEPTH!"
+goto :eof
+:pa_argv
+rem R = list of user args (T:), from PORTSH_ARGV_<n>/PORTSH_ARGC (captured at boot or by a front-end)
+set "paAv=NIL"
+if not defined PORTSH_ARGC (set "R=NIL" & goto :eof)
+set /a paAi=PORTSH_ARGC
+:pa_av_loop
+if !paAi! LEQ 0 (set "R=!paAv!" & goto :eof)
+set /a paAi-=1
+call set "paAvV=%%PORTSH_ARGV_!paAi!%%"
+call :hp_cons "T:!paAvV!" "!paAv!"
+set "paAv=!R!"
+goto pa_av_loop
+:pa_getenv
+rem (getenv "NAME") -> T:value | NIL when unset (cmd cannot store empty -> empty==unset==nil,
+rem mirrored by sh). Name restricted to A-Za-z0-9_ (mirror kernel.sh).
+call :hp_car "%~3"
+set "paGn=!R:~2!"
+if not defined paGn (set "R=NIL" & goto :eof)
+set "paGt=!paGn!"
+:pa_gn_chk
+if not defined paGt goto pa_gn_ok
+set "paGc=!paGt:~0,1!"
+set "paGt=!paGt:~1!"
+if "!paGc!" GEQ "a" if "!paGc!" LEQ "z" goto pa_gn_chk
+if "!paGc!" GEQ "A" if "!paGc!" LEQ "Z" goto pa_gn_chk
+if "!paGc!" GEQ "0" if "!paGc!" LEQ "9" goto pa_gn_chk
+if "!paGc!"=="_" goto pa_gn_chk
+set "R=NIL"
+goto :eof
+:pa_gn_ok
+if not defined !paGn! (set "R=NIL" & goto :eof)
+set "R=NIL"
+for /f "tokens=1* delims==" %%a in ('set !paGn! 2^>nul') do if /i "%%a"=="!paGn!" set "R=T:%%b"
 goto :eof
 :pa_typeof
 call :hp_car "%~3"
@@ -1783,6 +1844,8 @@ call :env_define "!GLOBAL!" "S:hmark" "R:hmark"
 call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
+call :env_define "!GLOBAL!" "S:argv" "R:argv"
+call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 call :env_define "!GLOBAL!" "S:split" "R:split"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"
