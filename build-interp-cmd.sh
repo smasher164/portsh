@@ -429,7 +429,20 @@ goto :eof
 # position barely matters, while every task dispatch pays the handlers' call offsets.
 rt_machine_at = interp_rt.index('\nrem ---- resumable interpreter')
 rt_driver, rt_machine = interp_rt[:rt_machine_at], interp_rt[rt_machine_at:]
-hot = '\n' + rt_machine + '\n' + rt_driver + '\n' + main.replace('\r\n','\n') + '\n' + jit_tail + '\n'
+# MACHINE EXTRACTION (perf): per-task handler dispatch is `call :itk_*`, and `call :label` costs
+# O(label offset) -- inside the ~85KB interp-cmd.cmd that's ~1-2ms PER TASK of label-scan tax.
+# The machine lives in its own ~25KB side file (same trick as reader.cmd, which made the reader 5x
+# faster): `call interp-machine.cmd` shares the process env, handler calls scan only the small file,
+# and the machine's only external label deps (hp_cons/hp_car/hp_cdr) are duplicated at its front.
+rt_driver = rt_driver.replace('if "!CURFN!"=="interp" (call :interp) else call "!CURFN!_pc!PC!.cmd"',
+                              'if "!CURFN!"=="interp" (call interp-machine.cmd) else call "!CURFN!_pc!PC!.cmd"')
+assert rt_driver.count('call interp-machine.cmd') == 1, rt_driver.count('call interp-machine.cmd')
+# the loader's registration (in_reg) also uses :ilen/:imangle -- keep verbatim copies in the
+# big file (the machine has its own; both read/write only their il*/img* scratch + R).
+helper_a = rt_machine.index('\n:ilen\n'); helper_b = rt_machine.index('\n:ipush_args\n')
+helper_c = rt_machine.index('\n:imangle\n'); helper_d = rt_machine.index('\n:iresolve\n')
+loader_helpers = rt_machine[helper_a:helper_b] + rt_machine[helper_c:helper_d]
+hot = '\n' + rt_driver + '\n' + loader_helpers + '\n' + main.replace('\r\n','\n') + '\n' + jit_tail + '\n' 
 s_lf = s.replace('\r\n','\n')
 # FRONT-DUP the heap primitives: `call :label` scans from the top, so a duplicate of hp_cons/hp_car/
 # hp_cdr right after the boot jump (~2.5KB) shadows the kernel originals (~10KB) for every one of the
@@ -444,6 +457,8 @@ s_lf = s_lf[:j] + hp_dup + s_lf[j:]
 anchor = '\n:hp_setcar\n'
 i = s_lf.index(anchor)
 s = s_lf[:i] + hot + s_lf[i:]
+machine_cmd = '@goto interp\n' + hp_dup + '\n' + rt_machine + '\n'
+open('comp-cmd/interp-machine.cmd','wb').write(machine_cmd.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
 
 # ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
 # backward goto costs a FULL-FILE scan (~8ms in this ~80KB file) -- measured ~8s of an ~72s cold run,
