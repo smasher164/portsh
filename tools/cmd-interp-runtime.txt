@@ -57,7 +57,7 @@ goto :eof
 :eld_apply_spread
 set "_ai=0" & set "_ac=!APLIST!"
 :eld_ap_loop
-if "!_ac!"=="NIL" goto :eof
+if "!_ac!"=="NIL" (set "ARGC=!_ai!" & goto :eof)
 call :hp_car "!_ac!"
 set /a _i=!FP!+!_ai!
 set "F!_i!=!R!"
@@ -98,6 +98,24 @@ goto itk_loop
 set /a ITOP=!NP!+!ipnc!
 if !ITOP! LSS 1 set "ITOP=1"
 set "ISCP=NIL"
+if not defined ILAM_!ICUR!_va goto itk_caps0
+rem variadic: cons F[FP..FP+ARGC) into the rest slot F[FP] (BEFORE caps -- they land at F[1..]
+rem and would clobber staged args). Inline pre-inc cons with the guard byte.
+set "ipvL=NIL"
+set /a ipvI=ARGC
+:itk_vcl
+if !ipvI! LEQ 0 goto itk_vfin
+set /a ipvI-=1
+set /a ipx=!FP!+!ipvI!
+call set "ipvV=%%F!ipx!%%"
+set /a HN+=1
+>%HD%\car%HN% echo(!ipvV!#
+>%HD%\cdr%HN% echo(!ipvL!#
+set "ipvL=P:%HN%"
+goto itk_vcl
+:itk_vfin
+set "F!FP!=!ipvL!"
+:itk_caps0
 if "!ipnc!"=="0" goto itk_body
 rem clambda: load captures from the K: record (CLO) into frame slots after the params
 call :hp_cdr "P:!CLO!"
@@ -468,6 +486,7 @@ set "ISC_!FP!=!ICS!"
 set "ISV_!FP!=!IVS!"
 set "ISS_!FP!=!ISCP!"
 set "IST_!FP!=!ITOP!"
+set "ARGC=!IPN!"
 set "CALLEE=!ipfv!"
 set "RPC=1"
 set "ACTION=call"

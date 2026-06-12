@@ -120,6 +120,9 @@ gc_run() {
   # plain interpreter / the reader phase (rd_expr runs before the driver) -> no F scan.
   if [ -n "${CURFN-}" ] && [ "${CURFN-}" != HALT ]; then
     eval "gs_sz=\${SIZE_${CURFN}-0}"
+    # a variadic callee may have ARGC staged args (beyond its SIZE of 1+spills) still in F while
+    # its rest-collect conses them up -- widen the scan; overscan of stale slots is harmless.
+    [ "${ARGC:-0}" -gt "$gs_sz" ] && gs_sz=$ARGC
     gs_top=$((FP + gs_sz)); gs_i=0
     while [ "$gs_i" -lt "$gs_top" ]; do
       eval "gr_v=\${F$gs_i-}"

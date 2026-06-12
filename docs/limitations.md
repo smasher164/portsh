@@ -4,15 +4,6 @@ What portsh doesn't do, why, and what it would take. None of these block its
 purpose (build/installer scripts); they'd matter for longer-running or more
 demanding programs.
 
-## Variadic lambda
-
-`(lambda args body)` — a rest-parameter binding all arguments as a list — works
-only on the bootstrap kernel, not on the shipped engines (the compilers and the
-resumable interpreters use fixed-arity frames). `apply` exists and is the
-workaround in the other direction (spreading a list into a fixed-arity call).
-Supporting rest-args needs a dynamic argument count in the calling convention;
-`apply`'s spread machinery is the natural starting point.
-
 ## The host layer carries host caveats
 
 `(argv)` returns the arguments after the program path (a packed app sees all of

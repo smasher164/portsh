@@ -50,7 +50,7 @@ drive() {
             esac ;;
       apply) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO; RSI$RSP=\$ICUR"; RSP=$((RSP+1))
             FP=$NFP; PC=0; CLO=""; ICUR=""
-            _ai=0; _ac=$APLIST; while [ "$_ac" != NIL ]; do hp_car "$_ac"; eval "F$((FP+_ai))=\$R"; hp_cdr "$_ac"; _ac=$R; _ai=$((_ai+1)); done
+            _ai=0; _ac=$APLIST; while [ "$_ac" != NIL ]; do hp_car "$_ac"; eval "F$((FP+_ai))=\$R"; hp_cdr "$_ac"; _ac=$R; _ai=$((_ai+1)); done; ARGC=$_ai
             case $CALLEE in
               K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CLO=$_ri; route "${R#S:}" ;;
               C:*) route "${CALLEE#C:}" ;;
@@ -205,6 +205,11 @@ interp() {
   if [ "$PC" = 0 ]; then
     ITOP=$((NP + ip_nc)); [ "$ITOP" -ge 1 ] || ITOP=1  # >=1 so NFP=FP+ITOP > FP: frame bases (and the
     SCOPE=NIL                                          # per-activation IS*_<FP> state) stay strictly distinct
+    if eval "[ -n \"\${ILAM_${ICUR}_va+x}\" ]"; then # variadic: cons F[FP..FP+ARGC) into the rest slot
+      ip_vi=${ARGC:-0}; ip_vl=NIL                      # (BEFORE caps -- they land at F[1..] and would
+      while [ "$ip_vi" -gt 0 ]; do ip_vi=$((ip_vi-1)); eval "ip_vv=\$F$((FP+ip_vi))"; hp_cons "$ip_vv" "$ip_vl"; ip_vl=$R; done
+      eval "F$FP=\$ip_vl"                              # clobber staged args otherwise)
+    fi
     if [ "$ip_nc" -gt 0 ]; then                        # clambda: load captures from the record (CLO)
       hp_cdr "P:$CLO"; ld_l=$R; ld_i=$NP
       while [ "$ld_l" != NIL ]; do hp_car "$ld_l"; eval "F$((FP+ld_i))=\$R"; hp_cdr "$ld_l"; ld_l=$R; ld_i=$((ld_i+1)); done
@@ -337,6 +342,7 @@ RC_EOF
         NFP=$((FP+ITOP)); ip_i=0; ip_a=$ip_av             # callee frame above this activation's let-vars
         while [ "$ip_a" != NIL ]; do hp_car "$ip_a"; eval "F$((NFP+ip_i))=\$R"; hp_cdr "$ip_a"; ip_a=$R; ip_i=$((ip_i+1)); done
         eval "ISCS_$FP=\$ICS; ISVS_$FP=\$IVS; ISSCOPE_$FP=\$SCOPE; ISTOP_$FP=\$ITOP"
+        ARGC=$ip_n
         CALLEE=$ip_fv; RPC=1; ACTION=call; return ;;
       S:APPLYK)                                          # pop (fn arglist); the driver's apply arm stages
         ipop_n 2                                         # APLIST into the callee frame at runtime count
@@ -447,14 +453,25 @@ process_forms() {
     case $ld_vhd in
       S:lambda)
         hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
-        ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
-        ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
+        case $ld_ps in
+          S:*)  # variadic (lambda args body): one rest-slot; itk collects F[FP..ARGC) into it
+            eval "ILAM_${ld_nm}_vars=\"${ld_ps#S:}\"; ILAM_${ld_nm}_np=1; ILAM_${ld_nm}_va=1; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form" ;;
+          *)
+            ld_names "$ld_ps"; eval "ILAM_${ld_nm}_vars=\"$R\""
+            ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R; ILAM_${ld_nm}_ncap=0; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form" ;;
+        esac
         GFNS="$GFNS $ld_nm" ;;
       S:clambda)
         hp_cdr "$ld_val"; hp_car "$R"; ld_ps=$R; hp_cdr "$ld_val"; hp_cdr "$R"; hp_car "$R"; ld_cap=$R
         hp_cdr "$ld_val"; hp_cdr "$R"; hp_cdr "$R"; hp_car "$R"; ld_body=$R
-        ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
-        ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form"
+        case $ld_ps in
+          S:*)
+            ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"${ld_ps#S:} $R\"; ILAM_${ld_nm}_np=1; ILAM_${ld_nm}_va=1"
+            ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form" ;;
+          *)
+            ld_names "$ld_ps"; ld_pv=$R; ld_names "$ld_cap"; eval "ILAM_${ld_nm}_vars=\"$ld_pv $R\""
+            ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form" ;;
+        esac
         GFNS="$GFNS $ld_nm" ;;
       *) eval "G_${ld_nm_raw}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;
     esac

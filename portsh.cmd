@@ -128,6 +128,9 @@ gc_run() {
   # plain interpreter / the reader phase (rd_expr runs before the driver) -> no F scan.
   if [ -n "${CURFN-}" ] && [ "${CURFN-}" != HALT ]; then
     eval "gs_sz=\${SIZE_${CURFN}-0}"
+    # a variadic callee may have ARGC staged args (beyond its SIZE of 1+spills) still in F while
+    # its rest-collect conses them up -- widen the scan; overscan of stale slots is harmless.
+    [ "${ARGC:-0}" -gt "$gs_sz" ] && gs_sz=$ARGC
     gs_top=$((FP + gs_sz)); gs_i=0
     while [ "$gs_i" -lt "$gs_top" ]; do
       eval "gr_v=\${F$gs_i-}"
@@ -642,6 +645,7 @@ eval "sht0=\"\$F$((FP+NP+0))\""
 sht2="${R}"
 eval "F$((FP+0))=\"\${sht0}\""
 eval "F$((FP+1))=\"\${sht2}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -679,6 +683,7 @@ hp_cdr "${p1}"
 sht4="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht4}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -700,6 +705,7 @@ hp_cdr "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=lenl
 RPC=3; ACTION=call; return
 ;;
@@ -750,6 +756,7 @@ eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=append
 RPC=3; ACTION=call; return
 ;;
@@ -789,6 +796,7 @@ hp_cdr "${p1}"
 sht1="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht1}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -803,6 +811,7 @@ case $PC in
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=memzzQ
 RPC=1; ACTION=call; return
 ;;
@@ -840,6 +849,7 @@ sht2="${R}"
 eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
+ARGC=1
 CALLEE=lv_names
 RPC=3; ACTION=call; return
 ;;
@@ -881,6 +891,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=fv
 RPC=3; ACTION=call; return
 ;;
@@ -894,6 +905,7 @@ sht4="${R}"
 eval "F$((FP+0))=\"\${sht0}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${sht4}\""
+ARGC=3
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -920,6 +932,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=fv
 RPC=3; ACTION=call; return
 ;;
@@ -933,7 +946,42 @@ sht2="${R}"
 eval "F$((FP+0))=\"\${sht0}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${sht2}\""
+ARGC=3
 PC=0; ACTION=tail; return
+;;
+esac; }
+SIZE_fs_list=1
+fs_list() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_fs_list))
+NP=1
+case $PC in
+0)
+if [ "${p0#S:}" != "${p0}" ]; then PC=1; else PC=2; fi
+ACTION=jump; return
+;;
+1)
+hp_cons "${p0}" "NIL"
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+2)
+R="${p0}"; ACTION=ret; return
+;;
+esac; }
+SIZE_varargszzQ=1
+varargszzQ() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_varargszzQ))
+NP=1
+case $PC in
+0)
+if [ "${p0#S:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_fv=5
@@ -955,7 +1003,7 @@ if [ "${sht0}" = "S:quote" ]; then PC=3; else PC=4; fi
 ACTION=jump; return
 ;;
 2)
-if [ "${p0#S:}" != "${p0}" ]; then PC=17; else PC=18; fi
+if [ "${p0#S:}" != "${p0}" ]; then PC=18; else PC=19; fi
 ACTION=jump; return
 ;;
 3)
@@ -966,6 +1014,7 @@ hp_car "${p0}"
 sht1="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=runopzzQ
 RPC=5; ACTION=call; return
 ;;
@@ -997,116 +1046,135 @@ sht8="${R}"
 eval "F$((FP+NP+0))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht8}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=append
+ARGC=1
+CALLEE=fs_list
 RPC=10; ACTION=call; return
 ;;
 9)
 hp_car "${p0}"
-sht10="${R}"
-if [ "${sht10}" = "S:let" ]; then PC=11; else PC=12; fi
+sht11="${R}"
+if [ "${sht11}" = "S:let" ]; then PC=12; else PC=13; fi
 ACTION=jump; return
 ;;
 10)
 eval "sht6=\"\$F$((FP+NP+0))\""
 sht9="${R}"
-eval "F$((FP+0))=\"\${sht6}\""
-eval "F$((FP+1))=\"\${sht9}\""
-eval "F$((FP+2))=\"\${p2}\""
-PC=0; ACTION=tail; return
+eval "F$((FP+NP+0))=\"\${sht6}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht9}\""
+eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
+CALLEE=append
+RPC=11; ACTION=call; return
 ;;
 11)
-hp_cdr "${p0}"
-sht11="${R}"
-hp_cdr "${sht11}"
-sht12="${R}"
-hp_car "${sht12}"
-sht13="${R}"
-hp_cdr "${p0}"
-sht14="${R}"
-hp_car "${sht14}"
-sht15="${R}"
-eval "F$((FP+NP+0))=\"\${sht13}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht15}\""
-CALLEE=lv_names
-RPC=13; ACTION=call; return
+eval "sht6=\"\$F$((FP+NP+0))\""
+sht10="${R}"
+eval "F$((FP+0))=\"\${sht6}\""
+eval "F$((FP+1))=\"\${sht10}\""
+eval "F$((FP+2))=\"\${p2}\""
+ARGC=3
+PC=0; ACTION=tail; return
 ;;
 12)
+hp_cdr "${p0}"
+sht12="${R}"
+hp_cdr "${sht12}"
+sht13="${R}"
+hp_car "${sht13}"
+sht14="${R}"
+hp_cdr "${p0}"
+sht15="${R}"
+hp_car "${sht15}"
+sht16="${R}"
+eval "F$((FP+NP+0))=\"\${sht14}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht16}\""
+ARGC=1
+CALLEE=lv_names
+RPC=14; ACTION=call; return
+;;
+13)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=fv_list
-RPC=16; ACTION=call; return
-;;
-13)
-eval "sht13=\"\$F$((FP+NP+0))\""
-sht16="${R}"
-eval "F$((FP+NP+0))=\"\${sht13}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht16}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=append
-RPC=14; ACTION=call; return
+RPC=17; ACTION=call; return
 ;;
 14)
-eval "sht13=\"\$F$((FP+NP+0))\""
+eval "sht14=\"\$F$((FP+NP+0))\""
 sht17="${R}"
-hp_cdr "${p0}"
-sht18="${R}"
-hp_car "${sht18}"
-sht19="${R}"
-eval "F$((FP+NP+0))=\"\${sht17}\""
-eval "F$((FP+NP+1))=\"\${sht13}\""
+eval "F$((FP+NP+0))=\"\${sht14}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht19}\""
+eval "F$((NFP+0))=\"\${sht17}\""
 eval "F$((NFP+1))=\"\${p1}\""
-eval "F$((NFP+2))=\"\${p2}\""
-CALLEE=fv_binds
+ARGC=2
+CALLEE=append
 RPC=15; ACTION=call; return
 ;;
 15)
-eval "sht17=\"\$F$((FP+NP+0))\""
-eval "sht13=\"\$F$((FP+NP+1))\""
+eval "sht14=\"\$F$((FP+NP+0))\""
+sht18="${R}"
+hp_cdr "${p0}"
+sht19="${R}"
+hp_car "${sht19}"
 sht20="${R}"
-eval "F$((FP+0))=\"\${sht13}\""
-eval "F$((FP+1))=\"\${sht17}\""
-eval "F$((FP+2))=\"\${sht20}\""
-PC=0; ACTION=tail; return
+eval "F$((FP+NP+0))=\"\${sht18}\""
+eval "F$((FP+NP+1))=\"\${sht14}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht20}\""
+eval "F$((NFP+1))=\"\${p1}\""
+eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
+CALLEE=fv_binds
+RPC=16; ACTION=call; return
 ;;
 16)
+eval "sht18=\"\$F$((FP+NP+0))\""
+eval "sht14=\"\$F$((FP+NP+1))\""
 sht21="${R}"
-R="${sht21}"; ACTION=ret; return
+eval "F$((FP+0))=\"\${sht14}\""
+eval "F$((FP+1))=\"\${sht18}\""
+eval "F$((FP+2))=\"\${sht21}\""
+ARGC=3
+PC=0; ACTION=tail; return
 ;;
 17)
+sht22="${R}"
+R="${sht22}"; ACTION=ret; return
+;;
+18)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=memzzQ
-RPC=19; ACTION=call; return
-;;
-18)
-R="${p2}"; ACTION=ret; return
+RPC=20; ACTION=call; return
 ;;
 19)
-sht22="${R}"
-if [ "${sht22}" != NIL ]; then PC=20; else PC=21; fi
-ACTION=jump; return
-;;
-20)
 R="${p2}"; ACTION=ret; return
 ;;
+20)
+sht23="${R}"
+if [ "${sht23}" != NIL ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
 21)
+R="${p2}"; ACTION=ret; return
+;;
+22)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p2}\""
+ARGC=2
 CALLEE=set_add
-RPC=22; ACTION=call; return
+RPC=23; ACTION=call; return
 ;;
-22)
-sht23="${R}"
-R="${sht23}"; ACTION=ret; return
+23)
+sht24="${R}"
+R="${sht24}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_keep_bound=3
@@ -1129,6 +1197,7 @@ sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=memzzQ
 RPC=3; ACTION=call; return
 ;;
@@ -1146,6 +1215,7 @@ eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=keep_bound
 RPC=6; ACTION=call; return
 ;;
@@ -1154,6 +1224,7 @@ hp_cdr "${p0}"
 sht6="${R}"
 eval "F$((FP+0))=\"\${sht6}\""
 eval "F$((FP+1))=\"\${p1}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 6)
@@ -1183,6 +1254,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=lift
 RPC=3; ACTION=call; return
 ;;
@@ -1215,6 +1287,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht6}\""
+ARGC=3
 CALLEE=lift_list
 RPC=4; ACTION=call; return
 ;;
@@ -1246,6 +1319,7 @@ eval "F$((FP+NP+2))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht13}\""
 eval "F$((NFP+1))=\"\${sht15}\""
+ARGC=2
 CALLEE=append
 RPC=5; ACTION=call; return
 ;;
@@ -1309,14 +1383,14 @@ ACTION=jump; return
 eval "F$((FP+NP+0))=\"\${p0}\""
 hp_cons "${p2}" "NIL"
 eval "p0=\"\$F$((FP+NP+0))\""
-sht56="${R}"
-eval "F$((FP+NP+0))=\"\${p0}\""
-hp_cons "NIL" "${sht56}"
-eval "p0=\"\$F$((FP+NP+0))\""
-sht57="${R}"
-hp_cons "${p0}" "${sht57}"
 sht58="${R}"
-R="${sht58}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${p0}\""
+hp_cons "NIL" "${sht58}"
+eval "p0=\"\$F$((FP+NP+0))\""
+sht59="${R}"
+hp_cons "${p0}" "${sht59}"
+sht60="${R}"
+R="${sht60}"; ACTION=ret; return
 ;;
 3)
 eval "F$((FP+NP+0))=\"\${p0}\""
@@ -1336,6 +1410,7 @@ hp_car "${p0}"
 sht4="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht4}\""
+ARGC=1
 CALLEE=runopzzQ
 RPC=5; ACTION=call; return
 ;;
@@ -1383,8 +1458,8 @@ eval "F$((FP+NP+0))=\"\${sht15}\""
 eval "F$((FP+NP+1))=\"\${sht12}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht17}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=append
+ARGC=1
+CALLEE=fs_list
 RPC=10; ACTION=call; return
 ;;
 9)
@@ -1392,304 +1467,336 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=lift_list
-RPC=15; ACTION=call; return
+RPC=17; ACTION=call; return
 ;;
 10)
 eval "sht15=\"\$F$((FP+NP+0))\""
 eval "sht12=\"\$F$((FP+NP+1))\""
 sht18="${R}"
-eval "F$((FP+NP+0))=\"\${sht12}\""
+eval "F$((FP+NP+0))=\"\${sht15}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht15}\""
-eval "F$((NFP+1))=\"\${sht18}\""
-eval "F$((NFP+2))=\"\${p2}\""
-CALLEE=lift
+eval "F$((NFP+0))=\"\${sht18}\""
+eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
+CALLEE=append
 RPC=11; ACTION=call; return
 ;;
 11)
-eval "sht12=\"\$F$((FP+NP+0))\""
+eval "sht15=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
 sht19="${R}"
-sht20="${sht19}"
-hp_car "${sht20}"
-sht21="${R}"
-eval "F$((FP+NP+0))=\"\${sht20}\""
-eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+0))=\"\${sht12}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht21}\""
-eval "F$((NFP+1))=\"\${sht12}\""
-STGV="NIL"
-eval "F$((NFP+2))=\"\$STGV\""
-CALLEE=fv
+eval "F$((NFP+0))=\"\${sht15}\""
+eval "F$((NFP+1))=\"\${sht19}\""
+eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
+CALLEE=lift
 RPC=12; ACTION=call; return
 ;;
 12)
-eval "sht20=\"\$F$((FP+NP+0))\""
-eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht12=\"\$F$((FP+NP+0))\""
+sht20="${R}"
+sht21="${sht20}"
+hp_car "${sht21}"
 sht22="${R}"
-eval "F$((FP+NP+0))=\"\${sht20}\""
-eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+0))=\"\${sht22}\""
+eval "F$((FP+NP+1))=\"\${sht21}\""
+eval "F$((FP+NP+2))=\"\${sht12}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht22}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=keep_bound
+eval "F$((NFP+0))=\"\${sht12}\""
+ARGC=1
+CALLEE=fs_list
 RPC=13; ACTION=call; return
 ;;
 13)
-eval "sht20=\"\$F$((FP+NP+0))\""
-eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht22=\"\$F$((FP+NP+0))\""
+eval "sht21=\"\$F$((FP+NP+1))\""
+eval "sht12=\"\$F$((FP+NP+2))\""
 sht23="${R}"
-sht24="${sht23}"
-hp_cdr "${sht20}"
-sht25="${R}"
-hp_cdr "${sht25}"
-sht26="${R}"
-hp_car "${sht26}"
-sht27="${R}"
-sht28="T:${sht27#??}"
-sht29="T:__lam${sht28#??}"
-sht30="S:${sht29#??}"
-sht31="${sht30}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht12}\""
-hp_cons "${sht31}" "NIL"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht12=\"\$F$((FP+NP+3))\""
-sht32="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht12}\""
-hp_cons "S:quote" "${sht32}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht12=\"\$F$((FP+NP+3))\""
-sht33="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht12}\""
-hp_cons "${sht33}" "${sht24}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht12=\"\$F$((FP+NP+3))\""
-sht34="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht12}\""
-hp_cons "S:make-closure" "${sht34}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht12=\"\$F$((FP+NP+3))\""
-sht35="${R}"
-hp_cdr "${sht20}"
-sht36="${R}"
-hp_car "${sht36}"
-sht37="${R}"
-hp_car "${sht20}"
-sht38="${R}"
-eval "F$((FP+NP+0))=\"\${sht24}\""
+eval "F$((FP+NP+0))=\"\${sht21}\""
 eval "F$((FP+NP+1))=\"\${sht12}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht37}\""
-eval "F$((FP+NP+4))=\"\${sht35}\""
-eval "F$((FP+NP+5))=\"\${sht31}\""
-eval "F$((FP+NP+6))=\"\${sht24}\""
-eval "F$((FP+NP+7))=\"\${sht20}\""
-eval "F$((FP+NP+8))=\"\${sht12}\""
-hp_cons "${sht38}" "NIL"
-eval "sht24=\"\$F$((FP+NP+0))\""
-eval "sht12=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht37=\"\$F$((FP+NP+3))\""
-eval "sht35=\"\$F$((FP+NP+4))\""
-eval "sht31=\"\$F$((FP+NP+5))\""
-eval "sht24=\"\$F$((FP+NP+6))\""
-eval "sht20=\"\$F$((FP+NP+7))\""
-eval "sht12=\"\$F$((FP+NP+8))\""
-sht39="${R}"
-eval "F$((FP+NP+0))=\"\${sht12}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
-eval "F$((FP+NP+2))=\"\${sht37}\""
-eval "F$((FP+NP+3))=\"\${sht35}\""
-eval "F$((FP+NP+4))=\"\${sht31}\""
-eval "F$((FP+NP+5))=\"\${sht24}\""
-eval "F$((FP+NP+6))=\"\${sht20}\""
-eval "F$((FP+NP+7))=\"\${sht12}\""
-hp_cons "${sht24}" "${sht39}"
-eval "sht12=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
-eval "sht37=\"\$F$((FP+NP+2))\""
-eval "sht35=\"\$F$((FP+NP+3))\""
-eval "sht31=\"\$F$((FP+NP+4))\""
-eval "sht24=\"\$F$((FP+NP+5))\""
-eval "sht20=\"\$F$((FP+NP+6))\""
-eval "sht12=\"\$F$((FP+NP+7))\""
-sht40="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht37}\""
-eval "F$((FP+NP+2))=\"\${sht35}\""
-eval "F$((FP+NP+3))=\"\${sht31}\""
-eval "F$((FP+NP+4))=\"\${sht24}\""
-eval "F$((FP+NP+5))=\"\${sht20}\""
-eval "F$((FP+NP+6))=\"\${sht12}\""
-hp_cons "${sht12}" "${sht40}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht37=\"\$F$((FP+NP+1))\""
-eval "sht35=\"\$F$((FP+NP+2))\""
-eval "sht31=\"\$F$((FP+NP+3))\""
-eval "sht24=\"\$F$((FP+NP+4))\""
-eval "sht20=\"\$F$((FP+NP+5))\""
-eval "sht12=\"\$F$((FP+NP+6))\""
-sht41="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht37}\""
-eval "F$((FP+NP+2))=\"\${sht35}\""
-eval "F$((FP+NP+3))=\"\${sht31}\""
-eval "F$((FP+NP+4))=\"\${sht24}\""
-eval "F$((FP+NP+5))=\"\${sht20}\""
-eval "F$((FP+NP+6))=\"\${sht12}\""
-hp_cons "S:clambda" "${sht41}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht37=\"\$F$((FP+NP+1))\""
-eval "sht35=\"\$F$((FP+NP+2))\""
-eval "sht31=\"\$F$((FP+NP+3))\""
-eval "sht24=\"\$F$((FP+NP+4))\""
-eval "sht20=\"\$F$((FP+NP+5))\""
-eval "sht12=\"\$F$((FP+NP+6))\""
-sht42="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht37}\""
-eval "F$((FP+NP+2))=\"\${sht35}\""
-eval "F$((FP+NP+3))=\"\${sht31}\""
-eval "F$((FP+NP+4))=\"\${sht24}\""
-eval "F$((FP+NP+5))=\"\${sht20}\""
-eval "F$((FP+NP+6))=\"\${sht12}\""
-hp_cons "${sht42}" "NIL"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht37=\"\$F$((FP+NP+1))\""
-eval "sht35=\"\$F$((FP+NP+2))\""
-eval "sht31=\"\$F$((FP+NP+3))\""
-eval "sht24=\"\$F$((FP+NP+4))\""
-eval "sht20=\"\$F$((FP+NP+5))\""
-eval "sht12=\"\$F$((FP+NP+6))\""
-sht43="${R}"
-eval "F$((FP+NP+0))=\"\${sht37}\""
-eval "F$((FP+NP+1))=\"\${sht35}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht20}\""
-eval "F$((FP+NP+5))=\"\${sht12}\""
-hp_cons "${sht31}" "${sht43}"
-eval "sht37=\"\$F$((FP+NP+0))\""
-eval "sht35=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht20=\"\$F$((FP+NP+4))\""
-eval "sht12=\"\$F$((FP+NP+5))\""
-sht44="${R}"
-eval "F$((FP+NP+0))=\"\${sht37}\""
-eval "F$((FP+NP+1))=\"\${sht35}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht20}\""
-eval "F$((FP+NP+5))=\"\${sht12}\""
-hp_cons "S:define" "${sht44}"
-eval "sht37=\"\$F$((FP+NP+0))\""
-eval "sht35=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht20=\"\$F$((FP+NP+4))\""
-eval "sht12=\"\$F$((FP+NP+5))\""
-sht45="${R}"
-eval "F$((FP+NP+0))=\"\${sht37}\""
-eval "F$((FP+NP+1))=\"\${sht35}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht20}\""
-eval "F$((FP+NP+5))=\"\${sht12}\""
-hp_cons "${sht45}" "NIL"
-eval "sht37=\"\$F$((FP+NP+0))\""
-eval "sht35=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht20=\"\$F$((FP+NP+4))\""
-eval "sht12=\"\$F$((FP+NP+5))\""
-sht46="${R}"
-eval "F$((FP+NP+0))=\"\${sht35}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
-eval "F$((FP+NP+2))=\"\${sht24}\""
-eval "F$((FP+NP+3))=\"\${sht20}\""
-eval "F$((FP+NP+4))=\"\${sht12}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht37}\""
-eval "F$((NFP+1))=\"\${sht46}\""
-CALLEE=append
+eval "F$((NFP+0))=\"\${sht22}\""
+eval "F$((NFP+1))=\"\${sht23}\""
+STGV="NIL"
+eval "F$((NFP+2))=\"\$STGV\""
+ARGC=3
+CALLEE=fv
 RPC=14; ACTION=call; return
 ;;
 14)
-eval "sht35=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
-eval "sht24=\"\$F$((FP+NP+2))\""
-eval "sht20=\"\$F$((FP+NP+3))\""
-eval "sht12=\"\$F$((FP+NP+4))\""
-sht47="${R}"
-hp_cdr "${sht20}"
-sht48="${R}"
-hp_cdr "${sht48}"
-sht49="${R}"
-hp_car "${sht49}"
-sht50="${R}"
-sht51="I:$(( ${sht50#??} + 1 ))"
-eval "F$((FP+NP+0))=\"\${sht47}\""
-eval "F$((FP+NP+1))=\"\${sht35}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht20}\""
-eval "F$((FP+NP+5))=\"\${sht12}\""
-hp_cons "${sht51}" "NIL"
-eval "sht47=\"\$F$((FP+NP+0))\""
-eval "sht35=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht20=\"\$F$((FP+NP+4))\""
-eval "sht12=\"\$F$((FP+NP+5))\""
-sht52="${R}"
-eval "F$((FP+NP+0))=\"\${sht35}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
-eval "F$((FP+NP+2))=\"\${sht24}\""
-eval "F$((FP+NP+3))=\"\${sht20}\""
-eval "F$((FP+NP+4))=\"\${sht12}\""
-hp_cons "${sht47}" "${sht52}"
-eval "sht35=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
-eval "sht24=\"\$F$((FP+NP+2))\""
-eval "sht20=\"\$F$((FP+NP+3))\""
-eval "sht12=\"\$F$((FP+NP+4))\""
-sht53="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht12}\""
-hp_cons "${sht35}" "${sht53}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht12=\"\$F$((FP+NP+3))\""
-sht54="${R}"
-R="${sht54}"; ACTION=ret; return
+eval "sht21=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+sht24="${R}"
+eval "F$((FP+NP+0))=\"\${sht21}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht24}\""
+eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
+CALLEE=keep_bound
+RPC=15; ACTION=call; return
 ;;
 15)
+eval "sht21=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+sht25="${R}"
+sht26="${sht25}"
+hp_cdr "${sht21}"
+sht27="${R}"
+hp_cdr "${sht27}"
+sht28="${R}"
+hp_car "${sht28}"
+sht29="${R}"
+sht30="T:${sht29#??}"
+sht31="T:__lam${sht30#??}"
+sht32="S:${sht31#??}"
+sht33="${sht32}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht21}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "${sht33}" "NIL"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht21=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht34="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht21}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "S:quote" "${sht34}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht21=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht35="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht21}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "${sht35}" "${sht26}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht21=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht36="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht21}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "S:make-closure" "${sht36}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht21=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht37="${R}"
+hp_cdr "${sht21}"
+sht38="${R}"
+hp_car "${sht38}"
+sht39="${R}"
+hp_car "${sht21}"
+sht40="${R}"
+eval "F$((FP+NP+0))=\"\${sht26}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht39}\""
+eval "F$((FP+NP+4))=\"\${sht37}\""
+eval "F$((FP+NP+5))=\"\${sht33}\""
+eval "F$((FP+NP+6))=\"\${sht26}\""
+eval "F$((FP+NP+7))=\"\${sht21}\""
+eval "F$((FP+NP+8))=\"\${sht12}\""
+hp_cons "${sht40}" "NIL"
+eval "sht26=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht39=\"\$F$((FP+NP+3))\""
+eval "sht37=\"\$F$((FP+NP+4))\""
+eval "sht33=\"\$F$((FP+NP+5))\""
+eval "sht26=\"\$F$((FP+NP+6))\""
+eval "sht21=\"\$F$((FP+NP+7))\""
+eval "sht12=\"\$F$((FP+NP+8))\""
+sht41="${R}"
+eval "F$((FP+NP+0))=\"\${sht12}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht39}\""
+eval "F$((FP+NP+3))=\"\${sht37}\""
+eval "F$((FP+NP+4))=\"\${sht33}\""
+eval "F$((FP+NP+5))=\"\${sht26}\""
+eval "F$((FP+NP+6))=\"\${sht21}\""
+eval "F$((FP+NP+7))=\"\${sht12}\""
+hp_cons "${sht26}" "${sht41}"
+eval "sht12=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht39=\"\$F$((FP+NP+2))\""
+eval "sht37=\"\$F$((FP+NP+3))\""
+eval "sht33=\"\$F$((FP+NP+4))\""
+eval "sht26=\"\$F$((FP+NP+5))\""
+eval "sht21=\"\$F$((FP+NP+6))\""
+eval "sht12=\"\$F$((FP+NP+7))\""
+sht42="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht37}\""
+eval "F$((FP+NP+3))=\"\${sht33}\""
+eval "F$((FP+NP+4))=\"\${sht26}\""
+eval "F$((FP+NP+5))=\"\${sht21}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+hp_cons "${sht12}" "${sht42}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht37=\"\$F$((FP+NP+2))\""
+eval "sht33=\"\$F$((FP+NP+3))\""
+eval "sht26=\"\$F$((FP+NP+4))\""
+eval "sht21=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+sht43="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht37}\""
+eval "F$((FP+NP+3))=\"\${sht33}\""
+eval "F$((FP+NP+4))=\"\${sht26}\""
+eval "F$((FP+NP+5))=\"\${sht21}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+hp_cons "S:clambda" "${sht43}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht37=\"\$F$((FP+NP+2))\""
+eval "sht33=\"\$F$((FP+NP+3))\""
+eval "sht26=\"\$F$((FP+NP+4))\""
+eval "sht21=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+sht44="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht37}\""
+eval "F$((FP+NP+3))=\"\${sht33}\""
+eval "F$((FP+NP+4))=\"\${sht26}\""
+eval "F$((FP+NP+5))=\"\${sht21}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+hp_cons "${sht44}" "NIL"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht37=\"\$F$((FP+NP+2))\""
+eval "sht33=\"\$F$((FP+NP+3))\""
+eval "sht26=\"\$F$((FP+NP+4))\""
+eval "sht21=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+sht45="${R}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht21}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "${sht33}" "${sht45}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht21=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht46="${R}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht21}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "S:define" "${sht46}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht21=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht47="${R}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht21}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "${sht47}" "NIL"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht21=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht48="${R}"
+eval "F$((FP+NP+0))=\"\${sht37}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht21}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht39}\""
+eval "F$((NFP+1))=\"\${sht48}\""
+ARGC=2
+CALLEE=append
+RPC=16; ACTION=call; return
+;;
+16)
+eval "sht37=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht21=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
+sht49="${R}"
+hp_cdr "${sht21}"
+sht50="${R}"
+hp_cdr "${sht50}"
+sht51="${R}"
+hp_car "${sht51}"
+sht52="${R}"
+sht53="I:$(( ${sht52#??} + 1 ))"
+eval "F$((FP+NP+0))=\"\${sht49}\""
+eval "F$((FP+NP+1))=\"\${sht37}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht21}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+hp_cons "${sht53}" "NIL"
+eval "sht49=\"\$F$((FP+NP+0))\""
+eval "sht37=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht21=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+sht54="${R}"
+eval "F$((FP+NP+0))=\"\${sht37}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht21}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+hp_cons "${sht49}" "${sht54}"
+eval "sht37=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht21=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
 sht55="${R}"
-R="${sht55}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht21}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+hp_cons "${sht37}" "${sht55}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht21=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+sht56="${R}"
+R="${sht56}"; ACTION=ret; return
+;;
+17)
+sht57="${R}"
+R="${sht57}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_arithzzQ=1
@@ -1885,6 +1992,7 @@ sht4="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht3}\""
 eval "F$((FP+2))=\"\${sht4}\""
+ARGC=3
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -1944,6 +2052,7 @@ eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${sht4}\""
+ARGC=2
 CALLEE=cmp_names
 RPC=3; ACTION=call; return
 ;;
@@ -1996,6 +2105,7 @@ eval "F$((FP+NP+0))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht7}\""
+ARGC=2
 CALLEE=cmp_pairs
 RPC=3; ACTION=call; return
 ;;
@@ -2044,6 +2154,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht5}\""
 eval "F$((NFP+1))=\"\${sht6}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=cmp_wrap
 RPC=3; ACTION=call; return
 ;;
@@ -2072,6 +2183,7 @@ case $PC in
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p1}\""
 eval "F$((NFP+1))=\"I:0\""
+ARGC=2
 CALLEE=cmp_names
 RPC=1; ACTION=call; return
 ;;
@@ -2084,6 +2196,7 @@ eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht1}\""
+ARGC=2
 CALLEE=cmp_pairs
 RPC=2; ACTION=call; return
 ;;
@@ -2105,6 +2218,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht3}\""
+ARGC=3
 CALLEE=cmp_wrap
 RPC=3; ACTION=call; return
 ;;
@@ -2125,6 +2239,7 @@ hp_car "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=arithzzQ
 RPC=1; ACTION=call; return
 ;;
@@ -2138,6 +2253,7 @@ hp_cdr "${p0}"
 sht3="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
+ARGC=1
 CALLEE=extra_argszzQ
 RPC=5; ACTION=call; return
 ;;
@@ -2162,6 +2278,7 @@ hp_car "${p0}"
 sht5="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht5}\""
+ARGC=1
 CALLEE=arithzzQ
 RPC=8; ACTION=call; return
 ;;
@@ -2175,6 +2292,7 @@ hp_cdr "${p0}"
 sht8="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht8}\""
+ARGC=1
 CALLEE=unary_argszzQ
 RPC=12; ACTION=call; return
 ;;
@@ -2199,6 +2317,7 @@ hp_car "${p0}"
 sht10="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht10}\""
+ARGC=1
 CALLEE=cmpchzzQ
 RPC=15; ACTION=call; return
 ;;
@@ -2212,6 +2331,7 @@ hp_cdr "${p0}"
 sht13="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht13}\""
+ARGC=1
 CALLEE=extra_argszzQ
 RPC=19; ACTION=call; return
 ;;
@@ -2246,6 +2366,7 @@ hp_car "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=arithzzQ
 RPC=1; ACTION=call; return
 ;;
@@ -2259,6 +2380,7 @@ hp_cdr "${p0}"
 sht3="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
+ARGC=1
 CALLEE=extra_argszzQ
 RPC=5; ACTION=call; return
 ;;
@@ -2290,6 +2412,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht5}\""
 eval "F$((NFP+1))=\"\${sht7}\""
 eval "F$((NFP+2))=\"\${sht9}\""
+ARGC=3
 CALLEE=nary_zzGbin
 RPC=8; ACTION=call; return
 ;;
@@ -2308,6 +2431,7 @@ hp_cdr "${p0}"
 sht13="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht13}\""
+ARGC=1
 CALLEE=unary_argszzQ
 RPC=12; ACTION=call; return
 ;;
@@ -2342,6 +2466,7 @@ hp_car "${p0}"
 sht20="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht20}\""
+ARGC=1
 CALLEE=arithzzQ
 RPC=15; ACTION=call; return
 ;;
@@ -2365,6 +2490,7 @@ sht25="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht24}\""
 eval "F$((NFP+1))=\"\${sht25}\""
+ARGC=2
 CALLEE=chain_zzGand
 RPC=18; ACTION=call; return
 ;;
@@ -2599,6 +2725,7 @@ R="T:exit_prim"; ACTION=ret; return
 sht0="T:${p0#??}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=sh_mangle
 RPC=5; ACTION=call; return
 ;;
@@ -2749,6 +2876,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${G_DQ}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=shval
 RPC=3; ACTION=call; return
 ;;
@@ -2762,6 +2890,7 @@ eval "F$((FP+NP+1))=\"\${sht1}\""
 eval "F$((FP+NP+2))=\"\${G_DQ}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
+ARGC=1
 CALLEE=bargs
 RPC=4; ACTION=call; return
 ;;
@@ -2868,6 +2997,7 @@ eval "F$((FP+NP+2))=\"\${sht0}\""
 eval "F$((FP+NP+3))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=sh_mangle_at
 RPC=3; ACTION=call; return
 ;;
@@ -2882,6 +3012,7 @@ eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht0}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${sht3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -2899,6 +3030,7 @@ eval "F$((NFP+1))=\"I:0\""
 eval "F$((NFP+2))=\"\${sht0}\""
 STGV="T:"
 eval "F$((NFP+3))=\"\$STGV\""
+ARGC=4
 CALLEE=sh_mangle_go
 RPC=1; ACTION=call; return
 ;;
@@ -3057,6 +3189,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=cadddr
 RPC=1; ACTION=call; return
 ;;
@@ -3174,6 +3307,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_blk
 RPC=1; ACTION=call; return
 ;;
@@ -3183,6 +3317,7 @@ eval "F$((FP+NP+0))=\"\${p1}\""
 eval "F$((FP+NP+1))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_cur
 RPC=2; ACTION=call; return
 ;;
@@ -3198,6 +3333,7 @@ eval "F$((FP+NP+0))=\"\${sht2}\""
 eval "F$((FP+NP+1))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_pc
 RPC=3; ACTION=call; return
 ;;
@@ -3210,6 +3346,7 @@ eval "F$((FP+NP+1))=\"\${sht2}\""
 eval "F$((FP+NP+2))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_npc
 RPC=4; ACTION=call; return
 ;;
@@ -3224,6 +3361,7 @@ eval "F$((FP+NP+2))=\"\${sht2}\""
 eval "F$((FP+NP+3))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_k
 RPC=5; ACTION=call; return
 ;;
@@ -3240,6 +3378,7 @@ eval "F$((FP+NP+3))=\"\${sht2}\""
 eval "F$((FP+NP+4))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_smax
 RPC=6; ACTION=call; return
 ;;
@@ -3257,6 +3396,7 @@ eval "F$((NFP+2))=\"\${sht3}\""
 eval "F$((NFP+3))=\"\${sht4}\""
 eval "F$((NFP+4))=\"\${sht5}\""
 eval "F$((NFP+5))=\"\${sht6}\""
+ARGC=6
 CALLEE=mkb
 RPC=7; ACTION=call; return
 ;;
@@ -3274,6 +3414,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_blk
 RPC=1; ACTION=call; return
 ;;
@@ -3282,6 +3423,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_cur
 RPC=2; ACTION=call; return
 ;;
@@ -3292,6 +3434,7 @@ eval "F$((FP+NP+0))=\"\${sht1}\""
 eval "F$((FP+NP+1))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_pc
 RPC=3; ACTION=call; return
 ;;
@@ -3304,6 +3447,7 @@ eval "F$((FP+NP+1))=\"\${sht1}\""
 eval "F$((FP+NP+2))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_npc
 RPC=4; ACTION=call; return
 ;;
@@ -3318,6 +3462,7 @@ eval "F$((FP+NP+2))=\"\${sht1}\""
 eval "F$((FP+NP+3))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_k
 RPC=5; ACTION=call; return
 ;;
@@ -3335,6 +3480,7 @@ eval "F$((FP+NP+3))=\"\${sht1}\""
 eval "F$((FP+NP+4))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_smax
 RPC=6; ACTION=call; return
 ;;
@@ -3352,6 +3498,7 @@ eval "F$((NFP+2))=\"\${sht2}\""
 eval "F$((NFP+3))=\"\${sht3}\""
 eval "F$((NFP+4))=\"\${sht5}\""
 eval "F$((NFP+5))=\"\${sht6}\""
+ARGC=6
 CALLEE=mkb
 RPC=7; ACTION=call; return
 ;;
@@ -3370,6 +3517,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_blk
 RPC=1; ACTION=call; return
 ;;
@@ -3378,6 +3526,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_cur
 RPC=2; ACTION=call; return
 ;;
@@ -3388,6 +3537,7 @@ eval "F$((FP+NP+0))=\"\${sht1}\""
 eval "F$((FP+NP+1))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_pc
 RPC=3; ACTION=call; return
 ;;
@@ -3400,6 +3550,7 @@ eval "F$((FP+NP+1))=\"\${sht1}\""
 eval "F$((FP+NP+2))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_npc
 RPC=4; ACTION=call; return
 ;;
@@ -3414,6 +3565,7 @@ eval "F$((FP+NP+2))=\"\${sht1}\""
 eval "F$((FP+NP+3))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_k
 RPC=5; ACTION=call; return
 ;;
@@ -3430,6 +3582,7 @@ eval "F$((FP+NP+3))=\"\${sht1}\""
 eval "F$((FP+NP+4))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_smax
 RPC=6; ACTION=call; return
 ;;
@@ -3448,6 +3601,7 @@ eval "F$((FP+NP+4))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht5}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=maxi
 RPC=7; ACTION=call; return
 ;;
@@ -3465,6 +3619,7 @@ eval "F$((NFP+2))=\"\${sht2}\""
 eval "F$((NFP+3))=\"\${sht3}\""
 eval "F$((NFP+4))=\"\${sht4}\""
 eval "F$((NFP+5))=\"\${sht6}\""
+ARGC=6
 CALLEE=mkb
 RPC=8; ACTION=call; return
 ;;
@@ -3482,6 +3637,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_blk
 RPC=1; ACTION=call; return
 ;;
@@ -3490,6 +3646,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_cur
 RPC=2; ACTION=call; return
 ;;
@@ -3500,6 +3657,7 @@ eval "F$((FP+NP+0))=\"\${sht1}\""
 eval "F$((FP+NP+1))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_pc
 RPC=3; ACTION=call; return
 ;;
@@ -3512,6 +3670,7 @@ eval "F$((FP+NP+1))=\"\${sht1}\""
 eval "F$((FP+NP+2))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_npc
 RPC=4; ACTION=call; return
 ;;
@@ -3527,6 +3686,7 @@ eval "F$((FP+NP+2))=\"\${sht1}\""
 eval "F$((FP+NP+3))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_k
 RPC=5; ACTION=call; return
 ;;
@@ -3543,6 +3703,7 @@ eval "F$((FP+NP+3))=\"\${sht1}\""
 eval "F$((FP+NP+4))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_smax
 RPC=6; ACTION=call; return
 ;;
@@ -3560,6 +3721,7 @@ eval "F$((NFP+2))=\"\${sht2}\""
 eval "F$((NFP+3))=\"\${sht4}\""
 eval "F$((NFP+4))=\"\${sht5}\""
 eval "F$((NFP+5))=\"\${sht6}\""
+ARGC=6
 CALLEE=mkb
 RPC=7; ACTION=call; return
 ;;
@@ -3578,6 +3740,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_pc
 RPC=1; ACTION=call; return
 ;;
@@ -3586,6 +3749,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_cur
 RPC=2; ACTION=call; return
 ;;
@@ -3597,6 +3761,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 STGV="NIL"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=rev
 RPC=3; ACTION=call; return
 ;;
@@ -3608,6 +3773,7 @@ sht3="${R}"
 eval "F$((FP+NP+0))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_blk
 RPC=4; ACTION=call; return
 ;;
@@ -3620,6 +3786,7 @@ eval "F$((FP+NP+0))=\"\${p1}\""
 eval "F$((FP+NP+1))=\"\${sht5}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_npc
 RPC=5; ACTION=call; return
 ;;
@@ -3632,6 +3799,7 @@ eval "F$((FP+NP+1))=\"\${p1}\""
 eval "F$((FP+NP+2))=\"\${sht5}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_k
 RPC=6; ACTION=call; return
 ;;
@@ -3646,6 +3814,7 @@ eval "F$((FP+NP+2))=\"\${p1}\""
 eval "F$((FP+NP+3))=\"\${sht5}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_smax
 RPC=7; ACTION=call; return
 ;;
@@ -3663,6 +3832,7 @@ eval "F$((NFP+2))=\"\${p1}\""
 eval "F$((NFP+3))=\"\${sht6}\""
 eval "F$((NFP+4))=\"\${sht7}\""
 eval "F$((NFP+5))=\"\${sht8}\""
+ARGC=6
 CALLEE=mkb
 RPC=8; ACTION=call; return
 ;;
@@ -3680,6 +3850,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=b_k
 RPC=1; ACTION=call; return
 ;;
@@ -3707,6 +3878,7 @@ NP=0
 case $PC in
 0)
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=1; ACTION=call; return
 ;;
@@ -3811,6 +3983,7 @@ eval "F$((FP+NP+0))=\"\${sht0}\""
 eval "F$((FP+NP+1))=\"\${G_DQ}\""
 eval "F$((FP+NP+2))=\"\${p0}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=3; ACTION=call; return
 ;;
@@ -3827,6 +4000,7 @@ eval "F$((FP+NP+2))=\"\${sht0}\""
 eval "F$((FP+NP+3))=\"\${G_DQ}\""
 eval "F$((FP+NP+4))=\"\${p0}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=4; ACTION=call; return
 ;;
@@ -3850,6 +4024,7 @@ sht13="T:eval ${sht12#??}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht13}\""
+ARGC=2
 CALLEE=emit
 RPC=5; ACTION=call; return
 ;;
@@ -3861,6 +4036,7 @@ sht16="I:$(( ${p2#??} + 1 ))"
 eval "F$((FP+0))=\"\${sht14}\""
 eval "F$((FP+1))=\"\${sht15}\""
 eval "F$((FP+2))=\"\${sht16}\""
+ARGC=3
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -3886,6 +4062,7 @@ eval "F$((FP+NP+0))=\"\${sht0}\""
 eval "F$((FP+NP+1))=\"\${G_DQ}\""
 eval "F$((FP+NP+2))=\"\${p0}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=3; ACTION=call; return
 ;;
@@ -3901,6 +4078,7 @@ eval "F$((FP+NP+2))=\"\${sht0}\""
 eval "F$((FP+NP+3))=\"\${G_DQ}\""
 eval "F$((FP+NP+4))=\"\${p0}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=4; ACTION=call; return
 ;;
@@ -3923,6 +4101,7 @@ sht12="T:eval ${sht11#??}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht12}\""
+ARGC=2
 CALLEE=emit
 RPC=5; ACTION=call; return
 ;;
@@ -3934,6 +4113,7 @@ sht15="I:$(( ${p2#??} + 1 ))"
 eval "F$((FP+0))=\"\${sht13}\""
 eval "F$((FP+1))=\"\${sht14}\""
 eval "F$((FP+2))=\"\${sht15}\""
+ARGC=3
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -3950,152 +4130,172 @@ if [ "${p1}" = NIL ]; then PC=1; else PC=2; fi
 ACTION=jump; return
 ;;
 1)
-R="${p0}"; ACTION=ret; return
+sht0="T:${p2#??}"
+sht1="T:ARGC=${sht0#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"\${sht1}\""
+ARGC=2
+CALLEE=emit
+RPC=3; ACTION=call; return
 ;;
 2)
 hp_car "${p1}"
-sht0="${R}"
-hp_car "${sht0}"
-sht1="${R}"
-if [ "${sht1}" = "S:cst" ]; then PC=3; else PC=4; fi
+sht3="${R}"
+hp_car "${sht3}"
+sht4="${R}"
+if [ "${sht4}" = "S:cst" ]; then PC=4; else PC=5; fi
 ACTION=jump; return
 ;;
 3)
-hp_car "${p1}"
-sht3="${R}"
-hp_cdr "${sht3}"
-sht4="${R}"
-sht5="T:${sht4#??}${G_DQ#??}"
-sht6="T:${G_DQ#??}${sht5#??}"
-sht7="T:STGV=${sht6#??}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p0}\""
-eval "F$((NFP+1))=\"\${sht7}\""
-CALLEE=emit
-RPC=6; ACTION=call; return
+sht2="${R}"
+R="${sht2}"; ACTION=ret; return
 ;;
 4)
-sht21="T:${p2#??}"
-eval "F$((FP+NP+0))=\"\${sht21}\""
+hp_car "${p1}"
+sht6="${R}"
+hp_cdr "${sht6}"
+sht7="${R}"
+sht8="T:${sht7#??}${G_DQ#??}"
+sht9="T:${G_DQ#??}${sht8#??}"
+sht10="T:STGV=${sht9#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"\${sht10}\""
+ARGC=2
+CALLEE=emit
+RPC=7; ACTION=call; return
+;;
+5)
+sht24="T:${p2#??}"
+eval "F$((FP+NP+0))=\"\${sht24}\""
 eval "F$((FP+NP+1))=\"\${G_DQ}\""
 eval "F$((FP+NP+2))=\"\${p0}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
-RPC=10; ACTION=call; return
-;;
-5)
-hp_cdr "${p1}"
-sht35="${R}"
-sht36="I:$(( ${p2#??} + 1 ))"
-eval "F$((FP+0))=\"\${sht2}\""
-eval "F$((FP+1))=\"\${sht35}\""
-eval "F$((FP+2))=\"\${sht36}\""
-PC=0; ACTION=tail; return
+RPC=11; ACTION=call; return
 ;;
 6)
-sht8="${R}"
-sht9="T:${p2#??}"
-eval "F$((FP+NP+0))=\"\${sht9}\""
-eval "F$((FP+NP+1))=\"\${G_DQ}\""
-eval "F$((FP+NP+2))=\"\${sht8}\""
-NFP=$FTOP
-CALLEE=eqt
-RPC=7; ACTION=call; return
+hp_cdr "${p1}"
+sht38="${R}"
+sht39="I:$(( ${p2#??} + 1 ))"
+eval "F$((FP+0))=\"\${sht5}\""
+eval "F$((FP+1))=\"\${sht38}\""
+eval "F$((FP+2))=\"\${sht39}\""
+ARGC=3
+PC=0; ACTION=tail; return
 ;;
 7)
-eval "sht9=\"\$F$((FP+NP+0))\""
-eval "G_DQ=\"\$F$((FP+NP+1))\""
-eval "sht8=\"\$F$((FP+NP+2))\""
-sht10="${R}"
-eval "F$((FP+NP+0))=\"\${sht10}\""
-eval "F$((FP+NP+1))=\"\${sht9}\""
-eval "F$((FP+NP+2))=\"\${G_DQ}\""
-eval "F$((FP+NP+3))=\"\${sht8}\""
+sht11="${R}"
+sht12="T:${p2#??}"
+eval "F$((FP+NP+0))=\"\${sht12}\""
+eval "F$((FP+NP+1))=\"\${G_DQ}\""
+eval "F$((FP+NP+2))=\"\${sht11}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=8; ACTION=call; return
 ;;
 8)
-eval "sht10=\"\$F$((FP+NP+0))\""
-eval "sht9=\"\$F$((FP+NP+1))\""
-eval "G_DQ=\"\$F$((FP+NP+2))\""
-eval "sht8=\"\$F$((FP+NP+3))\""
-sht11="${R}"
-sht12="T:${sht11#??}${G_DQ#??}"
-sht13="T:\\\$STGV${sht12#??}"
-sht14="T:${sht10#??}${sht13#??}"
-sht15="T:))=${sht14#??}"
-sht16="T:${sht9#??}${sht15#??}"
-sht17="T:F\$((NFP+${sht16#??}"
-sht18="T:${G_DQ#??}${sht17#??}"
-sht19="T:eval ${sht18#??}"
+eval "sht12=\"\$F$((FP+NP+0))\""
+eval "G_DQ=\"\$F$((FP+NP+1))\""
+eval "sht11=\"\$F$((FP+NP+2))\""
+sht13="${R}"
+eval "F$((FP+NP+0))=\"\${sht13}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${G_DQ}\""
+eval "F$((FP+NP+3))=\"\${sht11}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht8}\""
-eval "F$((NFP+1))=\"\${sht19}\""
-CALLEE=emit
+ARGC=0
+CALLEE=eqt
 RPC=9; ACTION=call; return
 ;;
 9)
-sht20="${R}"
-sht2="${sht20}"
-PC=5; ACTION=jump; return
+eval "sht13=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "G_DQ=\"\$F$((FP+NP+2))\""
+eval "sht11=\"\$F$((FP+NP+3))\""
+sht14="${R}"
+sht15="T:${sht14#??}${G_DQ#??}"
+sht16="T:\\\$STGV${sht15#??}"
+sht17="T:${sht13#??}${sht16#??}"
+sht18="T:))=${sht17#??}"
+sht19="T:${sht12#??}${sht18#??}"
+sht20="T:F\$((NFP+${sht19#??}"
+sht21="T:${G_DQ#??}${sht20#??}"
+sht22="T:eval ${sht21#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht11}\""
+eval "F$((NFP+1))=\"\${sht22}\""
+ARGC=2
+CALLEE=emit
+RPC=10; ACTION=call; return
 ;;
 10)
-eval "sht21=\"\$F$((FP+NP+0))\""
+sht23="${R}"
+sht5="${sht23}"
+PC=6; ACTION=jump; return
+;;
+11)
+eval "sht24=\"\$F$((FP+NP+0))\""
 eval "G_DQ=\"\$F$((FP+NP+1))\""
 eval "p0=\"\$F$((FP+NP+2))\""
-sht22="${R}"
+sht25="${R}"
 hp_car "${p1}"
-sht23="${R}"
-eval "F$((FP+NP+0))=\"\${sht22}\""
-eval "F$((FP+NP+1))=\"\${sht21}\""
+sht26="${R}"
+eval "F$((FP+NP+0))=\"\${sht25}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
 eval "F$((FP+NP+2))=\"\${G_DQ}\""
 eval "F$((FP+NP+3))=\"\${p0}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht23}\""
+eval "F$((NFP+0))=\"\${sht26}\""
+ARGC=1
 CALLEE=fval
-RPC=11; ACTION=call; return
-;;
-11)
-eval "sht22=\"\$F$((FP+NP+0))\""
-eval "sht21=\"\$F$((FP+NP+1))\""
-eval "G_DQ=\"\$F$((FP+NP+2))\""
-eval "p0=\"\$F$((FP+NP+3))\""
-sht24="${R}"
-eval "F$((FP+NP+0))=\"\${sht24}\""
-eval "F$((FP+NP+1))=\"\${sht22}\""
-eval "F$((FP+NP+2))=\"\${sht21}\""
-eval "F$((FP+NP+3))=\"\${G_DQ}\""
-eval "F$((FP+NP+4))=\"\${p0}\""
-NFP=$FTOP
-CALLEE=eqt
 RPC=12; ACTION=call; return
 ;;
 12)
-eval "sht24=\"\$F$((FP+NP+0))\""
-eval "sht22=\"\$F$((FP+NP+1))\""
-eval "sht21=\"\$F$((FP+NP+2))\""
-eval "G_DQ=\"\$F$((FP+NP+3))\""
-eval "p0=\"\$F$((FP+NP+4))\""
-sht25="${R}"
-sht26="T:${sht25#??}${G_DQ#??}"
-sht27="T:${sht24#??}${sht26#??}"
-sht28="T:${sht22#??}${sht27#??}"
-sht29="T:))=${sht28#??}"
-sht30="T:${sht21#??}${sht29#??}"
-sht31="T:F\$((NFP+${sht30#??}"
-sht32="T:${G_DQ#??}${sht31#??}"
-sht33="T:eval ${sht32#??}"
+eval "sht25=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "G_DQ=\"\$F$((FP+NP+2))\""
+eval "p0=\"\$F$((FP+NP+3))\""
+sht27="${R}"
+eval "F$((FP+NP+0))=\"\${sht27}\""
+eval "F$((FP+NP+1))=\"\${sht25}\""
+eval "F$((FP+NP+2))=\"\${sht24}\""
+eval "F$((FP+NP+3))=\"\${G_DQ}\""
+eval "F$((FP+NP+4))=\"\${p0}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p0}\""
-eval "F$((NFP+1))=\"\${sht33}\""
-CALLEE=emit
+ARGC=0
+CALLEE=eqt
 RPC=13; ACTION=call; return
 ;;
 13)
-sht34="${R}"
-sht2="${sht34}"
-PC=5; ACTION=jump; return
+eval "sht27=\"\$F$((FP+NP+0))\""
+eval "sht25=\"\$F$((FP+NP+1))\""
+eval "sht24=\"\$F$((FP+NP+2))\""
+eval "G_DQ=\"\$F$((FP+NP+3))\""
+eval "p0=\"\$F$((FP+NP+4))\""
+sht28="${R}"
+sht29="T:${sht28#??}${G_DQ#??}"
+sht30="T:${sht27#??}${sht29#??}"
+sht31="T:${sht25#??}${sht30#??}"
+sht32="T:))=${sht31#??}"
+sht33="T:${sht24#??}${sht32#??}"
+sht34="T:F\$((NFP+${sht33#??}"
+sht35="T:${G_DQ#??}${sht34#??}"
+sht36="T:eval ${sht35#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"\${sht36}\""
+ARGC=2
+CALLEE=emit
+RPC=14; ACTION=call; return
+;;
+14)
+sht37="${R}"
+sht5="${sht37}"
+PC=6; ACTION=jump; return
 ;;
 esac; }
 SIZE_setparams=8
@@ -4111,152 +4311,172 @@ if [ "${p1}" = NIL ]; then PC=1; else PC=2; fi
 ACTION=jump; return
 ;;
 1)
-R="${p0}"; ACTION=ret; return
+sht0="T:${p2#??}"
+sht1="T:ARGC=${sht0#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"\${sht1}\""
+ARGC=2
+CALLEE=emit
+RPC=3; ACTION=call; return
 ;;
 2)
 hp_car "${p1}"
-sht0="${R}"
-hp_car "${sht0}"
-sht1="${R}"
-if [ "${sht1}" = "S:cst" ]; then PC=3; else PC=4; fi
+sht3="${R}"
+hp_car "${sht3}"
+sht4="${R}"
+if [ "${sht4}" = "S:cst" ]; then PC=4; else PC=5; fi
 ACTION=jump; return
 ;;
 3)
-hp_car "${p1}"
-sht3="${R}"
-hp_cdr "${sht3}"
-sht4="${R}"
-sht5="T:${sht4#??}${G_DQ#??}"
-sht6="T:${G_DQ#??}${sht5#??}"
-sht7="T:STGV=${sht6#??}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p0}\""
-eval "F$((NFP+1))=\"\${sht7}\""
-CALLEE=emit
-RPC=6; ACTION=call; return
+sht2="${R}"
+R="${sht2}"; ACTION=ret; return
 ;;
 4)
-sht21="T:${p2#??}"
-eval "F$((FP+NP+0))=\"\${sht21}\""
+hp_car "${p1}"
+sht6="${R}"
+hp_cdr "${sht6}"
+sht7="${R}"
+sht8="T:${sht7#??}${G_DQ#??}"
+sht9="T:${G_DQ#??}${sht8#??}"
+sht10="T:STGV=${sht9#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"\${sht10}\""
+ARGC=2
+CALLEE=emit
+RPC=7; ACTION=call; return
+;;
+5)
+sht24="T:${p2#??}"
+eval "F$((FP+NP+0))=\"\${sht24}\""
 eval "F$((FP+NP+1))=\"\${G_DQ}\""
 eval "F$((FP+NP+2))=\"\${p0}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
-RPC=10; ACTION=call; return
-;;
-5)
-hp_cdr "${p1}"
-sht35="${R}"
-sht36="I:$(( ${p2#??} + 1 ))"
-eval "F$((FP+0))=\"\${sht2}\""
-eval "F$((FP+1))=\"\${sht35}\""
-eval "F$((FP+2))=\"\${sht36}\""
-PC=0; ACTION=tail; return
+RPC=11; ACTION=call; return
 ;;
 6)
-sht8="${R}"
-sht9="T:${p2#??}"
-eval "F$((FP+NP+0))=\"\${sht9}\""
-eval "F$((FP+NP+1))=\"\${G_DQ}\""
-eval "F$((FP+NP+2))=\"\${sht8}\""
-NFP=$FTOP
-CALLEE=eqt
-RPC=7; ACTION=call; return
+hp_cdr "${p1}"
+sht38="${R}"
+sht39="I:$(( ${p2#??} + 1 ))"
+eval "F$((FP+0))=\"\${sht5}\""
+eval "F$((FP+1))=\"\${sht38}\""
+eval "F$((FP+2))=\"\${sht39}\""
+ARGC=3
+PC=0; ACTION=tail; return
 ;;
 7)
-eval "sht9=\"\$F$((FP+NP+0))\""
-eval "G_DQ=\"\$F$((FP+NP+1))\""
-eval "sht8=\"\$F$((FP+NP+2))\""
-sht10="${R}"
-eval "F$((FP+NP+0))=\"\${sht10}\""
-eval "F$((FP+NP+1))=\"\${sht9}\""
-eval "F$((FP+NP+2))=\"\${G_DQ}\""
-eval "F$((FP+NP+3))=\"\${sht8}\""
+sht11="${R}"
+sht12="T:${p2#??}"
+eval "F$((FP+NP+0))=\"\${sht12}\""
+eval "F$((FP+NP+1))=\"\${G_DQ}\""
+eval "F$((FP+NP+2))=\"\${sht11}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=8; ACTION=call; return
 ;;
 8)
-eval "sht10=\"\$F$((FP+NP+0))\""
-eval "sht9=\"\$F$((FP+NP+1))\""
-eval "G_DQ=\"\$F$((FP+NP+2))\""
-eval "sht8=\"\$F$((FP+NP+3))\""
-sht11="${R}"
-sht12="T:${sht11#??}${G_DQ#??}"
-sht13="T:\\\$STGV${sht12#??}"
-sht14="T:${sht10#??}${sht13#??}"
-sht15="T:))=${sht14#??}"
-sht16="T:${sht9#??}${sht15#??}"
-sht17="T:F\$((FP+${sht16#??}"
-sht18="T:${G_DQ#??}${sht17#??}"
-sht19="T:eval ${sht18#??}"
+eval "sht12=\"\$F$((FP+NP+0))\""
+eval "G_DQ=\"\$F$((FP+NP+1))\""
+eval "sht11=\"\$F$((FP+NP+2))\""
+sht13="${R}"
+eval "F$((FP+NP+0))=\"\${sht13}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${G_DQ}\""
+eval "F$((FP+NP+3))=\"\${sht11}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht8}\""
-eval "F$((NFP+1))=\"\${sht19}\""
-CALLEE=emit
+ARGC=0
+CALLEE=eqt
 RPC=9; ACTION=call; return
 ;;
 9)
-sht20="${R}"
-sht2="${sht20}"
-PC=5; ACTION=jump; return
+eval "sht13=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "G_DQ=\"\$F$((FP+NP+2))\""
+eval "sht11=\"\$F$((FP+NP+3))\""
+sht14="${R}"
+sht15="T:${sht14#??}${G_DQ#??}"
+sht16="T:\\\$STGV${sht15#??}"
+sht17="T:${sht13#??}${sht16#??}"
+sht18="T:))=${sht17#??}"
+sht19="T:${sht12#??}${sht18#??}"
+sht20="T:F\$((FP+${sht19#??}"
+sht21="T:${G_DQ#??}${sht20#??}"
+sht22="T:eval ${sht21#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht11}\""
+eval "F$((NFP+1))=\"\${sht22}\""
+ARGC=2
+CALLEE=emit
+RPC=10; ACTION=call; return
 ;;
 10)
-eval "sht21=\"\$F$((FP+NP+0))\""
+sht23="${R}"
+sht5="${sht23}"
+PC=6; ACTION=jump; return
+;;
+11)
+eval "sht24=\"\$F$((FP+NP+0))\""
 eval "G_DQ=\"\$F$((FP+NP+1))\""
 eval "p0=\"\$F$((FP+NP+2))\""
-sht22="${R}"
+sht25="${R}"
 hp_car "${p1}"
-sht23="${R}"
-eval "F$((FP+NP+0))=\"\${sht22}\""
-eval "F$((FP+NP+1))=\"\${sht21}\""
+sht26="${R}"
+eval "F$((FP+NP+0))=\"\${sht25}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
 eval "F$((FP+NP+2))=\"\${G_DQ}\""
 eval "F$((FP+NP+3))=\"\${p0}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht23}\""
+eval "F$((NFP+0))=\"\${sht26}\""
+ARGC=1
 CALLEE=fval
-RPC=11; ACTION=call; return
-;;
-11)
-eval "sht22=\"\$F$((FP+NP+0))\""
-eval "sht21=\"\$F$((FP+NP+1))\""
-eval "G_DQ=\"\$F$((FP+NP+2))\""
-eval "p0=\"\$F$((FP+NP+3))\""
-sht24="${R}"
-eval "F$((FP+NP+0))=\"\${sht24}\""
-eval "F$((FP+NP+1))=\"\${sht22}\""
-eval "F$((FP+NP+2))=\"\${sht21}\""
-eval "F$((FP+NP+3))=\"\${G_DQ}\""
-eval "F$((FP+NP+4))=\"\${p0}\""
-NFP=$FTOP
-CALLEE=eqt
 RPC=12; ACTION=call; return
 ;;
 12)
-eval "sht24=\"\$F$((FP+NP+0))\""
-eval "sht22=\"\$F$((FP+NP+1))\""
-eval "sht21=\"\$F$((FP+NP+2))\""
-eval "G_DQ=\"\$F$((FP+NP+3))\""
-eval "p0=\"\$F$((FP+NP+4))\""
-sht25="${R}"
-sht26="T:${sht25#??}${G_DQ#??}"
-sht27="T:${sht24#??}${sht26#??}"
-sht28="T:${sht22#??}${sht27#??}"
-sht29="T:))=${sht28#??}"
-sht30="T:${sht21#??}${sht29#??}"
-sht31="T:F\$((FP+${sht30#??}"
-sht32="T:${G_DQ#??}${sht31#??}"
-sht33="T:eval ${sht32#??}"
+eval "sht25=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "G_DQ=\"\$F$((FP+NP+2))\""
+eval "p0=\"\$F$((FP+NP+3))\""
+sht27="${R}"
+eval "F$((FP+NP+0))=\"\${sht27}\""
+eval "F$((FP+NP+1))=\"\${sht25}\""
+eval "F$((FP+NP+2))=\"\${sht24}\""
+eval "F$((FP+NP+3))=\"\${G_DQ}\""
+eval "F$((FP+NP+4))=\"\${p0}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p0}\""
-eval "F$((NFP+1))=\"\${sht33}\""
-CALLEE=emit
+ARGC=0
+CALLEE=eqt
 RPC=13; ACTION=call; return
 ;;
 13)
-sht34="${R}"
-sht2="${sht34}"
-PC=5; ACTION=jump; return
+eval "sht27=\"\$F$((FP+NP+0))\""
+eval "sht25=\"\$F$((FP+NP+1))\""
+eval "sht24=\"\$F$((FP+NP+2))\""
+eval "G_DQ=\"\$F$((FP+NP+3))\""
+eval "p0=\"\$F$((FP+NP+4))\""
+sht28="${R}"
+sht29="T:${sht28#??}${G_DQ#??}"
+sht30="T:${sht27#??}${sht29#??}"
+sht31="T:${sht25#??}${sht30#??}"
+sht32="T:))=${sht31#??}"
+sht33="T:${sht24#??}${sht32#??}"
+sht34="T:F\$((FP+${sht33#??}"
+sht35="T:${G_DQ#??}${sht34#??}"
+sht36="T:eval ${sht35#??}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+eval "F$((NFP+1))=\"\${sht36}\""
+ARGC=2
+CALLEE=emit
+RPC=14; ACTION=call; return
+;;
+14)
+sht37="${R}"
+sht5="${sht37}"
+PC=6; ACTION=jump; return
 ;;
 esac; }
 SIZE_largs=9
@@ -4285,6 +4505,7 @@ eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=3; ACTION=call; return
 ;;
@@ -4296,6 +4517,7 @@ sht4="${R}"
 eval "F$((FP+NP+0))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht4}\""
+ARGC=1
 CALLEE=rvar
 RPC=4; ACTION=call; return
 ;;
@@ -4338,6 +4560,7 @@ eval "F$((NFP+0))=\"\${sht7}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht8}\""
 eval "F$((NFP+3))=\"\${sht9}\""
+ARGC=4
 CALLEE=largs
 RPC=8; ACTION=call; return
 ;;
@@ -4430,6 +4653,7 @@ ACTION=jump; return
 eval "F$((FP+NP+0))=\"\${p2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=sh_esc
 RPC=9; ACTION=call; return
 ;;
@@ -4453,12 +4677,14 @@ R="${sht10}"; ACTION=ret; return
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=lookup
 RPC=12; ACTION=call; return
 ;;
 11)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=nary_formzzQ
 RPC=24; ACTION=call; return
 ;;
@@ -4472,6 +4698,7 @@ ACTION=jump; return
 eval "F$((FP+NP+0))=\"\${sht12}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=prim_wrap
 RPC=15; ACTION=call; return
 ;;
@@ -4499,6 +4726,7 @@ eval "F$((FP+NP+0))=\"\${p2}\""
 eval "F$((FP+NP+1))=\"\${sht12}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=prim_wrap
 RPC=18; ACTION=call; return
 ;;
@@ -4509,6 +4737,7 @@ NFP=$FTOP
 STGV="S:__gfns"
 eval "F$((NFP+0))=\"\$STGV\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=lookup
 RPC=19; ACTION=call; return
 ;;
@@ -4537,6 +4766,7 @@ eval "F$((FP+NP+0))=\"\${sht12}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht18}\""
+ARGC=2
 CALLEE=memzzQ
 RPC=20; ACTION=call; return
 ;;
@@ -4552,6 +4782,7 @@ eval "F$((FP+NP+0))=\"\${p2}\""
 eval "F$((FP+NP+1))=\"\${sht12}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht20}\""
+ARGC=1
 CALLEE=sh_mangle
 RPC=23; ACTION=call; return
 ;;
@@ -4595,6 +4826,7 @@ ACTION=jump; return
 25)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=nary_rw
 RPC=27; ACTION=call; return
 ;;
@@ -4603,6 +4835,7 @@ hp_car "${p0}"
 sht33="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht33}\""
+ARGC=1
 CALLEE=arithzzQ
 RPC=28; ACTION=call; return
 ;;
@@ -4612,6 +4845,7 @@ eval "F$((FP+0))=\"\${sht32}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 28)
@@ -4629,6 +4863,7 @@ eval "F$((NFP+0))=\"\${sht36}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=31; ACTION=call; return
 ;;
@@ -4657,6 +4892,7 @@ eval "F$((FP+NP+2))=\"\${sht41}\""
 eval "F$((FP+NP+3))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht43}\""
+ARGC=1
 CALLEE=rvar
 RPC=32; ACTION=call; return
 ;;
@@ -4697,6 +4933,7 @@ eval "F$((NFP+0))=\"\${sht41}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht42}\""
 eval "F$((NFP+3))=\"\${sht46}\""
+ARGC=4
 CALLEE=lval
 RPC=36; ACTION=call; return
 ;;
@@ -4710,6 +4947,7 @@ eval "F$((FP+NP+0))=\"\${sht49}\""
 eval "F$((FP+NP+1))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht50}\""
+ARGC=1
 CALLEE=tmpn
 RPC=37; ACTION=call; return
 ;;
@@ -4730,6 +4968,7 @@ eval "F$((FP+NP+4))=\"\${sht49}\""
 eval "F$((FP+NP+5))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht54}\""
+ARGC=1
 CALLEE=shdet
 RPC=38; ACTION=call; return
 ;;
@@ -4752,6 +4991,7 @@ eval "F$((FP+NP+5))=\"\${sht49}\""
 eval "F$((FP+NP+6))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht56}\""
+ARGC=1
 CALLEE=shop
 RPC=39; ACTION=call; return
 ;;
@@ -4776,6 +5016,7 @@ eval "F$((FP+NP+6))=\"\${sht49}\""
 eval "F$((FP+NP+7))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht58}\""
+ARGC=1
 CALLEE=shdet
 RPC=40; ACTION=call; return
 ;;
@@ -4805,6 +5046,7 @@ eval "F$((FP+NP+2))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht53}\""
 eval "F$((NFP+1))=\"\${sht69}\""
+ARGC=2
 CALLEE=emit
 RPC=41; ACTION=call; return
 ;;
@@ -4818,6 +5060,7 @@ eval "F$((FP+NP+1))=\"\${sht49}\""
 eval "F$((FP+NP+2))=\"\${sht38}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht70}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=42; ACTION=call; return
 ;;
@@ -4856,6 +5099,7 @@ eval "F$((NFP+0))=\"\${sht76}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=45; ACTION=call; return
 ;;
@@ -4873,6 +5117,7 @@ sht79="${R}"
 eval "F$((FP+NP+0))=\"\${sht78}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht79}\""
+ARGC=1
 CALLEE=tmpn
 RPC=46; ACTION=call; return
 ;;
@@ -4890,6 +5135,7 @@ eval "F$((FP+NP+2))=\"\${sht81}\""
 eval "F$((FP+NP+3))=\"\${sht78}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht83}\""
+ARGC=1
 CALLEE=shval
 RPC=47; ACTION=call; return
 ;;
@@ -4907,6 +5153,7 @@ eval "F$((FP+NP+1))=\"\${sht78}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht82}\""
 eval "F$((NFP+1))=\"\${sht87}\""
+ARGC=2
 CALLEE=emit
 RPC=48; ACTION=call; return
 ;;
@@ -4923,6 +5170,7 @@ eval "F$((FP+NP+1))=\"\${sht78}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht88}\""
 eval "F$((NFP+1))=\"\${sht92}\""
+ARGC=2
 CALLEE=emit
 RPC=49; ACTION=call; return
 ;;
@@ -4934,6 +5182,7 @@ eval "F$((FP+NP+0))=\"\${sht81}\""
 eval "F$((FP+NP+1))=\"\${sht78}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht93}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=50; ACTION=call; return
 ;;
@@ -4967,6 +5216,7 @@ eval "F$((NFP+0))=\"\${sht99}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=53; ACTION=call; return
 ;;
@@ -4984,6 +5234,7 @@ sht102="${R}"
 eval "F$((FP+NP+0))=\"\${sht101}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht102}\""
+ARGC=1
 CALLEE=tmpn
 RPC=54; ACTION=call; return
 ;;
@@ -5001,6 +5252,7 @@ eval "F$((FP+NP+2))=\"\${sht104}\""
 eval "F$((FP+NP+3))=\"\${sht101}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht106}\""
+ARGC=1
 CALLEE=shval
 RPC=55; ACTION=call; return
 ;;
@@ -5018,6 +5270,7 @@ eval "F$((FP+NP+1))=\"\${sht101}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht105}\""
 eval "F$((NFP+1))=\"\${sht110}\""
+ARGC=2
 CALLEE=emit
 RPC=56; ACTION=call; return
 ;;
@@ -5034,6 +5287,7 @@ eval "F$((FP+NP+1))=\"\${sht101}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht111}\""
 eval "F$((NFP+1))=\"\${sht115}\""
+ARGC=2
 CALLEE=emit
 RPC=57; ACTION=call; return
 ;;
@@ -5045,6 +5299,7 @@ eval "F$((FP+NP+0))=\"\${sht104}\""
 eval "F$((FP+NP+1))=\"\${sht101}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht116}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=58; ACTION=call; return
 ;;
@@ -5076,6 +5331,7 @@ eval "F$((NFP+0))=\"\${sht121}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=largs
 RPC=61; ACTION=call; return
 ;;
@@ -5093,6 +5349,7 @@ sht124="${R}"
 eval "F$((FP+NP+0))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht124}\""
+ARGC=1
 CALLEE=tmpn
 RPC=62; ACTION=call; return
 ;;
@@ -5122,6 +5379,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht134}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=spill
 RPC=63; ACTION=call; return
 ;;
@@ -5139,6 +5397,7 @@ eval "F$((FP+NP+4))=\"\${sht126}\""
 eval "F$((FP+NP+5))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht129}\""
+ARGC=1
 CALLEE=shval
 RPC=64; ACTION=call; return
 ;;
@@ -5161,6 +5420,7 @@ eval "F$((FP+NP+7))=\"\${sht126}\""
 eval "F$((FP+NP+8))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht133}\""
+ARGC=1
 CALLEE=shval
 RPC=65; ACTION=call; return
 ;;
@@ -5189,6 +5449,7 @@ eval "F$((FP+NP+3))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht135}\""
 eval "F$((NFP+1))=\"\${sht144}\""
+ARGC=2
 CALLEE=emit
 RPC=66; ACTION=call; return
 ;;
@@ -5206,6 +5467,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht145}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=unspill
 RPC=67; ACTION=call; return
 ;;
@@ -5226,6 +5488,7 @@ eval "F$((FP+NP+3))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht146}\""
 eval "F$((NFP+1))=\"\${sht150}\""
+ARGC=2
 CALLEE=emit
 RPC=68; ACTION=call; return
 ;;
@@ -5242,6 +5505,7 @@ eval "F$((FP+NP+3))=\"\${sht126}\""
 eval "F$((FP+NP+4))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p3}\""
+ARGC=1
 CALLEE=lenl
 RPC=69; ACTION=call; return
 ;;
@@ -5259,6 +5523,7 @@ eval "F$((FP+NP+3))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht151}\""
 eval "F$((NFP+1))=\"\${sht152}\""
+ARGC=2
 CALLEE=bsm
 RPC=70; ACTION=call; return
 ;;
@@ -5274,6 +5539,7 @@ eval "F$((FP+NP+2))=\"\${sht126}\""
 eval "F$((FP+NP+3))=\"\${sht123}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht153}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=71; ACTION=call; return
 ;;
@@ -5315,6 +5581,7 @@ sht159="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht159}\""
 eval "F$((NFP+1))=\"\${p2}\""
+ARGC=2
 CALLEE=lquote
 RPC=74; ACTION=call; return
 ;;
@@ -5333,6 +5600,7 @@ hp_cdr "${p0}"
 sht162="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht162}\""
+ARGC=1
 CALLEE=cond_zzGif
 RPC=77; ACTION=call; return
 ;;
@@ -5348,6 +5616,7 @@ eval "F$((FP+0))=\"\${sht163}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 78)
@@ -5355,6 +5624,7 @@ hp_cdr "${p0}"
 sht165="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht165}\""
+ARGC=1
 CALLEE=dsg_and
 RPC=80; ACTION=call; return
 ;;
@@ -5370,6 +5640,7 @@ eval "F$((FP+0))=\"\${sht166}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 81)
@@ -5377,6 +5648,7 @@ hp_cdr "${p0}"
 sht168="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht168}\""
+ARGC=1
 CALLEE=dsg_or
 RPC=83; ACTION=call; return
 ;;
@@ -5392,6 +5664,7 @@ eval "F$((FP+0))=\"\${sht169}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 84)
@@ -5399,6 +5672,7 @@ hp_cdr "${p0}"
 sht171="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht171}\""
+ARGC=1
 CALLEE=dsg_str
 RPC=86; ACTION=call; return
 ;;
@@ -5414,6 +5688,7 @@ eval "F$((FP+0))=\"\${sht172}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 87)
@@ -5421,6 +5696,7 @@ hp_cdr "${p0}"
 sht174="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht174}\""
+ARGC=1
 CALLEE=dsg_list
 RPC=89; ACTION=call; return
 ;;
@@ -5436,6 +5712,7 @@ eval "F$((FP+0))=\"\${sht175}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 90)
@@ -5450,6 +5727,7 @@ sht180="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht178}\""
 eval "F$((NFP+1))=\"\${sht180}\""
+ARGC=2
 CALLEE=when_zzGif
 RPC=92; ACTION=call; return
 ;;
@@ -5465,6 +5743,7 @@ eval "F$((FP+0))=\"\${sht181}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 93)
@@ -5479,6 +5758,7 @@ sht186="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht184}\""
 eval "F$((NFP+1))=\"\${sht186}\""
+ARGC=2
 CALLEE=unless_zzGif
 RPC=95; ACTION=call; return
 ;;
@@ -5494,6 +5774,7 @@ eval "F$((FP+0))=\"\${sht187}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 96)
@@ -5508,6 +5789,7 @@ sht192="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht190}\""
 eval "F$((NFP+1))=\"\${sht192}\""
+ARGC=2
 CALLEE=case_zzGcond
 RPC=98; ACTION=call; return
 ;;
@@ -5523,6 +5805,7 @@ eval "F$((FP+0))=\"\${sht193}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 99)
@@ -5537,6 +5820,7 @@ sht198="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht196}\""
 eval "F$((NFP+1))=\"\${sht198}\""
+ARGC=2
 CALLEE=letzzS_zzGlets
 RPC=101; ACTION=call; return
 ;;
@@ -5552,6 +5836,7 @@ eval "F$((FP+0))=\"\${sht199}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 102)
@@ -5562,6 +5847,7 @@ eval "F$((NFP+0))=\"\${sht201}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lbegin
 RPC=104; ACTION=call; return
 ;;
@@ -5592,6 +5878,7 @@ eval "F$((NFP+1))=\"\${sht208}\""
 eval "F$((NFP+2))=\"\${p1}\""
 eval "F$((NFP+3))=\"\${p2}\""
 eval "F$((NFP+4))=\"\${p3}\""
+ARGC=5
 CALLEE=llet
 RPC=107; ACTION=call; return
 ;;
@@ -5620,6 +5907,7 @@ eval "F$((FP+NP+0))=\"\${sht215}\""
 eval "F$((FP+NP+1))=\"\${sht212}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=cadddr
 RPC=110; ACTION=call; return
 ;;
@@ -5640,6 +5928,7 @@ eval "F$((NFP+2))=\"\${sht216}\""
 eval "F$((NFP+3))=\"\${p1}\""
 eval "F$((NFP+4))=\"\${p2}\""
 eval "F$((NFP+5))=\"\${p3}\""
+ARGC=6
 CALLEE=lif_val
 RPC=111; ACTION=call; return
 ;;
@@ -5670,6 +5959,7 @@ eval "F$((NFP+1))=\"\$STGV\""
 eval "F$((NFP+2))=\"\${p1}\""
 eval "F$((NFP+3))=\"\${p2}\""
 eval "F$((NFP+4))=\"\${p3}\""
+ARGC=5
 CALLEE=lretag
 RPC=116; ACTION=call; return
 ;;
@@ -5691,6 +5981,7 @@ eval "F$((NFP+1))=\"\$STGV\""
 eval "F$((NFP+2))=\"\${p1}\""
 eval "F$((NFP+3))=\"\${p2}\""
 eval "F$((NFP+4))=\"\${p3}\""
+ARGC=5
 CALLEE=lretag
 RPC=119; ACTION=call; return
 ;;
@@ -5712,6 +6003,7 @@ eval "F$((NFP+1))=\"\$STGV\""
 eval "F$((NFP+2))=\"\${p1}\""
 eval "F$((NFP+3))=\"\${p2}\""
 eval "F$((NFP+4))=\"\${p3}\""
+ARGC=5
 CALLEE=lretag
 RPC=122; ACTION=call; return
 ;;
@@ -5733,6 +6025,7 @@ eval "F$((NFP+1))=\"\$STGV\""
 eval "F$((NFP+2))=\"\${p1}\""
 eval "F$((NFP+3))=\"\${p2}\""
 eval "F$((NFP+4))=\"\${p3}\""
+ARGC=5
 CALLEE=lretag
 RPC=125; ACTION=call; return
 ;;
@@ -5756,6 +6049,7 @@ eval "F$((NFP+0))=\"\${sht231}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=128; ACTION=call; return
 ;;
@@ -5773,6 +6067,7 @@ sht234="${R}"
 eval "F$((FP+NP+0))=\"\${sht233}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht234}\""
+ARGC=1
 CALLEE=tmpn
 RPC=129; ACTION=call; return
 ;;
@@ -5807,6 +6102,7 @@ eval "F$((FP+NP+1))=\"\${sht233}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht239}\""
 eval "F$((NFP+1))=\"\${sht249}\""
+ARGC=2
 CALLEE=emit
 RPC=132; ACTION=call; return
 ;;
@@ -5828,6 +6124,7 @@ eval "F$((FP+NP+1))=\"\${sht233}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht254}\""
 eval "F$((NFP+1))=\"\${sht262}\""
+ARGC=2
 CALLEE=emit
 RPC=134; ACTION=call; return
 ;;
@@ -5839,6 +6136,7 @@ eval "F$((FP+NP+0))=\"\${sht236}\""
 eval "F$((FP+NP+1))=\"\${sht233}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht250}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=133; ACTION=call; return
 ;;
@@ -5870,6 +6168,7 @@ eval "F$((FP+NP+0))=\"\${sht236}\""
 eval "F$((FP+NP+1))=\"\${sht233}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht263}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=135; ACTION=call; return
 ;;
@@ -5903,6 +6202,7 @@ eval "F$((NFP+0))=\"\${sht269}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=138; ACTION=call; return
 ;;
@@ -5932,6 +6232,7 @@ eval "F$((FP+NP+3))=\"\${sht271}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht276}\""
 eval "F$((NFP+1))=\"\${p3}\""
+ARGC=2
 CALLEE=addlive
 RPC=139; ACTION=call; return
 ;;
@@ -5947,6 +6248,7 @@ eval "F$((NFP+0))=\"\${sht274}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht275}\""
 eval "F$((NFP+3))=\"\${sht277}\""
+ARGC=4
 CALLEE=lval
 RPC=140; ACTION=call; return
 ;;
@@ -5960,6 +6262,7 @@ eval "F$((FP+NP+0))=\"\${sht279}\""
 eval "F$((FP+NP+1))=\"\${sht271}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht280}\""
+ARGC=1
 CALLEE=tmpn
 RPC=141; ACTION=call; return
 ;;
@@ -5980,6 +6283,7 @@ eval "F$((FP+NP+4))=\"\${sht279}\""
 eval "F$((FP+NP+5))=\"\${sht271}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht284}\""
+ARGC=1
 CALLEE=shdet
 RPC=142; ACTION=call; return
 ;;
@@ -6002,6 +6306,7 @@ eval "F$((FP+NP+5))=\"\${sht279}\""
 eval "F$((FP+NP+6))=\"\${sht271}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht286}\""
+ARGC=1
 CALLEE=shdet
 RPC=143; ACTION=call; return
 ;;
@@ -6026,6 +6331,7 @@ eval "F$((FP+NP+2))=\"\${sht271}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht283}\""
 eval "F$((NFP+1))=\"\${sht293}\""
+ARGC=2
 CALLEE=emit
 RPC=144; ACTION=call; return
 ;;
@@ -6039,6 +6345,7 @@ eval "F$((FP+NP+1))=\"\${sht279}\""
 eval "F$((FP+NP+2))=\"\${sht271}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht294}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=145; ACTION=call; return
 ;;
@@ -6077,6 +6384,7 @@ eval "F$((NFP+0))=\"\${sht300}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=148; ACTION=call; return
 ;;
@@ -6085,6 +6393,7 @@ hp_car "${p0}"
 sht349="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht349}\""
+ARGC=1
 CALLEE=predzzQ
 RPC=162; ACTION=call; return
 ;;
@@ -6108,6 +6417,7 @@ eval "F$((FP+NP+3))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht307}\""
 eval "F$((NFP+1))=\"\${p3}\""
+ARGC=2
 CALLEE=addlive
 RPC=149; ACTION=call; return
 ;;
@@ -6123,6 +6433,7 @@ eval "F$((NFP+0))=\"\${sht305}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht306}\""
 eval "F$((NFP+3))=\"\${sht308}\""
+ARGC=4
 CALLEE=lval
 RPC=150; ACTION=call; return
 ;;
@@ -6134,6 +6445,7 @@ eval "F$((FP+NP+0))=\"\${sht310}\""
 eval "F$((FP+NP+1))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=cadddr
 RPC=151; ACTION=call; return
 ;;
@@ -6156,6 +6468,7 @@ eval "F$((FP+NP+5))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht314}\""
 eval "F$((NFP+1))=\"\${p3}\""
+ARGC=2
 CALLEE=addlive
 RPC=152; ACTION=call; return
 ;;
@@ -6175,6 +6488,7 @@ eval "F$((FP+NP+4))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht313}\""
 eval "F$((NFP+1))=\"\${sht315}\""
+ARGC=2
 CALLEE=addlive
 RPC=153; ACTION=call; return
 ;;
@@ -6192,6 +6506,7 @@ eval "F$((NFP+0))=\"\${sht311}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht312}\""
 eval "F$((NFP+3))=\"\${sht316}\""
+ARGC=4
 CALLEE=lval
 RPC=154; ACTION=call; return
 ;;
@@ -6207,6 +6522,7 @@ eval "F$((FP+NP+1))=\"\${sht310}\""
 eval "F$((FP+NP+2))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht319}\""
+ARGC=1
 CALLEE=tmpn
 RPC=155; ACTION=call; return
 ;;
@@ -6230,6 +6546,7 @@ eval "F$((FP+NP+6))=\"\${sht310}\""
 eval "F$((FP+NP+7))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht323}\""
+ARGC=1
 CALLEE=shdet
 RPC=156; ACTION=call; return
 ;;
@@ -6257,6 +6574,7 @@ eval "F$((FP+NP+8))=\"\${sht310}\""
 eval "F$((FP+NP+9))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht325}\""
+ARGC=1
 CALLEE=shdet
 RPC=157; ACTION=call; return
 ;;
@@ -6287,6 +6605,7 @@ eval "F$((FP+NP+9))=\"\${sht310}\""
 eval "F$((FP+NP+10))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht327}\""
+ARGC=1
 CALLEE=shdet
 RPC=158; ACTION=call; return
 ;;
@@ -6319,6 +6638,7 @@ eval "F$((FP+NP+10))=\"\${sht310}\""
 eval "F$((FP+NP+11))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht329}\""
+ARGC=1
 CALLEE=shdet
 RPC=159; ACTION=call; return
 ;;
@@ -6357,6 +6677,7 @@ eval "F$((FP+NP+3))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht322}\""
 eval "F$((NFP+1))=\"\${sht344}\""
+ARGC=2
 CALLEE=emit
 RPC=160; ACTION=call; return
 ;;
@@ -6372,6 +6693,7 @@ eval "F$((FP+NP+2))=\"\${sht310}\""
 eval "F$((FP+NP+3))=\"\${sht302}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht345}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=161; ACTION=call; return
 ;;
@@ -6416,6 +6738,7 @@ eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=ctest
 RPC=165; ACTION=call; return
 ;;
@@ -6433,6 +6756,7 @@ sht353="${R}"
 eval "F$((FP+NP+0))=\"\${sht352}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht353}\""
+ARGC=1
 CALLEE=tmpn
 RPC=166; ACTION=call; return
 ;;
@@ -6451,6 +6775,7 @@ eval "F$((FP+NP+1))=\"\${sht352}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht356}\""
 eval "F$((NFP+1))=\"\${sht359}\""
+ARGC=2
 CALLEE=emit
 RPC=167; ACTION=call; return
 ;;
@@ -6467,6 +6792,7 @@ eval "F$((FP+NP+1))=\"\${sht352}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht360}\""
 eval "F$((NFP+1))=\"\${sht364}\""
+ARGC=2
 CALLEE=emit
 RPC=168; ACTION=call; return
 ;;
@@ -6480,6 +6806,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht365}\""
 STGV="T:else"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=169; ACTION=call; return
 ;;
@@ -6496,6 +6823,7 @@ eval "F$((FP+NP+1))=\"\${sht352}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht366}\""
 eval "F$((NFP+1))=\"\${sht370}\""
+ARGC=2
 CALLEE=emit
 RPC=170; ACTION=call; return
 ;;
@@ -6509,6 +6837,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht371}\""
 STGV="T:fi"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=171; ACTION=call; return
 ;;
@@ -6520,6 +6849,7 @@ eval "F$((FP+NP+0))=\"\${sht355}\""
 eval "F$((FP+NP+1))=\"\${sht352}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht372}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=172; ACTION=call; return
 ;;
@@ -6546,6 +6876,7 @@ R="${sht375}"; ACTION=ret; return
 173)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p2}\""
+ARGC=1
 CALLEE=tmpn
 RPC=175; ACTION=call; return
 ;;
@@ -6565,6 +6896,7 @@ eval "F$((FP+NP+1))=\"\${p2}\""
 eval "F$((FP+NP+2))=\"\${sht378}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht379}\""
+ARGC=1
 CALLEE=join_toks
 RPC=176; ACTION=call; return
 ;;
@@ -6578,6 +6910,7 @@ eval "F$((FP+NP+1))=\"\${p2}\""
 eval "F$((FP+NP+2))=\"\${sht378}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht380}\""
+ARGC=1
 CALLEE=run_esc
 RPC=177; ACTION=call; return
 ;;
@@ -6593,6 +6926,7 @@ eval "F$((FP+NP+0))=\"\${sht378}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p2}\""
 eval "F$((NFP+1))=\"\${sht384}\""
+ARGC=2
 CALLEE=emit
 RPC=178; ACTION=call; return
 ;;
@@ -6607,6 +6941,7 @@ eval "F$((FP+NP+0))=\"\${sht378}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht385}\""
 eval "F$((NFP+1))=\"\${sht389}\""
+ARGC=2
 CALLEE=emit
 RPC=179; ACTION=call; return
 ;;
@@ -6616,6 +6951,7 @@ sht390="${R}"
 eval "F$((FP+NP+0))=\"\${sht378}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht390}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=180; ACTION=call; return
 ;;
@@ -6637,6 +6973,7 @@ R="${sht393}"; ACTION=ret; return
 181)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p2}\""
+ARGC=1
 CALLEE=tmpn
 RPC=183; ACTION=call; return
 ;;
@@ -6645,6 +6982,7 @@ hp_car "${p0}"
 sht416="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht416}\""
+ARGC=1
 CALLEE=builtinzzQ
 RPC=193; ACTION=call; return
 ;;
@@ -6656,6 +6994,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${p2}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=spill
 RPC=184; ACTION=call; return
 ;;
@@ -6669,6 +7008,7 @@ eval "F$((FP+NP+1))=\"\${sht397}\""
 eval "F$((FP+NP+2))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht398}\""
+ARGC=1
 CALLEE=join_toks
 RPC=185; ACTION=call; return
 ;;
@@ -6682,6 +7022,7 @@ eval "F$((FP+NP+1))=\"\${sht397}\""
 eval "F$((FP+NP+2))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht399}\""
+ARGC=1
 CALLEE=run_esc
 RPC=186; ACTION=call; return
 ;;
@@ -6697,6 +7038,7 @@ eval "F$((FP+NP+0))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht397}\""
 eval "F$((NFP+1))=\"\${sht403}\""
+ARGC=2
 CALLEE=emit
 RPC=187; ACTION=call; return
 ;;
@@ -6708,6 +7050,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht404}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=unspill
 RPC=188; ACTION=call; return
 ;;
@@ -6722,6 +7065,7 @@ eval "F$((FP+NP+0))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht405}\""
 eval "F$((NFP+1))=\"\${sht409}\""
+ARGC=2
 CALLEE=emit
 RPC=189; ACTION=call; return
 ;;
@@ -6732,6 +7076,7 @@ eval "F$((FP+NP+0))=\"\${sht410}\""
 eval "F$((FP+NP+1))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p3}\""
+ARGC=1
 CALLEE=lenl
 RPC=190; ACTION=call; return
 ;;
@@ -6743,6 +7088,7 @@ eval "F$((FP+NP+0))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht410}\""
 eval "F$((NFP+1))=\"\${sht411}\""
+ARGC=2
 CALLEE=bsm
 RPC=191; ACTION=call; return
 ;;
@@ -6752,6 +7098,7 @@ sht412="${R}"
 eval "F$((FP+NP+0))=\"\${sht396}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht412}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=192; ACTION=call; return
 ;;
@@ -6783,6 +7130,7 @@ eval "F$((NFP+0))=\"\${sht418}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=largs
 RPC=196; ACTION=call; return
 ;;
@@ -6800,6 +7148,7 @@ sht421="${R}"
 eval "F$((FP+NP+0))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht421}\""
+ARGC=1
 CALLEE=brt
 RPC=197; ACTION=call; return
 ;;
@@ -6813,6 +7162,7 @@ eval "F$((FP+NP+0))=\"\${sht423}\""
 eval "F$((FP+NP+1))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht424}\""
+ARGC=1
 CALLEE=tmpn
 RPC=198; ACTION=call; return
 ;;
@@ -6830,6 +7180,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht427}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=spill
 RPC=199; ACTION=call; return
 ;;
@@ -6847,6 +7198,7 @@ eval "F$((FP+NP+3))=\"\${sht423}\""
 eval "F$((FP+NP+4))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht429}\""
+ARGC=1
 CALLEE=bargs
 RPC=200; ACTION=call; return
 ;;
@@ -6864,6 +7216,7 @@ eval "F$((FP+NP+2))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht428}\""
 eval "F$((NFP+1))=\"\${sht431}\""
+ARGC=2
 CALLEE=emit
 RPC=201; ACTION=call; return
 ;;
@@ -6879,6 +7232,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht432}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=unspill
 RPC=202; ACTION=call; return
 ;;
@@ -6897,6 +7251,7 @@ eval "F$((FP+NP+2))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht433}\""
 eval "F$((NFP+1))=\"\${sht437}\""
+ARGC=2
 CALLEE=emit
 RPC=203; ACTION=call; return
 ;;
@@ -6911,6 +7266,7 @@ eval "F$((FP+NP+2))=\"\${sht423}\""
 eval "F$((FP+NP+3))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p3}\""
+ARGC=1
 CALLEE=lenl
 RPC=204; ACTION=call; return
 ;;
@@ -6926,6 +7282,7 @@ eval "F$((FP+NP+2))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht438}\""
 eval "F$((NFP+1))=\"\${sht439}\""
+ARGC=2
 CALLEE=bsm
 RPC=205; ACTION=call; return
 ;;
@@ -6939,6 +7296,7 @@ eval "F$((FP+NP+1))=\"\${sht423}\""
 eval "F$((FP+NP+2))=\"\${sht420}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht440}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=206; ACTION=call; return
 ;;
@@ -6979,6 +7337,7 @@ sht448="${R}"
 eval "F$((FP+NP+0))=\"\${sht446}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht448}\""
+ARGC=1
 CALLEE=mkclo_caps
 RPC=209; ACTION=call; return
 ;;
@@ -7004,6 +7363,7 @@ eval "F$((NFP+0))=\"\${sht452}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=210; ACTION=call; return
 ;;
@@ -7015,6 +7375,7 @@ sht455="${R}"
 eval "F$((FP+NP+0))=\"\${sht454}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht455}\""
+ARGC=1
 CALLEE=tmpn
 RPC=211; ACTION=call; return
 ;;
@@ -7039,6 +7400,7 @@ eval "F$((FP+NP+1))=\"\${sht454}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht458}\""
 eval "F$((NFP+1))=\"\${sht466}\""
+ARGC=2
 CALLEE=emit
 RPC=212; ACTION=call; return
 ;;
@@ -7050,6 +7412,7 @@ eval "F$((FP+NP+0))=\"\${sht457}\""
 eval "F$((FP+NP+1))=\"\${sht454}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht467}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=213; ACTION=call; return
 ;;
@@ -7083,6 +7446,7 @@ eval "F$((NFP+0))=\"\${sht473}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=216; ACTION=call; return
 ;;
@@ -7101,6 +7465,7 @@ eval "F$((FP+NP+0))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht476}\""
 eval "F$((NFP+1))=\"\${p3}\""
+ARGC=2
 CALLEE=addlive
 RPC=217; ACTION=call; return
 ;;
@@ -7123,6 +7488,7 @@ eval "F$((NFP+0))=\"\${sht481}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht482}\""
 eval "F$((NFP+3))=\"\${sht478}\""
+ARGC=4
 CALLEE=lval
 RPC=218; ACTION=call; return
 ;;
@@ -7139,6 +7505,7 @@ eval "F$((FP+NP+2))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht485}\""
 eval "F$((NFP+1))=\"\${sht478}\""
+ARGC=2
 CALLEE=addlive
 RPC=219; ACTION=call; return
 ;;
@@ -7156,6 +7523,7 @@ eval "F$((FP+NP+2))=\"\${sht478}\""
 eval "F$((FP+NP+3))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht488}\""
+ARGC=1
 CALLEE=b_npc
 RPC=220; ACTION=call; return
 ;;
@@ -7175,6 +7543,7 @@ eval "F$((FP+NP+3))=\"\${sht478}\""
 eval "F$((FP+NP+4))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht491}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=221; ACTION=call; return
 ;;
@@ -7194,6 +7563,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht492}\""
 eval "F$((NFP+1))=\"\${sht487}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=spill
 RPC=222; ACTION=call; return
 ;;
@@ -7213,6 +7583,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht493}\""
 STGV="T:NFP=\$FTOP"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=223; ACTION=call; return
 ;;
@@ -7233,6 +7604,7 @@ eval "F$((FP+NP+4))=\"\${sht478}\""
 eval "F$((FP+NP+5))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht495}\""
+ARGC=1
 CALLEE=refrhs
 RPC=224; ACTION=call; return
 ;;
@@ -7253,6 +7625,7 @@ eval "F$((FP+NP+4))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht494}\""
 eval "F$((NFP+1))=\"\${sht497}\""
+ARGC=2
 CALLEE=emit
 RPC=225; ACTION=call; return
 ;;
@@ -7273,6 +7646,7 @@ eval "F$((FP+NP+4))=\"\${sht478}\""
 eval "F$((FP+NP+5))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht499}\""
+ARGC=1
 CALLEE=refrhs
 RPC=226; ACTION=call; return
 ;;
@@ -7293,6 +7667,7 @@ eval "F$((FP+NP+4))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht498}\""
 eval "F$((NFP+1))=\"\${sht501}\""
+ARGC=2
 CALLEE=emit
 RPC=227; ACTION=call; return
 ;;
@@ -7314,6 +7689,7 @@ eval "F$((FP+NP+4))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht502}\""
 eval "F$((NFP+1))=\"\${sht505}\""
+ARGC=2
 CALLEE=emit
 RPC=228; ACTION=call; return
 ;;
@@ -7334,6 +7710,7 @@ eval "F$((FP+NP+5))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht507}\""
 eval "F$((NFP+1))=\"\${sht490}\""
+ARGC=2
 CALLEE=switch
 RPC=229; ACTION=call; return
 ;;
@@ -7355,6 +7732,7 @@ eval "F$((FP+NP+5))=\"\${sht478}\""
 eval "F$((FP+NP+6))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht509}\""
+ARGC=1
 CALLEE=tmpn
 RPC=230; ACTION=call; return
 ;;
@@ -7380,6 +7758,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht509}\""
 eval "F$((NFP+1))=\"\${sht487}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=unspill
 RPC=231; ACTION=call; return
 ;;
@@ -7408,6 +7787,7 @@ eval "F$((FP+NP+7))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht512}\""
 eval "F$((NFP+1))=\"\${sht516}\""
+ARGC=2
 CALLEE=emit
 RPC=232; ACTION=call; return
 ;;
@@ -7432,6 +7812,7 @@ eval "F$((FP+NP+7))=\"\${sht478}\""
 eval "F$((FP+NP+8))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht487}\""
+ARGC=1
 CALLEE=lenl
 RPC=233; ACTION=call; return
 ;;
@@ -7457,6 +7838,7 @@ eval "F$((FP+NP+7))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht517}\""
 eval "F$((NFP+1))=\"\${sht518}\""
+ARGC=2
 CALLEE=bsm
 RPC=234; ACTION=call; return
 ;;
@@ -7480,6 +7862,7 @@ eval "F$((FP+NP+6))=\"\${sht478}\""
 eval "F$((FP+NP+7))=\"\${sht475}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht519}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=235; ACTION=call; return
 ;;
@@ -7539,6 +7922,7 @@ sht525="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht525}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=lookup
 RPC=239; ACTION=call; return
 ;;
@@ -7568,6 +7952,7 @@ eval "F$((NFP+0))=\"\${sht528}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=largs
 RPC=242; ACTION=call; return
 ;;
@@ -7579,6 +7964,7 @@ eval "F$((NFP+0))=\"\${sht574}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=263; ACTION=call; return
 ;;
@@ -7590,6 +7976,7 @@ sht531="${R}"
 eval "F$((FP+NP+0))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht531}\""
+ARGC=1
 CALLEE=b_npc
 RPC=243; ACTION=call; return
 ;;
@@ -7606,6 +7993,7 @@ NFP=$FTOP
 STGV="S:__gvars"
 eval "F$((NFP+0))=\"\$STGV\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=lookup
 RPC=244; ACTION=call; return
 ;;
@@ -7619,6 +8007,7 @@ eval "F$((FP+NP+1))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht534}\""
 eval "F$((NFP+1))=\"\${sht535}\""
+ARGC=2
 CALLEE=memzzQ
 RPC=245; ACTION=call; return
 ;;
@@ -7646,6 +8035,7 @@ eval "F$((FP+NP+0))=\"\${sht533}\""
 eval "F$((FP+NP+1))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht543}\""
+ARGC=1
 CALLEE=sh_mangle
 RPC=249; ACTION=call; return
 ;;
@@ -7658,6 +8048,7 @@ eval "F$((FP+NP+1))=\"\${sht533}\""
 eval "F$((FP+NP+2))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht547}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=250; ACTION=call; return
 ;;
@@ -7681,6 +8072,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht548}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=spill
 RPC=251; ACTION=call; return
 ;;
@@ -7696,6 +8088,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht549}\""
 STGV="T:NFP=\$FTOP"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=252; ACTION=call; return
 ;;
@@ -7713,6 +8106,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht550}\""
 eval "F$((NFP+1))=\"\${sht551}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=stage
 RPC=253; ACTION=call; return
 ;;
@@ -7727,6 +8121,7 @@ eval "F$((FP+NP+2))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht552}\""
 eval "F$((NFP+1))=\"\${sht546}\""
+ARGC=2
 CALLEE=emit
 RPC=254; ACTION=call; return
 ;;
@@ -7744,6 +8139,7 @@ eval "F$((FP+NP+2))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht553}\""
 eval "F$((NFP+1))=\"\${sht556}\""
+ARGC=2
 CALLEE=emit
 RPC=255; ACTION=call; return
 ;;
@@ -7760,6 +8156,7 @@ eval "F$((FP+NP+3))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht558}\""
 eval "F$((NFP+1))=\"\${sht533}\""
+ARGC=2
 CALLEE=switch
 RPC=256; ACTION=call; return
 ;;
@@ -7777,6 +8174,7 @@ eval "F$((FP+NP+3))=\"\${sht533}\""
 eval "F$((FP+NP+4))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht560}\""
+ARGC=1
 CALLEE=tmpn
 RPC=257; ACTION=call; return
 ;;
@@ -7798,6 +8196,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht560}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=unspill
 RPC=258; ACTION=call; return
 ;;
@@ -7822,6 +8221,7 @@ eval "F$((FP+NP+5))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht563}\""
 eval "F$((NFP+1))=\"\${sht567}\""
+ARGC=2
 CALLEE=emit
 RPC=259; ACTION=call; return
 ;;
@@ -7842,6 +8242,7 @@ eval "F$((FP+NP+5))=\"\${sht533}\""
 eval "F$((FP+NP+6))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p3}\""
+ARGC=1
 CALLEE=lenl
 RPC=260; ACTION=call; return
 ;;
@@ -7863,6 +8264,7 @@ eval "F$((FP+NP+5))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht568}\""
 eval "F$((NFP+1))=\"\${sht569}\""
+ARGC=2
 CALLEE=bsm
 RPC=261; ACTION=call; return
 ;;
@@ -7882,6 +8284,7 @@ eval "F$((FP+NP+4))=\"\${sht533}\""
 eval "F$((FP+NP+5))=\"\${sht530}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht570}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=262; ACTION=call; return
 ;;
@@ -7940,6 +8343,7 @@ eval "F$((FP+NP+1))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht580}\""
 eval "F$((NFP+1))=\"\${p3}\""
+ARGC=2
 CALLEE=addlive
 RPC=264; ACTION=call; return
 ;;
@@ -7960,6 +8364,7 @@ eval "F$((NFP+0))=\"\${sht583}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht584}\""
 eval "F$((NFP+3))=\"\${sht582}\""
+ARGC=4
 CALLEE=largs
 RPC=265; ACTION=call; return
 ;;
@@ -7977,6 +8382,7 @@ eval "F$((FP+NP+2))=\"\${sht579}\""
 eval "F$((FP+NP+3))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht587}\""
+ARGC=1
 CALLEE=b_npc
 RPC=266; ACTION=call; return
 ;;
@@ -7996,6 +8402,7 @@ eval "F$((FP+NP+3))=\"\${sht579}\""
 eval "F$((FP+NP+4))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht590}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=267; ACTION=call; return
 ;;
@@ -8015,6 +8422,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht591}\""
 eval "F$((NFP+1))=\"\${sht582}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=spill
 RPC=268; ACTION=call; return
 ;;
@@ -8034,6 +8442,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht592}\""
 STGV="T:NFP=\$FTOP"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=269; ACTION=call; return
 ;;
@@ -8055,6 +8464,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht593}\""
 eval "F$((NFP+1))=\"\${sht594}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=stage
 RPC=270; ACTION=call; return
 ;;
@@ -8075,6 +8485,7 @@ eval "F$((FP+NP+4))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht595}\""
 eval "F$((NFP+1))=\"\${sht597}\""
+ARGC=2
 CALLEE=emit
 RPC=271; ACTION=call; return
 ;;
@@ -8096,6 +8507,7 @@ eval "F$((FP+NP+4))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht598}\""
 eval "F$((NFP+1))=\"\${sht601}\""
+ARGC=2
 CALLEE=emit
 RPC=272; ACTION=call; return
 ;;
@@ -8116,6 +8528,7 @@ eval "F$((FP+NP+5))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht603}\""
 eval "F$((NFP+1))=\"\${sht589}\""
+ARGC=2
 CALLEE=switch
 RPC=273; ACTION=call; return
 ;;
@@ -8137,6 +8550,7 @@ eval "F$((FP+NP+5))=\"\${sht579}\""
 eval "F$((FP+NP+6))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht605}\""
+ARGC=1
 CALLEE=tmpn
 RPC=274; ACTION=call; return
 ;;
@@ -8162,6 +8576,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht605}\""
 eval "F$((NFP+1))=\"\${sht582}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=unspill
 RPC=275; ACTION=call; return
 ;;
@@ -8190,6 +8605,7 @@ eval "F$((FP+NP+7))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht608}\""
 eval "F$((NFP+1))=\"\${sht612}\""
+ARGC=2
 CALLEE=emit
 RPC=276; ACTION=call; return
 ;;
@@ -8214,6 +8630,7 @@ eval "F$((FP+NP+7))=\"\${sht579}\""
 eval "F$((FP+NP+8))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht582}\""
+ARGC=1
 CALLEE=lenl
 RPC=277; ACTION=call; return
 ;;
@@ -8239,6 +8656,7 @@ eval "F$((FP+NP+7))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht613}\""
 eval "F$((NFP+1))=\"\${sht614}\""
+ARGC=2
 CALLEE=bsm
 RPC=278; ACTION=call; return
 ;;
@@ -8262,6 +8680,7 @@ eval "F$((FP+NP+6))=\"\${sht579}\""
 eval "F$((FP+NP+7))=\"\${sht576}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht615}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=279; ACTION=call; return
 ;;
@@ -8331,6 +8750,7 @@ R="T:\\\$"; ACTION=ret; return
 ;;
 2)
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=3; ACTION=call; return
 ;;
@@ -8341,6 +8761,7 @@ ACTION=jump; return
 ;;
 4)
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=6; ACTION=call; return
 ;;
@@ -8351,6 +8772,7 @@ R="${p0}"; ACTION=ret; return
 sht1="${R}"
 eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=7; ACTION=call; return
 ;;
@@ -8386,6 +8808,7 @@ eval "F$((FP+NP+2))=\"\${sht0}\""
 eval "F$((FP+NP+3))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=sh_esc_at
 RPC=3; ACTION=call; return
 ;;
@@ -8400,6 +8823,7 @@ eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht0}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${sht3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -8417,6 +8841,7 @@ eval "F$((NFP+1))=\"I:0\""
 eval "F$((NFP+2))=\"\${sht0}\""
 STGV="T:"
 eval "F$((NFP+3))=\"\$STGV\""
+ARGC=4
 CALLEE=sh_esc_go
 RPC=1; ACTION=call; return
 ;;
@@ -8476,6 +8901,7 @@ hp_car "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=tok_text
 RPC=3; ACTION=call; return
 ;;
@@ -8486,6 +8912,7 @@ sht2="${R}"
 eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
+ARGC=1
 CALLEE=join_toks
 RPC=4; ACTION=call; return
 ;;
@@ -8505,6 +8932,7 @@ NP=1
 case $PC in
 0)
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=1; ACTION=call; return
 ;;
@@ -8515,6 +8943,7 @@ ACTION=jump; return
 ;;
 2)
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=4; ACTION=call; return
 ;;
@@ -8526,6 +8955,7 @@ ACTION=jump; return
 sht1="${R}"
 eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=bsl
 RPC=5; ACTION=call; return
 ;;
@@ -8544,6 +8974,7 @@ ACTION=jump; return
 ;;
 8)
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=10; ACTION=call; return
 ;;
@@ -8580,6 +9011,7 @@ eval "F$((FP+NP+2))=\"\${sht0}\""
 eval "F$((FP+NP+3))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=run_esc_at
 RPC=3; ACTION=call; return
 ;;
@@ -8594,6 +9026,7 @@ eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht0}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${sht3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -8611,6 +9044,7 @@ eval "F$((NFP+1))=\"I:0\""
 eval "F$((NFP+2))=\"\${sht0}\""
 STGV="T:"
 eval "F$((NFP+3))=\"\$STGV\""
+ARGC=4
 CALLEE=run_esc_go
 RPC=1; ACTION=call; return
 ;;
@@ -8651,6 +9085,7 @@ sht3="${R}"
 eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
+ARGC=1
 CALLEE=dsg_str
 RPC=5; ACTION=call; return
 ;;
@@ -8689,6 +9124,7 @@ sht1="${R}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=dsg_list
 RPC=3; ACTION=call; return
 ;;
@@ -8738,6 +9174,7 @@ sht3="${R}"
 eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
+ARGC=1
 CALLEE=dsg_and
 RPC=5; ACTION=call; return
 ;;
@@ -8799,6 +9236,7 @@ sht6="${R}"
 eval "F$((FP+NP+0))=\"\${sht5}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht6}\""
+ARGC=1
 CALLEE=dsg_or
 RPC=5; ACTION=call; return
 ;;
@@ -8881,6 +9319,7 @@ eval "F$((FP+NP+1))=\"\${sht5}\""
 eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht8}\""
+ARGC=1
 CALLEE=cond_zzGif
 RPC=5; ACTION=call; return
 ;;
@@ -9027,6 +9466,7 @@ hp_car "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=case_clause
 RPC=3; ACTION=call; return
 ;;
@@ -9037,6 +9477,7 @@ sht2="${R}"
 eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
+ARGC=1
 CALLEE=case_clauses
 RPC=4; ACTION=call; return
 ;;
@@ -9065,6 +9506,7 @@ sht2="${R}"
 eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
 CALLEE=case_clauses
 RPC=1; ACTION=call; return
 ;;
@@ -9113,6 +9555,7 @@ eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=letzzS_zzGlets
 RPC=3; ACTION=call; return
 ;;
@@ -9172,6 +9615,7 @@ ACTION=jump; return
 eval "F$((FP+NP+0))=\"\${p1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=sh_esc
 RPC=7; ACTION=call; return
 ;;
@@ -9196,6 +9640,7 @@ sht9="T:${p0#??}"
 eval "F$((FP+NP+0))=\"\${p1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht9}\""
+ARGC=1
 CALLEE=sh_esc
 RPC=10; ACTION=call; return
 ;;
@@ -9231,6 +9676,7 @@ eval "F$((NFP+1))=\"\$STGV\""
 eval "F$((NFP+2))=\"\${p1}\""
 STGV="NIL"
 eval "F$((NFP+3))=\"\$STGV\""
+ARGC=4
 CALLEE=lval
 RPC=11; ACTION=call; return
 ;;
@@ -9274,6 +9720,7 @@ eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=3; ACTION=call; return
 ;;
@@ -9285,6 +9732,7 @@ eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=4; ACTION=call; return
 ;;
@@ -9303,6 +9751,7 @@ eval "F$((FP+0))=\"\${sht6}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${sht7}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -9346,6 +9795,7 @@ eval "F$((NFP+0))=\"\${sht5}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=3; ACTION=call; return
 ;;
@@ -9357,6 +9807,7 @@ sht8="${R}"
 eval "F$((FP+NP+0))=\"\${sht7}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht8}\""
+ARGC=1
 CALLEE=tmpn
 RPC=4; ACTION=call; return
 ;;
@@ -9399,6 +9850,7 @@ eval "F$((FP+NP+5))=\"\${sht10}\""
 eval "F$((FP+NP+6))=\"\${sht7}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht17}\""
+ARGC=1
 CALLEE=shval
 RPC=5; ACTION=call; return
 ;;
@@ -9422,6 +9874,7 @@ eval "F$((FP+NP+3))=\"\${sht7}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht16}\""
 eval "F$((NFP+1))=\"\${sht22}\""
+ARGC=2
 CALLEE=emit
 RPC=6; ACTION=call; return
 ;;
@@ -9437,6 +9890,7 @@ eval "F$((FP+NP+2))=\"\${sht10}\""
 eval "F$((FP+NP+3))=\"\${sht7}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht23}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=7; ACTION=call; return
 ;;
@@ -9462,6 +9916,7 @@ eval "F$((FP+0))=\"\${sht11}\""
 eval "F$((FP+1))=\"\${sht15}\""
 eval "F$((FP+2))=\"\${sht24}\""
 eval "F$((FP+3))=\"\${sht25}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -9481,6 +9936,7 @@ eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p2}\""
 eval "F$((NFP+2))=\"\${p3}\""
 eval "F$((NFP+3))=\"\${p4}\""
+ARGC=4
 CALLEE=lbinds
 RPC=1; ACTION=call; return
 ;;
@@ -9505,6 +9961,7 @@ eval "F$((NFP+0))=\"\${p1}\""
 eval "F$((NFP+1))=\"\${sht3}\""
 eval "F$((NFP+2))=\"\${sht4}\""
 eval "F$((NFP+3))=\"\${sht7}\""
+ARGC=4
 CALLEE=lval
 RPC=2; ACTION=call; return
 ;;
@@ -9531,6 +9988,7 @@ eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"\${p4}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=ctest
 RPC=1; ACTION=call; return
 ;;
@@ -9542,6 +10000,7 @@ sht2="${R}"
 eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
+ARGC=1
 CALLEE=b_npc
 RPC=2; ACTION=call; return
 ;;
@@ -9555,6 +10014,7 @@ eval "F$((FP+NP+0))=\"\${sht4}\""
 eval "F$((FP+NP+1))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht5}\""
+ARGC=1
 CALLEE=b_npc
 RPC=3; ACTION=call; return
 ;;
@@ -9571,6 +10031,7 @@ eval "F$((FP+NP+1))=\"\${sht4}\""
 eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht9}\""
+ARGC=1
 CALLEE=b_npc
 RPC=4; ACTION=call; return
 ;;
@@ -9589,6 +10050,7 @@ eval "F$((FP+NP+2))=\"\${sht4}\""
 eval "F$((FP+NP+3))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht13}\""
+ARGC=1
 CALLEE=tmpn
 RPC=5; ACTION=call; return
 ;;
@@ -9608,6 +10070,7 @@ eval "F$((FP+NP+3))=\"\${sht4}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht16}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=6; ACTION=call; return
 ;;
@@ -9625,6 +10088,7 @@ eval "F$((FP+NP+3))=\"\${sht4}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht17}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=7; ACTION=call; return
 ;;
@@ -9642,6 +10106,7 @@ eval "F$((FP+NP+3))=\"\${sht4}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht18}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=8; ACTION=call; return
 ;;
@@ -9659,6 +10124,7 @@ eval "F$((FP+NP+3))=\"\${sht4}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht19}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=9; ACTION=call; return
 ;;
@@ -9687,6 +10153,7 @@ eval "F$((FP+NP+4))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht20}\""
 eval "F$((NFP+1))=\"\${sht29}\""
+ARGC=2
 CALLEE=emit
 RPC=10; ACTION=call; return
 ;;
@@ -9706,6 +10173,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht30}\""
 STGV="T:ACTION=jump; return"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=11; ACTION=call; return
 ;;
@@ -9728,6 +10196,7 @@ eval "F$((FP+NP+7))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht32}\""
 eval "F$((NFP+1))=\"\${sht4}\""
+ARGC=2
 CALLEE=switch
 RPC=12; ACTION=call; return
 ;;
@@ -9752,6 +10221,7 @@ eval "F$((NFP+0))=\"\${p1}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"\${sht33}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=lval
 RPC=13; ACTION=call; return
 ;;
@@ -9780,6 +10250,7 @@ eval "F$((FP+NP+8))=\"\${sht4}\""
 eval "F$((FP+NP+9))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht37}\""
+ARGC=1
 CALLEE=shval
 RPC=14; ACTION=call; return
 ;;
@@ -9809,6 +10280,7 @@ eval "F$((FP+NP+6))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht36}\""
 eval "F$((NFP+1))=\"\${sht42}\""
+ARGC=2
 CALLEE=emit
 RPC=15; ACTION=call; return
 ;;
@@ -9834,6 +10306,7 @@ eval "F$((FP+NP+6))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht43}\""
 eval "F$((NFP+1))=\"\${sht46}\""
+ARGC=2
 CALLEE=emit
 RPC=16; ACTION=call; return
 ;;
@@ -9860,6 +10333,7 @@ eval "F$((FP+NP+9))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht48}\""
 eval "F$((NFP+1))=\"\${sht8}\""
+ARGC=2
 CALLEE=switch
 RPC=17; ACTION=call; return
 ;;
@@ -9888,6 +10362,7 @@ eval "F$((NFP+0))=\"\${p2}\""
 eval "F$((NFP+1))=\"\${p3}\""
 eval "F$((NFP+2))=\"\${sht49}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=lval
 RPC=18; ACTION=call; return
 ;;
@@ -9920,6 +10395,7 @@ eval "F$((FP+NP+10))=\"\${sht4}\""
 eval "F$((FP+NP+11))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht53}\""
+ARGC=1
 CALLEE=shval
 RPC=19; ACTION=call; return
 ;;
@@ -9953,6 +10429,7 @@ eval "F$((FP+NP+8))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht52}\""
 eval "F$((NFP+1))=\"\${sht58}\""
+ARGC=2
 CALLEE=emit
 RPC=20; ACTION=call; return
 ;;
@@ -9982,6 +10459,7 @@ eval "F$((FP+NP+8))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht59}\""
 eval "F$((NFP+1))=\"\${sht62}\""
+ARGC=2
 CALLEE=emit
 RPC=21; ACTION=call; return
 ;;
@@ -10010,6 +10488,7 @@ eval "F$((FP+NP+9))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht64}\""
 eval "F$((NFP+1))=\"\${sht12}\""
+ARGC=2
 CALLEE=switch
 RPC=22; ACTION=call; return
 ;;
@@ -10101,6 +10580,7 @@ eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
 eval "F$((NFP+4))=\"\${p4}\""
 eval "F$((NFP+5))=\"\${p5}\""
+ARGC=6
 CALLEE=ltail
 RPC=3; ACTION=call; return
 ;;
@@ -10112,6 +10592,7 @@ eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p4}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=lval
 RPC=4; ACTION=call; return
 ;;
@@ -10132,6 +10613,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${sht7}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -10152,6 +10634,7 @@ eval "F$((FP+NP+3))=\"\${sht0}\""
 eval "F$((FP+NP+4))=\"\${G_DQ}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=shval
 RPC=1; ACTION=call; return
 ;;
@@ -10194,6 +10677,7 @@ eval "F$((FP+NP+3))=\"\${sht0}\""
 eval "F$((FP+NP+4))=\"\${G_DQ}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=shval
 RPC=1; ACTION=call; return
 ;;
@@ -10229,6 +10713,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=rvar
 RPC=1; ACTION=call; return
 ;;
@@ -10269,6 +10754,7 @@ eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p2}\""
 eval "F$((NFP+2))=\"\${p3}\""
 eval "F$((NFP+3))=\"\${p4}\""
+ARGC=4
 CALLEE=lval
 RPC=1; ACTION=call; return
 ;;
@@ -10280,6 +10766,7 @@ sht4="${R}"
 eval "F$((FP+NP+0))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht4}\""
+ARGC=1
 CALLEE=tmpn
 RPC=2; ACTION=call; return
 ;;
@@ -10299,6 +10786,7 @@ eval "F$((FP+NP+4))=\"\${sht6}\""
 eval "F$((FP+NP+5))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht8}\""
+ARGC=1
 CALLEE=shdet
 RPC=3; ACTION=call; return
 ;;
@@ -10320,6 +10808,7 @@ eval "F$((FP+NP+1))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht7}\""
 eval "F$((NFP+1))=\"\${sht14}\""
+ARGC=2
 CALLEE=emit
 RPC=4; ACTION=call; return
 ;;
@@ -10331,6 +10820,7 @@ eval "F$((FP+NP+0))=\"\${sht6}\""
 eval "F$((FP+NP+1))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht15}\""
+ARGC=1
 CALLEE=bkzzP
 RPC=5; ACTION=call; return
 ;;
@@ -10373,6 +10863,7 @@ hp_car "${p0}"
 sht1="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=cmpchzzQ
 RPC=4; ACTION=call; return
 ;;
@@ -10394,6 +10885,7 @@ hp_cdr "${p0}"
 sht4="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht4}\""
+ARGC=1
 CALLEE=extra_argszzQ
 RPC=8; ACTION=call; return
 ;;
@@ -10418,6 +10910,7 @@ sht7="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht6}\""
 eval "F$((NFP+1))=\"\${sht7}\""
+ARGC=2
 CALLEE=chain_zzGand
 RPC=11; ACTION=call; return
 ;;
@@ -10431,6 +10924,7 @@ eval "F$((FP+0))=\"\${sht8}\""
 eval "F$((FP+1))=\"\${p1}\""
 eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
+ARGC=4
 PC=0; ACTION=tail; return
 ;;
 12)
@@ -10438,6 +10932,7 @@ hp_car "${p0}"
 sht10="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht10}\""
+ARGC=1
 CALLEE=predzzQ
 RPC=15; ACTION=call; return
 ;;
@@ -10466,6 +10961,7 @@ eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=53; ACTION=call; return
 ;;
@@ -10479,6 +10975,7 @@ eval "F$((NFP+0))=\"\${sht14}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=20; ACTION=call; return
 ;;
@@ -10500,6 +10997,7 @@ eval "F$((FP+NP+1))=\"\${sht17}\""
 eval "F$((FP+NP+2))=\"\${sht16}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht18}\""
+ARGC=1
 CALLEE=shval
 RPC=21; ACTION=call; return
 ;;
@@ -10528,6 +11026,7 @@ eval "F$((NFP+0))=\"\${sht27}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=24; ACTION=call; return
 ;;
@@ -10554,6 +11053,7 @@ eval "F$((NFP+0))=\"\${sht32}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht33}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=25; ACTION=call; return
 ;;
@@ -10571,6 +11071,7 @@ eval "F$((FP+NP+2))=\"\${sht35}\""
 eval "F$((FP+NP+3))=\"\${sht29}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht37}\""
+ARGC=1
 CALLEE=shval
 RPC=26; ACTION=call; return
 ;;
@@ -10591,6 +11092,7 @@ eval "F$((FP+NP+5))=\"\${sht35}\""
 eval "F$((FP+NP+6))=\"\${sht29}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht39}\""
+ARGC=1
 CALLEE=shval
 RPC=27; ACTION=call; return
 ;;
@@ -10629,6 +11131,7 @@ eval "F$((NFP+0))=\"\${sht52}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=30; ACTION=call; return
 ;;
@@ -10651,6 +11154,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht56}\""
 STGV="T:P:"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=tagtest
 RPC=31; ACTION=call; return
 ;;
@@ -10674,6 +11178,7 @@ eval "F$((NFP+0))=\"\${sht61}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=34; ACTION=call; return
 ;;
@@ -10696,6 +11201,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht65}\""
 STGV="T:P:"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=natagtest
 RPC=35; ACTION=call; return
 ;;
@@ -10719,6 +11225,7 @@ eval "F$((NFP+0))=\"\${sht70}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=38; ACTION=call; return
 ;;
@@ -10741,6 +11248,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht74}\""
 STGV="T:I:"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=tagtest
 RPC=39; ACTION=call; return
 ;;
@@ -10764,6 +11272,7 @@ eval "F$((NFP+0))=\"\${sht79}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=42; ACTION=call; return
 ;;
@@ -10786,6 +11295,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht83}\""
 STGV="T:T:"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=tagtest
 RPC=43; ACTION=call; return
 ;;
@@ -10809,6 +11319,7 @@ eval "F$((NFP+0))=\"\${sht88}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=46; ACTION=call; return
 ;;
@@ -10822,6 +11333,7 @@ eval "F$((NFP+0))=\"\${sht96}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=48; ACTION=call; return
 ;;
@@ -10838,6 +11350,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht92}\""
 STGV="T:S:"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=tagtest
 RPC=47; ACTION=call; return
 ;;
@@ -10868,6 +11381,7 @@ eval "F$((NFP+0))=\"\${sht101}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht102}\""
 eval "F$((NFP+3))=\"\${p3}\""
+ARGC=4
 CALLEE=lval
 RPC=49; ACTION=call; return
 ;;
@@ -10884,6 +11398,7 @@ eval "F$((FP+NP+1))=\"\${sht104}\""
 eval "F$((FP+NP+2))=\"\${sht98}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht106}\""
+ARGC=1
 CALLEE=shdet
 RPC=50; ACTION=call; return
 ;;
@@ -10900,6 +11415,7 @@ eval "F$((FP+NP+2))=\"\${sht104}\""
 eval "F$((FP+NP+3))=\"\${sht98}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht108}\""
+ARGC=1
 CALLEE=shcmp
 RPC=51; ACTION=call; return
 ;;
@@ -10918,6 +11434,7 @@ eval "F$((FP+NP+3))=\"\${sht104}\""
 eval "F$((FP+NP+4))=\"\${sht98}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht110}\""
+ARGC=1
 CALLEE=shdet
 RPC=52; ACTION=call; return
 ;;
@@ -10954,6 +11471,7 @@ eval "F$((FP+NP+1))=\"\${sht121}\""
 eval "F$((FP+NP+2))=\"\${sht120}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht122}\""
+ARGC=1
 CALLEE=shval
 RPC=54; ACTION=call; return
 ;;
@@ -11017,6 +11535,7 @@ eval "F$((NFP+0))=\"\${sht4}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p4}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=ctest
 RPC=6; ACTION=call; return
 ;;
@@ -11032,6 +11551,7 @@ sht7="${R}"
 eval "F$((FP+NP+0))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht7}\""
+ARGC=1
 CALLEE=b_npc
 RPC=7; ACTION=call; return
 ;;
@@ -11048,6 +11568,7 @@ eval "F$((FP+NP+1))=\"\${sht9}\""
 eval "F$((FP+NP+2))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht12}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=8; ACTION=call; return
 ;;
@@ -11061,6 +11582,7 @@ eval "F$((FP+NP+1))=\"\${sht9}\""
 eval "F$((FP+NP+2))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht13}\""
+ARGC=1
 CALLEE=bnpczzP
 RPC=9; ACTION=call; return
 ;;
@@ -11085,6 +11607,7 @@ eval "F$((FP+NP+2))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht14}\""
 eval "F$((NFP+1))=\"\${sht23}\""
+ARGC=2
 CALLEE=emit
 RPC=10; ACTION=call; return
 ;;
@@ -11100,6 +11623,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht24}\""
 STGV="T:ACTION=jump; return"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=11; ACTION=call; return
 ;;
@@ -11126,6 +11650,7 @@ eval "F$((FP+NP+7))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht26}\""
 eval "F$((NFP+1))=\"\${sht9}\""
+ARGC=2
 CALLEE=switch
 RPC=12; ACTION=call; return
 ;;
@@ -11150,6 +11675,7 @@ eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
 eval "F$((NFP+4))=\"\${sht30}\""
 eval "F$((NFP+5))=\"\${p5}\""
+ARGC=6
 CALLEE=ltail
 RPC=13; ACTION=call; return
 ;;
@@ -11167,6 +11693,7 @@ eval "F$((FP+NP+3))=\"\${sht9}\""
 eval "F$((FP+NP+4))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=cadddr
 RPC=14; ACTION=call; return
 ;;
@@ -11189,6 +11716,7 @@ eval "F$((FP+NP+8))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht32}\""
 eval "F$((NFP+1))=\"\${sht11}\""
+ARGC=2
 CALLEE=switch
 RPC=15; ACTION=call; return
 ;;
@@ -11209,6 +11737,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${sht34}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 16)
@@ -11235,6 +11764,7 @@ hp_cdr "${p0}"
 sht38="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht38}\""
+ARGC=1
 CALLEE=cond_zzGif
 RPC=21; ACTION=call; return
 ;;
@@ -11250,6 +11780,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 22)
@@ -11276,6 +11807,7 @@ hp_cdr "${p0}"
 sht43="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht43}\""
+ARGC=1
 CALLEE=dsg_and
 RPC=27; ACTION=call; return
 ;;
@@ -11291,6 +11823,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 28)
@@ -11317,6 +11850,7 @@ hp_cdr "${p0}"
 sht48="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht48}\""
+ARGC=1
 CALLEE=dsg_or
 RPC=33; ACTION=call; return
 ;;
@@ -11332,6 +11866,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 34)
@@ -11358,6 +11893,7 @@ hp_cdr "${p0}"
 sht53="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht53}\""
+ARGC=1
 CALLEE=dsg_str
 RPC=39; ACTION=call; return
 ;;
@@ -11373,6 +11909,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 40)
@@ -11399,6 +11936,7 @@ hp_cdr "${p0}"
 sht58="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht58}\""
+ARGC=1
 CALLEE=dsg_list
 RPC=45; ACTION=call; return
 ;;
@@ -11414,6 +11952,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 46)
@@ -11447,6 +11986,7 @@ sht66="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht64}\""
 eval "F$((NFP+1))=\"\${sht66}\""
+ARGC=2
 CALLEE=when_zzGif
 RPC=51; ACTION=call; return
 ;;
@@ -11462,6 +12002,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 52)
@@ -11495,6 +12036,7 @@ sht74="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht72}\""
 eval "F$((NFP+1))=\"\${sht74}\""
+ARGC=2
 CALLEE=unless_zzGif
 RPC=57; ACTION=call; return
 ;;
@@ -11510,6 +12052,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 58)
@@ -11543,6 +12086,7 @@ sht82="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht80}\""
 eval "F$((NFP+1))=\"\${sht82}\""
+ARGC=2
 CALLEE=case_zzGcond
 RPC=63; ACTION=call; return
 ;;
@@ -11558,6 +12102,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 64)
@@ -11591,6 +12136,7 @@ sht90="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht88}\""
 eval "F$((NFP+1))=\"\${sht90}\""
+ARGC=2
 CALLEE=letzzS_zzGlets
 RPC=69; ACTION=call; return
 ;;
@@ -11606,6 +12152,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${p4}\""
 eval "F$((FP+5))=\"\${p5}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 70)
@@ -11637,6 +12184,7 @@ eval "F$((NFP+2))=\"\${p2}\""
 eval "F$((NFP+3))=\"\${p3}\""
 eval "F$((NFP+4))=\"\${p4}\""
 eval "F$((NFP+5))=\"\${p5}\""
+ARGC=6
 CALLEE=ltbegin
 RPC=75; ACTION=call; return
 ;;
@@ -11677,6 +12225,7 @@ eval "F$((NFP+0))=\"\${sht101}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p4}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=lbinds
 RPC=81; ACTION=call; return
 ;;
@@ -11711,6 +12260,7 @@ eval "F$((FP+2))=\"\${p2}\""
 eval "F$((FP+3))=\"\${p3}\""
 eval "F$((FP+4))=\"\${sht109}\""
 eval "F$((FP+5))=\"\${sht112}\""
+ARGC=6
 PC=0; ACTION=tail; return
 ;;
 82)
@@ -11740,6 +12290,7 @@ eval "F$((NFP+0))=\"\${sht116}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p4}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=largs
 RPC=87; ACTION=call; return
 ;;
@@ -11749,6 +12300,7 @@ eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p4}\""
 eval "F$((NFP+3))=\"\${p5}\""
+ARGC=4
 CALLEE=lval
 RPC=90; ACTION=call; return
 ;;
@@ -11764,6 +12316,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht119}\""
 eval "F$((NFP+1))=\"\${sht120}\""
 eval "F$((NFP+2))=\"I:0\""
+ARGC=3
 CALLEE=setparams
 RPC=88; ACTION=call; return
 ;;
@@ -11775,6 +12328,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht121}\""
 STGV="T:PC=0; ACTION=tail; return"
 eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
 CALLEE=emit
 RPC=89; ACTION=call; return
 ;;
@@ -11795,6 +12349,7 @@ eval "F$((FP+NP+1))=\"\${sht125}\""
 eval "F$((FP+NP+2))=\"\${sht124}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht126}\""
+ARGC=1
 CALLEE=shval
 RPC=91; ACTION=call; return
 ;;
@@ -11811,6 +12366,7 @@ eval "F$((FP+NP+0))=\"\${sht124}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht125}\""
 eval "F$((NFP+1))=\"\${sht131}\""
+ARGC=2
 CALLEE=emit
 RPC=92; ACTION=call; return
 ;;
@@ -11848,6 +12404,7 @@ eval "F$((FP+NP+0))=\"\${sht3}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht4}\""
 eval "F$((NFP+1))=\"\${sht5}\""
+ARGC=2
 CALLEE=pmap_fr
 RPC=3; ACTION=call; return
 ;;
@@ -11878,6 +12435,7 @@ sht0="T:${p1#??}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 eval "F$((FP+NP+1))=\"\${G_DQ}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=3; ACTION=call; return
 ;;
@@ -11891,6 +12449,7 @@ eval "F$((FP+NP+1))=\"\${sht1}\""
 eval "F$((FP+NP+2))=\"\${sht0}\""
 eval "F$((FP+NP+3))=\"\${G_DQ}\""
 NFP=$FTOP
+ARGC=0
 CALLEE=eqt
 RPC=4; ACTION=call; return
 ;;
@@ -11917,6 +12476,7 @@ eval "F$((FP+NP+0))=\"\${sht13}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht14}\""
 eval "F$((NFP+1))=\"\${sht15}\""
+ARGC=2
 CALLEE=ploads
 RPC=5; ACTION=call; return
 ;;
@@ -11962,6 +12522,7 @@ hp_cdr "${p0}"
 sht4="${R}"
 eval "F$((FP+0))=\"\${sht4}\""
 eval "F$((FP+1))=\"\${p1}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -11987,6 +12548,7 @@ eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=blkget
 RPC=3; ACTION=call; return
 ;;
@@ -12003,6 +12565,7 @@ eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
 eval "F$((NFP+1))=\"\${sht3}\""
+ARGC=2
 CALLEE=append
 RPC=4; ACTION=call; return
 ;;
@@ -12017,6 +12580,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht6}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=caseblocks
 RPC=5; ACTION=call; return
 ;;
@@ -12026,12 +12590,135 @@ sht7="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht5}\""
 eval "F$((NFP+1))=\"\${sht7}\""
+ARGC=2
 CALLEE=append
 RPC=6; ACTION=call; return
 ;;
 6)
 sht8="${R}"
 R="${sht8}"; ACTION=ret; return
+;;
+esac; }
+SIZE_va_collect_sh=5
+va_collect_sh() {
+FTOP=$((FP + SIZE_va_collect_sh))
+NP=0
+case $PC in
+0)
+sht0="T:${G_DQ#??} = 0 ]; then"
+sht1="T:\$PC${sht0#??}"
+sht2="T:${G_DQ#??}${sht1#??}"
+sht3="T:if [ ${sht2#??}"
+eval "F$((FP+NP+0))=\"\${G_DQ}\""
+eval "F$((FP+NP+1))=\"\${G_DQ}\""
+eval "F$((FP+NP+2))=\"\${G_DQ}\""
+eval "F$((FP+NP+3))=\"\${sht3}\""
+NFP=$FTOP
+ARGC=0
+CALLEE=eqt
+RPC=1; ACTION=call; return
+;;
+1)
+eval "G_DQ=\"\$F$((FP+NP+0))\""
+eval "G_DQ=\"\$F$((FP+NP+1))\""
+eval "G_DQ=\"\$F$((FP+NP+2))\""
+eval "sht3=\"\$F$((FP+NP+3))\""
+sht4="${R}"
+eval "F$((FP+NP+0))=\"\${sht4}\""
+eval "F$((FP+NP+1))=\"\${G_DQ}\""
+eval "F$((FP+NP+2))=\"\${G_DQ}\""
+eval "F$((FP+NP+3))=\"\${G_DQ}\""
+eval "F$((FP+NP+4))=\"\${sht3}\""
+NFP=$FTOP
+ARGC=0
+CALLEE=eqt
+RPC=2; ACTION=call; return
+;;
+2)
+eval "sht4=\"\$F$((FP+NP+0))\""
+eval "G_DQ=\"\$F$((FP+NP+1))\""
+eval "G_DQ=\"\$F$((FP+NP+2))\""
+eval "G_DQ=\"\$F$((FP+NP+3))\""
+eval "sht3=\"\$F$((FP+NP+4))\""
+sht5="${R}"
+sht6="T:${G_DQ#??}; _vl=\$R; done"
+sht7="T:\$_vl${sht6#??}"
+sht8="T:${G_DQ#??}${sht7#??}"
+sht9="T: ${sht8#??}"
+sht10="T:${G_DQ#??}${sht9#??}"
+sht11="T:\$_vv${sht10#??}"
+sht12="T:${G_DQ#??}${sht11#??}"
+sht13="T:; hp_cons ${sht12#??}"
+sht14="T:${G_DQ#??}${sht13#??}"
+sht15="T:${sht5#??}${sht14#??}"
+sht16="T:\\\$F\$((FP+_vi))${sht15#??}"
+sht17="T:${sht4#??}${sht16#??}"
+sht18="T:_vv=${sht17#??}"
+sht19="T:${G_DQ#??}${sht18#??}"
+sht20="T: -gt 0 ]; do _vi=\$((_vi-1)); eval ${sht19#??}"
+sht21="T:${G_DQ#??}${sht20#??}"
+sht22="T:\$_vi${sht21#??}"
+sht23="T:${G_DQ#??}${sht22#??}"
+sht24="T:while [ ${sht23#??}"
+eval "F$((FP+NP+0))=\"\${G_DQ}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht3}\""
+NFP=$FTOP
+ARGC=0
+CALLEE=eqt
+RPC=3; ACTION=call; return
+;;
+3)
+eval "G_DQ=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht3=\"\$F$((FP+NP+2))\""
+sht25="${R}"
+eval "F$((FP+NP+0))=\"\${sht25}\""
+eval "F$((FP+NP+1))=\"\${G_DQ}\""
+eval "F$((FP+NP+2))=\"\${sht24}\""
+eval "F$((FP+NP+3))=\"\${sht3}\""
+NFP=$FTOP
+ARGC=0
+CALLEE=eqt
+RPC=4; ACTION=call; return
+;;
+4)
+eval "sht25=\"\$F$((FP+NP+0))\""
+eval "G_DQ=\"\$F$((FP+NP+1))\""
+eval "sht24=\"\$F$((FP+NP+2))\""
+eval "sht3=\"\$F$((FP+NP+3))\""
+sht26="${R}"
+sht27="T:${sht26#??}${G_DQ#??}"
+sht28="T:\\\$_vl${sht27#??}"
+sht29="T:${sht25#??}${sht28#??}"
+sht30="T:F\$FP=${sht29#??}"
+sht31="T:${G_DQ#??}${sht30#??}"
+sht32="T:eval ${sht31#??}"
+eval "F$((FP+NP+0))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht24}\""
+eval "F$((FP+NP+2))=\"\${sht3}\""
+hp_cons "T:fi" "NIL"
+eval "sht32=\"\$F$((FP+NP+0))\""
+eval "sht24=\"\$F$((FP+NP+1))\""
+eval "sht3=\"\$F$((FP+NP+2))\""
+sht33="${R}"
+eval "F$((FP+NP+0))=\"\${sht24}\""
+eval "F$((FP+NP+1))=\"\${sht3}\""
+hp_cons "${sht32}" "${sht33}"
+eval "sht24=\"\$F$((FP+NP+0))\""
+eval "sht3=\"\$F$((FP+NP+1))\""
+sht34="${R}"
+eval "F$((FP+NP+0))=\"\${sht3}\""
+hp_cons "${sht24}" "${sht34}"
+eval "sht3=\"\$F$((FP+NP+0))\""
+sht35="${R}"
+eval "F$((FP+NP+0))=\"\${sht3}\""
+hp_cons "T:_vi=\$ARGC; _vl=NIL" "${sht35}"
+eval "sht3=\"\$F$((FP+NP+0))\""
+sht36="${R}"
+hp_cons "${sht3}" "${sht36}"
+sht37="${R}"
+R="${sht37}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_mkclo_caps=2
@@ -12055,6 +12742,7 @@ sht1="${R}"
 eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=mkclo_caps
 RPC=3; ACTION=call; return
 ;;
@@ -12129,6 +12817,7 @@ eval "F$((FP+NP+0))=\"\${sht18}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht19}\""
 eval "F$((NFP+1))=\"\${sht20}\""
+ARGC=2
 CALLEE=cap_loads_go
 RPC=3; ACTION=call; return
 ;;
@@ -12138,6 +12827,7 @@ sht21="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht18}\""
 eval "F$((NFP+1))=\"\${sht21}\""
+ARGC=2
 CALLEE=append
 RPC=4; ACTION=call; return
 ;;
@@ -12172,6 +12862,7 @@ eval "F$((FP+NP+1))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=cap_loads_go
 RPC=3; ACTION=call; return
 ;;
@@ -12202,81 +12893,107 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p1}\""
-CALLEE=lenl
+ARGC=1
+CALLEE=fs_list
 RPC=1; ACTION=call; return
 ;;
 1)
 sht0="${R}"
-sht1="${sht0}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-hp_cons "S:__gfns" "${p4}"
-eval "sht1=\"\$F$((FP+NP+0))\""
-sht2="${R}"
-eval "F$((FP+NP+0))=\"\${sht2}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
-hp_cons "S:__gvars" "${p5}"
-eval "sht2=\"\$F$((FP+NP+0))\""
-eval "sht1=\"\$F$((FP+NP+1))\""
-sht3="${R}"
-eval "F$((FP+NP+0))=\"\${sht3}\""
-eval "F$((FP+NP+1))=\"\${sht2}\""
-eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p1}\""
-eval "F$((NFP+1))=\"\${p2}\""
-CALLEE=append
+eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
+CALLEE=lenl
 RPC=2; ACTION=call; return
 ;;
 2)
-eval "sht3=\"\$F$((FP+NP+0))\""
-eval "sht2=\"\$F$((FP+NP+1))\""
-eval "sht1=\"\$F$((FP+NP+2))\""
-sht4="${R}"
+sht1="${R}"
+sht2="${sht1}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+hp_cons "S:__gfns" "${p4}"
+eval "sht2=\"\$F$((FP+NP+0))\""
+sht3="${R}"
 eval "F$((FP+NP+0))=\"\${sht3}\""
 eval "F$((FP+NP+1))=\"\${sht2}\""
-eval "F$((FP+NP+2))=\"\${sht1}\""
+hp_cons "S:__gvars" "${p5}"
+eval "sht3=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht4="${R}"
+eval "F$((FP+NP+0))=\"\${sht4}\""
+eval "F$((FP+NP+1))=\"\${sht3}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht4}\""
-eval "F$((NFP+1))=\"I:0\""
-CALLEE=pmap_fr
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=fs_list
 RPC=3; ACTION=call; return
 ;;
 3)
-eval "sht3=\"\$F$((FP+NP+0))\""
-eval "sht2=\"\$F$((FP+NP+1))\""
-eval "sht1=\"\$F$((FP+NP+2))\""
+eval "sht4=\"\$F$((FP+NP+0))\""
+eval "sht3=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
 sht5="${R}"
-eval "F$((FP+NP+0))=\"\${sht2}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
-hp_cons "${sht3}" "${sht5}"
-eval "sht2=\"\$F$((FP+NP+0))\""
-eval "sht1=\"\$F$((FP+NP+1))\""
-sht6="${R}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-hp_cons "${sht2}" "${sht6}"
-eval "sht1=\"\$F$((FP+NP+0))\""
-sht7="${R}"
-sht8="${sht7}"
-sht9="T:${p0#??}"
-eval "F$((FP+NP+0))=\"\${sht8}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
+eval "F$((FP+NP+0))=\"\${sht4}\""
+eval "F$((FP+NP+1))=\"\${sht3}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht9}\""
-CALLEE=sh_mangle
+eval "F$((NFP+0))=\"\${sht5}\""
+eval "F$((NFP+1))=\"\${p2}\""
+ARGC=2
+CALLEE=append
 RPC=4; ACTION=call; return
 ;;
 4)
-eval "sht8=\"\$F$((FP+NP+0))\""
-eval "sht1=\"\$F$((FP+NP+1))\""
-sht10="${R}"
-sht11="${sht10}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
+eval "sht4=\"\$F$((FP+NP+0))\""
+eval "sht3=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
+sht6="${R}"
+eval "F$((FP+NP+0))=\"\${sht4}\""
+eval "F$((FP+NP+1))=\"\${sht3}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht6}\""
+eval "F$((NFP+1))=\"I:0\""
+ARGC=2
+CALLEE=pmap_fr
+RPC=5; ACTION=call; return
+;;
+5)
+eval "sht4=\"\$F$((FP+NP+0))\""
+eval "sht3=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
+sht7="${R}"
+eval "F$((FP+NP+0))=\"\${sht3}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht4}" "${sht7}"
+eval "sht3=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht8="${R}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+hp_cons "${sht3}" "${sht8}"
+eval "sht2=\"\$F$((FP+NP+0))\""
+sht9="${R}"
+sht10="${sht9}"
+sht11="T:${p0#??}"
+eval "F$((FP+NP+0))=\"\${sht10}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht11}\""
+ARGC=1
+CALLEE=sh_mangle
+RPC=6; ACTION=call; return
+;;
+6)
+eval "sht10=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht12="${R}"
+sht13="${sht12}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
 eval "F$((FP+NP+1))=\"\${p0}\""
-eval "F$((FP+NP+2))=\"\${sht8}\""
+eval "F$((FP+NP+2))=\"\${sht10}\""
 eval "F$((FP+NP+3))=\"\${p3}\""
-eval "F$((FP+NP+4))=\"\${sht11}\""
-eval "F$((FP+NP+5))=\"\${sht8}\""
-eval "F$((FP+NP+6))=\"\${sht1}\""
+eval "F$((FP+NP+4))=\"\${sht13}\""
+eval "F$((FP+NP+5))=\"\${sht10}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
 NFP=$FTOP
 STGV="NIL"
 eval "F$((NFP+0))=\"\$STGV\""
@@ -12286,504 +13003,655 @@ eval "F$((NFP+2))=\"I:0\""
 eval "F$((NFP+3))=\"I:1\""
 eval "F$((NFP+4))=\"I:0\""
 eval "F$((NFP+5))=\"I:0\""
+ARGC=6
 CALLEE=mkb
-RPC=5; ACTION=call; return
-;;
-5)
-eval "sht1=\"\$F$((FP+NP+0))\""
-eval "p0=\"\$F$((FP+NP+1))\""
-eval "sht8=\"\$F$((FP+NP+2))\""
-eval "p3=\"\$F$((FP+NP+3))\""
-eval "sht11=\"\$F$((FP+NP+4))\""
-eval "sht8=\"\$F$((FP+NP+5))\""
-eval "sht1=\"\$F$((FP+NP+6))\""
-sht12="${R}"
-eval "F$((FP+NP+0))=\"\${sht11}\""
-eval "F$((FP+NP+1))=\"\${sht8}\""
-eval "F$((FP+NP+2))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p3}\""
-eval "F$((NFP+1))=\"\${sht8}\""
-eval "F$((NFP+2))=\"\${p0}\""
-eval "F$((NFP+3))=\"\${sht1}\""
-eval "F$((NFP+4))=\"\${sht12}\""
-STGV="NIL"
-eval "F$((NFP+5))=\"\$STGV\""
-CALLEE=ltail
-RPC=6; ACTION=call; return
-;;
-6)
-eval "sht11=\"\$F$((FP+NP+0))\""
-eval "sht8=\"\$F$((FP+NP+1))\""
-eval "sht1=\"\$F$((FP+NP+2))\""
-sht13="${R}"
-sht14="${sht13}"
-eval "F$((FP+NP+0))=\"\${sht14}\""
-eval "F$((FP+NP+1))=\"\${sht11}\""
-eval "F$((FP+NP+2))=\"\${sht8}\""
-eval "F$((FP+NP+3))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht14}\""
-CALLEE=b_pc
 RPC=7; ACTION=call; return
 ;;
 7)
-eval "sht14=\"\$F$((FP+NP+0))\""
-eval "sht11=\"\$F$((FP+NP+1))\""
-eval "sht8=\"\$F$((FP+NP+2))\""
-eval "sht1=\"\$F$((FP+NP+3))\""
-sht15="${R}"
-eval "F$((FP+NP+0))=\"\${sht15}\""
-eval "F$((FP+NP+1))=\"\${sht14}\""
-eval "F$((FP+NP+2))=\"\${sht11}\""
-eval "F$((FP+NP+3))=\"\${sht8}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
+eval "sht2=\"\$F$((FP+NP+0))\""
+eval "p0=\"\$F$((FP+NP+1))\""
+eval "sht10=\"\$F$((FP+NP+2))\""
+eval "p3=\"\$F$((FP+NP+3))\""
+eval "sht13=\"\$F$((FP+NP+4))\""
+eval "sht10=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht14="${R}"
+eval "F$((FP+NP+0))=\"\${sht13}\""
+eval "F$((FP+NP+1))=\"\${sht10}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht14}\""
-CALLEE=b_cur
+eval "F$((NFP+0))=\"\${p3}\""
+eval "F$((NFP+1))=\"\${sht10}\""
+eval "F$((NFP+2))=\"\${p0}\""
+eval "F$((NFP+3))=\"\${sht2}\""
+eval "F$((NFP+4))=\"\${sht14}\""
+STGV="NIL"
+eval "F$((NFP+5))=\"\$STGV\""
+ARGC=6
+CALLEE=ltail
 RPC=8; ACTION=call; return
 ;;
 8)
-eval "sht15=\"\$F$((FP+NP+0))\""
-eval "sht14=\"\$F$((FP+NP+1))\""
-eval "sht11=\"\$F$((FP+NP+2))\""
-eval "sht8=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
-sht16="${R}"
-eval "F$((FP+NP+0))=\"\${sht15}\""
-eval "F$((FP+NP+1))=\"\${sht14}\""
-eval "F$((FP+NP+2))=\"\${sht11}\""
-eval "F$((FP+NP+3))=\"\${sht8}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
+eval "sht13=\"\$F$((FP+NP+0))\""
+eval "sht10=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
+sht15="${R}"
+sht16="${sht15}"
+eval "F$((FP+NP+0))=\"\${sht16}\""
+eval "F$((FP+NP+1))=\"\${sht13}\""
+eval "F$((FP+NP+2))=\"\${sht10}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht16}\""
-STGV="NIL"
-eval "F$((NFP+1))=\"\$STGV\""
-CALLEE=rev
+ARGC=1
+CALLEE=b_pc
 RPC=9; ACTION=call; return
 ;;
 9)
-eval "sht15=\"\$F$((FP+NP+0))\""
-eval "sht14=\"\$F$((FP+NP+1))\""
-eval "sht11=\"\$F$((FP+NP+2))\""
-eval "sht8=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
+eval "sht16=\"\$F$((FP+NP+0))\""
+eval "sht13=\"\$F$((FP+NP+1))\""
+eval "sht10=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
 sht17="${R}"
-eval "F$((FP+NP+0))=\"\${sht14}\""
-eval "F$((FP+NP+1))=\"\${sht11}\""
-eval "F$((FP+NP+2))=\"\${sht8}\""
-eval "F$((FP+NP+3))=\"\${sht1}\""
-hp_cons "${sht15}" "${sht17}"
-eval "sht14=\"\$F$((FP+NP+0))\""
-eval "sht11=\"\$F$((FP+NP+1))\""
-eval "sht8=\"\$F$((FP+NP+2))\""
-eval "sht1=\"\$F$((FP+NP+3))\""
-sht18="${R}"
-eval "F$((FP+NP+0))=\"\${sht18}\""
-eval "F$((FP+NP+1))=\"\${sht14}\""
-eval "F$((FP+NP+2))=\"\${sht11}\""
-eval "F$((FP+NP+3))=\"\${sht8}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht16}\""
+eval "F$((FP+NP+2))=\"\${sht13}\""
+eval "F$((FP+NP+3))=\"\${sht10}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht14}\""
-CALLEE=b_blk
+eval "F$((NFP+0))=\"\${sht16}\""
+ARGC=1
+CALLEE=b_cur
 RPC=10; ACTION=call; return
 ;;
 10)
-eval "sht18=\"\$F$((FP+NP+0))\""
-eval "sht14=\"\$F$((FP+NP+1))\""
-eval "sht11=\"\$F$((FP+NP+2))\""
-eval "sht8=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
-sht19="${R}"
-eval "F$((FP+NP+0))=\"\${sht14}\""
-eval "F$((FP+NP+1))=\"\${sht11}\""
-eval "F$((FP+NP+2))=\"\${sht8}\""
-eval "F$((FP+NP+3))=\"\${sht1}\""
-hp_cons "${sht18}" "${sht19}"
-eval "sht14=\"\$F$((FP+NP+0))\""
-eval "sht11=\"\$F$((FP+NP+1))\""
-eval "sht8=\"\$F$((FP+NP+2))\""
-eval "sht1=\"\$F$((FP+NP+3))\""
-sht20="${R}"
-sht21="${sht20}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-eval "F$((FP+NP+1))=\"\${sht21}\""
-eval "F$((FP+NP+2))=\"\${sht14}\""
-eval "F$((FP+NP+3))=\"\${sht11}\""
-eval "F$((FP+NP+4))=\"\${sht8}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht16=\"\$F$((FP+NP+1))\""
+eval "sht13=\"\$F$((FP+NP+2))\""
+eval "sht10=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht18="${R}"
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht16}\""
+eval "F$((FP+NP+2))=\"\${sht13}\""
+eval "F$((FP+NP+3))=\"\${sht10}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht14}\""
-CALLEE=b_smax
+eval "F$((NFP+0))=\"\${sht18}\""
+STGV="NIL"
+eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
+CALLEE=rev
 RPC=11; ACTION=call; return
 ;;
 11)
-eval "sht1=\"\$F$((FP+NP+0))\""
-eval "sht21=\"\$F$((FP+NP+1))\""
-eval "sht14=\"\$F$((FP+NP+2))\""
-eval "sht11=\"\$F$((FP+NP+3))\""
-eval "sht8=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
-sht22="${R}"
-sht23="I:$(( ${sht1#??} + ${sht22#??} ))"
-sht24="${sht23}"
-sht25="T:${sht24#??}"
-sht26="T:=${sht25#??}"
-sht27="T:${sht11#??}${sht26#??}"
-sht28="T:SIZE_${sht27#??}"
-sht29="T:${sht11#??}() {"
-eval "F$((FP+NP+0))=\"\${sht29}\""
-eval "F$((FP+NP+1))=\"\${sht28}\""
-eval "F$((FP+NP+2))=\"\${sht24}\""
-eval "F$((FP+NP+3))=\"\${sht21}\""
-eval "F$((FP+NP+4))=\"\${sht14}\""
-eval "F$((FP+NP+5))=\"\${sht11}\""
-eval "F$((FP+NP+6))=\"\${sht8}\""
-eval "F$((FP+NP+7))=\"\${sht1}\""
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht16=\"\$F$((FP+NP+1))\""
+eval "sht13=\"\$F$((FP+NP+2))\""
+eval "sht10=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht19="${R}"
+eval "F$((FP+NP+0))=\"\${sht16}\""
+eval "F$((FP+NP+1))=\"\${sht13}\""
+eval "F$((FP+NP+2))=\"\${sht10}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+hp_cons "${sht17}" "${sht19}"
+eval "sht16=\"\$F$((FP+NP+0))\""
+eval "sht13=\"\$F$((FP+NP+1))\""
+eval "sht10=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht20="${R}"
+eval "F$((FP+NP+0))=\"\${sht20}\""
+eval "F$((FP+NP+1))=\"\${sht16}\""
+eval "F$((FP+NP+2))=\"\${sht13}\""
+eval "F$((FP+NP+3))=\"\${sht10}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p1}\""
-eval "F$((NFP+1))=\"I:0\""
-CALLEE=ploads
+eval "F$((NFP+0))=\"\${sht16}\""
+ARGC=1
+CALLEE=b_blk
 RPC=12; ACTION=call; return
 ;;
 12)
-eval "sht29=\"\$F$((FP+NP+0))\""
-eval "sht28=\"\$F$((FP+NP+1))\""
-eval "sht24=\"\$F$((FP+NP+2))\""
-eval "sht21=\"\$F$((FP+NP+3))\""
-eval "sht14=\"\$F$((FP+NP+4))\""
-eval "sht11=\"\$F$((FP+NP+5))\""
-eval "sht8=\"\$F$((FP+NP+6))\""
-eval "sht1=\"\$F$((FP+NP+7))\""
-sht30="${R}"
-eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht29}\""
-eval "F$((FP+NP+2))=\"\${sht28}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht21}\""
-eval "F$((FP+NP+5))=\"\${sht14}\""
-eval "F$((FP+NP+6))=\"\${sht11}\""
-eval "F$((FP+NP+7))=\"\${sht8}\""
-eval "F$((FP+NP+8))=\"\${sht1}\""
+eval "sht20=\"\$F$((FP+NP+0))\""
+eval "sht16=\"\$F$((FP+NP+1))\""
+eval "sht13=\"\$F$((FP+NP+2))\""
+eval "sht10=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht21="${R}"
+eval "F$((FP+NP+0))=\"\${sht16}\""
+eval "F$((FP+NP+1))=\"\${sht13}\""
+eval "F$((FP+NP+2))=\"\${sht10}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+hp_cons "${sht20}" "${sht21}"
+eval "sht16=\"\$F$((FP+NP+0))\""
+eval "sht13=\"\$F$((FP+NP+1))\""
+eval "sht10=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht22="${R}"
+sht23="${sht22}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+eval "F$((FP+NP+1))=\"\${sht23}\""
+eval "F$((FP+NP+2))=\"\${sht16}\""
+eval "F$((FP+NP+3))=\"\${sht13}\""
+eval "F$((FP+NP+4))=\"\${sht10}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p2}\""
-eval "F$((NFP+1))=\"\${sht1}\""
-CALLEE=cap_loads
+eval "F$((NFP+0))=\"\${sht16}\""
+ARGC=1
+CALLEE=b_smax
 RPC=13; ACTION=call; return
 ;;
 13)
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht29=\"\$F$((FP+NP+1))\""
-eval "sht28=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht21=\"\$F$((FP+NP+4))\""
-eval "sht14=\"\$F$((FP+NP+5))\""
-eval "sht11=\"\$F$((FP+NP+6))\""
-eval "sht8=\"\$F$((FP+NP+7))\""
-eval "sht1=\"\$F$((FP+NP+8))\""
-sht31="${R}"
-sht32="T:${sht11#??}))"
-sht33="T:FTOP=\$((FP + SIZE_${sht32#??}"
-sht34="T:${sht1#??}"
-sht35="T:NP=${sht34#??}"
-eval "F$((FP+NP+0))=\"\${sht21}\""
-eval "F$((FP+NP+1))=\"\${sht35}\""
-eval "F$((FP+NP+2))=\"\${sht33}\""
-eval "F$((FP+NP+3))=\"\${sht31}\""
-eval "F$((FP+NP+4))=\"\${sht30}\""
-eval "F$((FP+NP+5))=\"\${sht29}\""
-eval "F$((FP+NP+6))=\"\${sht28}\""
-eval "F$((FP+NP+7))=\"\${sht24}\""
-eval "F$((FP+NP+8))=\"\${sht21}\""
-eval "F$((FP+NP+9))=\"\${sht14}\""
-eval "F$((FP+NP+10))=\"\${sht11}\""
-eval "F$((FP+NP+11))=\"\${sht8}\""
-eval "F$((FP+NP+12))=\"\${sht1}\""
+eval "sht2=\"\$F$((FP+NP+0))\""
+eval "sht23=\"\$F$((FP+NP+1))\""
+eval "sht16=\"\$F$((FP+NP+2))\""
+eval "sht13=\"\$F$((FP+NP+3))\""
+eval "sht10=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht24="${R}"
+sht25="I:$(( ${sht2#??} + ${sht24#??} ))"
+sht26="${sht25}"
+sht27="T:${sht26#??}"
+sht28="T:=${sht27#??}"
+sht29="T:${sht13#??}${sht28#??}"
+sht30="T:SIZE_${sht29#??}"
+sht31="T:${sht13#??}() {"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht16}\""
+eval "F$((FP+NP+5))=\"\${sht13}\""
+eval "F$((FP+NP+6))=\"\${sht10}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht14}\""
-CALLEE=b_npc
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=varargszzQ
 RPC=14; ACTION=call; return
 ;;
 14)
-eval "sht21=\"\$F$((FP+NP+0))\""
-eval "sht35=\"\$F$((FP+NP+1))\""
-eval "sht33=\"\$F$((FP+NP+2))\""
-eval "sht31=\"\$F$((FP+NP+3))\""
-eval "sht30=\"\$F$((FP+NP+4))\""
-eval "sht29=\"\$F$((FP+NP+5))\""
-eval "sht28=\"\$F$((FP+NP+6))\""
-eval "sht24=\"\$F$((FP+NP+7))\""
-eval "sht21=\"\$F$((FP+NP+8))\""
-eval "sht14=\"\$F$((FP+NP+9))\""
-eval "sht11=\"\$F$((FP+NP+10))\""
-eval "sht8=\"\$F$((FP+NP+11))\""
-eval "sht1=\"\$F$((FP+NP+12))\""
-sht36="${R}"
-eval "F$((FP+NP+0))=\"\${sht35}\""
-eval "F$((FP+NP+1))=\"\${sht33}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht30}\""
-eval "F$((FP+NP+4))=\"\${sht29}\""
-eval "F$((FP+NP+5))=\"\${sht28}\""
-eval "F$((FP+NP+6))=\"\${sht24}\""
-eval "F$((FP+NP+7))=\"\${sht21}\""
-eval "F$((FP+NP+8))=\"\${sht14}\""
-eval "F$((FP+NP+9))=\"\${sht11}\""
-eval "F$((FP+NP+10))=\"\${sht8}\""
-eval "F$((FP+NP+11))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht21}\""
-eval "F$((NFP+1))=\"I:0\""
-eval "F$((NFP+2))=\"\${sht36}\""
-CALLEE=caseblocks
-RPC=15; ACTION=call; return
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht16=\"\$F$((FP+NP+4))\""
+eval "sht13=\"\$F$((FP+NP+5))\""
+eval "sht10=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht32="${R}"
+if [ "${sht32}" != NIL ]; then PC=15; else PC=16; fi
+ACTION=jump; return
 ;;
 15)
-eval "sht35=\"\$F$((FP+NP+0))\""
-eval "sht33=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht30=\"\$F$((FP+NP+3))\""
-eval "sht29=\"\$F$((FP+NP+4))\""
-eval "sht28=\"\$F$((FP+NP+5))\""
-eval "sht24=\"\$F$((FP+NP+6))\""
-eval "sht21=\"\$F$((FP+NP+7))\""
-eval "sht14=\"\$F$((FP+NP+8))\""
-eval "sht11=\"\$F$((FP+NP+9))\""
-eval "sht8=\"\$F$((FP+NP+10))\""
-eval "sht1=\"\$F$((FP+NP+11))\""
-sht37="${R}"
-eval "F$((FP+NP+0))=\"\${sht35}\""
-eval "F$((FP+NP+1))=\"\${sht33}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht30}\""
-eval "F$((FP+NP+4))=\"\${sht29}\""
-eval "F$((FP+NP+5))=\"\${sht28}\""
-eval "F$((FP+NP+6))=\"\${sht24}\""
-eval "F$((FP+NP+7))=\"\${sht21}\""
-eval "F$((FP+NP+8))=\"\${sht14}\""
-eval "F$((FP+NP+9))=\"\${sht11}\""
-eval "F$((FP+NP+10))=\"\${sht8}\""
-eval "F$((FP+NP+11))=\"\${sht1}\""
-hp_cons "T:case \$PC in" "${sht37}"
-eval "sht35=\"\$F$((FP+NP+0))\""
-eval "sht33=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht30=\"\$F$((FP+NP+3))\""
-eval "sht29=\"\$F$((FP+NP+4))\""
-eval "sht28=\"\$F$((FP+NP+5))\""
-eval "sht24=\"\$F$((FP+NP+6))\""
-eval "sht21=\"\$F$((FP+NP+7))\""
-eval "sht14=\"\$F$((FP+NP+8))\""
-eval "sht11=\"\$F$((FP+NP+9))\""
-eval "sht8=\"\$F$((FP+NP+10))\""
-eval "sht1=\"\$F$((FP+NP+11))\""
-sht38="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht16}\""
+eval "F$((FP+NP+5))=\"\${sht13}\""
+eval "F$((FP+NP+6))=\"\${sht10}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+ARGC=0
+CALLEE=va_collect_sh
+RPC=18; ACTION=call; return
+;;
+16)
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht16}\""
+eval "F$((FP+NP+5))=\"\${sht13}\""
+eval "F$((FP+NP+6))=\"\${sht10}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p1}\""
+eval "F$((NFP+1))=\"I:0\""
+ARGC=2
+CALLEE=ploads
+RPC=22; ACTION=call; return
+;;
+17)
 eval "F$((FP+NP+0))=\"\${sht33}\""
 eval "F$((FP+NP+1))=\"\${sht31}\""
 eval "F$((FP+NP+2))=\"\${sht30}\""
-eval "F$((FP+NP+3))=\"\${sht29}\""
-eval "F$((FP+NP+4))=\"\${sht28}\""
-eval "F$((FP+NP+5))=\"\${sht24}\""
-eval "F$((FP+NP+6))=\"\${sht21}\""
-eval "F$((FP+NP+7))=\"\${sht14}\""
-eval "F$((FP+NP+8))=\"\${sht11}\""
-eval "F$((FP+NP+9))=\"\${sht8}\""
-eval "F$((FP+NP+10))=\"\${sht1}\""
-hp_cons "${sht35}" "${sht38}"
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht16}\""
+eval "F$((FP+NP+6))=\"\${sht13}\""
+eval "F$((FP+NP+7))=\"\${sht10}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p2}\""
+eval "F$((NFP+1))=\"\${sht2}\""
+ARGC=2
+CALLEE=cap_loads
+RPC=23; ACTION=call; return
+;;
+18)
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht16=\"\$F$((FP+NP+4))\""
+eval "sht13=\"\$F$((FP+NP+5))\""
+eval "sht10=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht34="${R}"
+eval "F$((FP+NP+0))=\"\${sht34}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht16}\""
+eval "F$((FP+NP+6))=\"\${sht13}\""
+eval "F$((FP+NP+7))=\"\${sht10}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=fs_list
+RPC=19; ACTION=call; return
+;;
+19)
+eval "sht34=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht16=\"\$F$((FP+NP+5))\""
+eval "sht13=\"\$F$((FP+NP+6))\""
+eval "sht10=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht35="${R}"
+eval "F$((FP+NP+0))=\"\${sht34}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht16}\""
+eval "F$((FP+NP+6))=\"\${sht13}\""
+eval "F$((FP+NP+7))=\"\${sht10}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht35}\""
+eval "F$((NFP+1))=\"I:0\""
+ARGC=2
+CALLEE=ploads
+RPC=20; ACTION=call; return
+;;
+20)
+eval "sht34=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht16=\"\$F$((FP+NP+5))\""
+eval "sht13=\"\$F$((FP+NP+6))\""
+eval "sht10=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht36="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht16}\""
+eval "F$((FP+NP+5))=\"\${sht13}\""
+eval "F$((FP+NP+6))=\"\${sht10}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht34}\""
+eval "F$((NFP+1))=\"\${sht36}\""
+ARGC=2
+CALLEE=append
+RPC=21; ACTION=call; return
+;;
+21)
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht16=\"\$F$((FP+NP+4))\""
+eval "sht13=\"\$F$((FP+NP+5))\""
+eval "sht10=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht37="${R}"
+sht33="${sht37}"
+PC=17; ACTION=jump; return
+;;
+22)
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht16=\"\$F$((FP+NP+4))\""
+eval "sht13=\"\$F$((FP+NP+5))\""
+eval "sht10=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht38="${R}"
+sht33="${sht38}"
+PC=17; ACTION=jump; return
+;;
+23)
 eval "sht33=\"\$F$((FP+NP+0))\""
 eval "sht31=\"\$F$((FP+NP+1))\""
 eval "sht30=\"\$F$((FP+NP+2))\""
-eval "sht29=\"\$F$((FP+NP+3))\""
-eval "sht28=\"\$F$((FP+NP+4))\""
-eval "sht24=\"\$F$((FP+NP+5))\""
-eval "sht21=\"\$F$((FP+NP+6))\""
-eval "sht14=\"\$F$((FP+NP+7))\""
-eval "sht11=\"\$F$((FP+NP+8))\""
-eval "sht8=\"\$F$((FP+NP+9))\""
-eval "sht1=\"\$F$((FP+NP+10))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht16=\"\$F$((FP+NP+5))\""
+eval "sht13=\"\$F$((FP+NP+6))\""
+eval "sht10=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
 sht39="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht30}\""
-eval "F$((FP+NP+2))=\"\${sht29}\""
-eval "F$((FP+NP+3))=\"\${sht28}\""
-eval "F$((FP+NP+4))=\"\${sht24}\""
-eval "F$((FP+NP+5))=\"\${sht21}\""
-eval "F$((FP+NP+6))=\"\${sht14}\""
-eval "F$((FP+NP+7))=\"\${sht11}\""
-eval "F$((FP+NP+8))=\"\${sht8}\""
-eval "F$((FP+NP+9))=\"\${sht1}\""
-hp_cons "${sht33}" "${sht39}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht30=\"\$F$((FP+NP+1))\""
-eval "sht29=\"\$F$((FP+NP+2))\""
-eval "sht28=\"\$F$((FP+NP+3))\""
-eval "sht24=\"\$F$((FP+NP+4))\""
-eval "sht21=\"\$F$((FP+NP+5))\""
-eval "sht14=\"\$F$((FP+NP+6))\""
-eval "sht11=\"\$F$((FP+NP+7))\""
-eval "sht8=\"\$F$((FP+NP+8))\""
-eval "sht1=\"\$F$((FP+NP+9))\""
-sht40="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht30}\""
-eval "F$((FP+NP+2))=\"\${sht29}\""
-eval "F$((FP+NP+3))=\"\${sht28}\""
-eval "F$((FP+NP+4))=\"\${sht24}\""
-eval "F$((FP+NP+5))=\"\${sht21}\""
-eval "F$((FP+NP+6))=\"\${sht14}\""
-eval "F$((FP+NP+7))=\"\${sht11}\""
-eval "F$((FP+NP+8))=\"\${sht8}\""
-eval "F$((FP+NP+9))=\"\${sht1}\""
-hp_cons "T:R=\$_clrs" "${sht40}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht30=\"\$F$((FP+NP+1))\""
-eval "sht29=\"\$F$((FP+NP+2))\""
-eval "sht28=\"\$F$((FP+NP+3))\""
-eval "sht24=\"\$F$((FP+NP+4))\""
-eval "sht21=\"\$F$((FP+NP+5))\""
-eval "sht14=\"\$F$((FP+NP+6))\""
-eval "sht11=\"\$F$((FP+NP+7))\""
-eval "sht8=\"\$F$((FP+NP+8))\""
-eval "sht1=\"\$F$((FP+NP+9))\""
-sht41="${R}"
-eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht29}\""
-eval "F$((FP+NP+2))=\"\${sht28}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht21}\""
-eval "F$((FP+NP+5))=\"\${sht14}\""
-eval "F$((FP+NP+6))=\"\${sht11}\""
-eval "F$((FP+NP+7))=\"\${sht8}\""
-eval "F$((FP+NP+8))=\"\${sht1}\""
+sht40="T:${sht13#??}))"
+sht41="T:FTOP=\$((FP + SIZE_${sht40#??}"
+sht42="T:${sht2#??}"
+sht43="T:NP=${sht42#??}"
+eval "F$((FP+NP+0))=\"\${sht23}\""
+eval "F$((FP+NP+1))=\"\${sht43}\""
+eval "F$((FP+NP+2))=\"\${sht41}\""
+eval "F$((FP+NP+3))=\"\${sht39}\""
+eval "F$((FP+NP+4))=\"\${sht33}\""
+eval "F$((FP+NP+5))=\"\${sht31}\""
+eval "F$((FP+NP+6))=\"\${sht30}\""
+eval "F$((FP+NP+7))=\"\${sht26}\""
+eval "F$((FP+NP+8))=\"\${sht23}\""
+eval "F$((FP+NP+9))=\"\${sht16}\""
+eval "F$((FP+NP+10))=\"\${sht13}\""
+eval "F$((FP+NP+11))=\"\${sht10}\""
+eval "F$((FP+NP+12))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht31}\""
-eval "F$((NFP+1))=\"\${sht41}\""
-CALLEE=append
-RPC=16; ACTION=call; return
+eval "F$((NFP+0))=\"\${sht16}\""
+ARGC=1
+CALLEE=b_npc
+RPC=24; ACTION=call; return
 ;;
-16)
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht29=\"\$F$((FP+NP+1))\""
-eval "sht28=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht21=\"\$F$((FP+NP+4))\""
-eval "sht14=\"\$F$((FP+NP+5))\""
-eval "sht11=\"\$F$((FP+NP+6))\""
-eval "sht8=\"\$F$((FP+NP+7))\""
-eval "sht1=\"\$F$((FP+NP+8))\""
-sht42="${R}"
-eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht29}\""
-eval "F$((FP+NP+2))=\"\${sht28}\""
-eval "F$((FP+NP+3))=\"\${sht24}\""
-eval "F$((FP+NP+4))=\"\${sht21}\""
-eval "F$((FP+NP+5))=\"\${sht14}\""
-eval "F$((FP+NP+6))=\"\${sht11}\""
-eval "F$((FP+NP+7))=\"\${sht8}\""
-eval "F$((FP+NP+8))=\"\${sht1}\""
-hp_cons "T:_clrs=\$R" "${sht42}"
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht29=\"\$F$((FP+NP+1))\""
-eval "sht28=\"\$F$((FP+NP+2))\""
-eval "sht24=\"\$F$((FP+NP+3))\""
-eval "sht21=\"\$F$((FP+NP+4))\""
-eval "sht14=\"\$F$((FP+NP+5))\""
-eval "sht11=\"\$F$((FP+NP+6))\""
-eval "sht8=\"\$F$((FP+NP+7))\""
-eval "sht1=\"\$F$((FP+NP+8))\""
-sht43="${R}"
-eval "F$((FP+NP+0))=\"\${sht29}\""
-eval "F$((FP+NP+1))=\"\${sht28}\""
-eval "F$((FP+NP+2))=\"\${sht24}\""
-eval "F$((FP+NP+3))=\"\${sht21}\""
-eval "F$((FP+NP+4))=\"\${sht14}\""
-eval "F$((FP+NP+5))=\"\${sht11}\""
-eval "F$((FP+NP+6))=\"\${sht8}\""
-eval "F$((FP+NP+7))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht30}\""
-eval "F$((NFP+1))=\"\${sht43}\""
-CALLEE=append
-RPC=17; ACTION=call; return
-;;
-17)
-eval "sht29=\"\$F$((FP+NP+0))\""
-eval "sht28=\"\$F$((FP+NP+1))\""
-eval "sht24=\"\$F$((FP+NP+2))\""
-eval "sht21=\"\$F$((FP+NP+3))\""
-eval "sht14=\"\$F$((FP+NP+4))\""
-eval "sht11=\"\$F$((FP+NP+5))\""
-eval "sht8=\"\$F$((FP+NP+6))\""
-eval "sht1=\"\$F$((FP+NP+7))\""
+24)
+eval "sht23=\"\$F$((FP+NP+0))\""
+eval "sht43=\"\$F$((FP+NP+1))\""
+eval "sht41=\"\$F$((FP+NP+2))\""
+eval "sht39=\"\$F$((FP+NP+3))\""
+eval "sht33=\"\$F$((FP+NP+4))\""
+eval "sht31=\"\$F$((FP+NP+5))\""
+eval "sht30=\"\$F$((FP+NP+6))\""
+eval "sht26=\"\$F$((FP+NP+7))\""
+eval "sht23=\"\$F$((FP+NP+8))\""
+eval "sht16=\"\$F$((FP+NP+9))\""
+eval "sht13=\"\$F$((FP+NP+10))\""
+eval "sht10=\"\$F$((FP+NP+11))\""
+eval "sht2=\"\$F$((FP+NP+12))\""
 sht44="${R}"
-eval "F$((FP+NP+0))=\"\${sht28}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht21}\""
-eval "F$((FP+NP+3))=\"\${sht14}\""
-eval "F$((FP+NP+4))=\"\${sht11}\""
-eval "F$((FP+NP+5))=\"\${sht8}\""
-eval "F$((FP+NP+6))=\"\${sht1}\""
-hp_cons "${sht29}" "${sht44}"
-eval "sht28=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht21=\"\$F$((FP+NP+2))\""
-eval "sht14=\"\$F$((FP+NP+3))\""
-eval "sht11=\"\$F$((FP+NP+4))\""
-eval "sht8=\"\$F$((FP+NP+5))\""
-eval "sht1=\"\$F$((FP+NP+6))\""
-sht45="${R}"
-eval "F$((FP+NP+0))=\"\${sht24}\""
-eval "F$((FP+NP+1))=\"\${sht21}\""
-eval "F$((FP+NP+2))=\"\${sht14}\""
-eval "F$((FP+NP+3))=\"\${sht11}\""
-eval "F$((FP+NP+4))=\"\${sht8}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
-hp_cons "${sht28}" "${sht45}"
-eval "sht24=\"\$F$((FP+NP+0))\""
-eval "sht21=\"\$F$((FP+NP+1))\""
-eval "sht14=\"\$F$((FP+NP+2))\""
-eval "sht11=\"\$F$((FP+NP+3))\""
-eval "sht8=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
-sht46="${R}"
-eval "F$((FP+NP+0))=\"\${sht46}\""
-eval "F$((FP+NP+1))=\"\${sht24}\""
-eval "F$((FP+NP+2))=\"\${sht21}\""
-eval "F$((FP+NP+3))=\"\${sht14}\""
-eval "F$((FP+NP+4))=\"\${sht11}\""
-eval "F$((FP+NP+5))=\"\${sht8}\""
-eval "F$((FP+NP+6))=\"\${sht1}\""
-hp_cons "T:esac; }" "NIL"
-eval "sht46=\"\$F$((FP+NP+0))\""
-eval "sht24=\"\$F$((FP+NP+1))\""
-eval "sht21=\"\$F$((FP+NP+2))\""
-eval "sht14=\"\$F$((FP+NP+3))\""
-eval "sht11=\"\$F$((FP+NP+4))\""
-eval "sht8=\"\$F$((FP+NP+5))\""
-eval "sht1=\"\$F$((FP+NP+6))\""
-sht47="${R}"
-eval "F$((FP+NP+0))=\"\${sht24}\""
-eval "F$((FP+NP+1))=\"\${sht21}\""
-eval "F$((FP+NP+2))=\"\${sht14}\""
-eval "F$((FP+NP+3))=\"\${sht11}\""
-eval "F$((FP+NP+4))=\"\${sht8}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
+eval "F$((FP+NP+0))=\"\${sht43}\""
+eval "F$((FP+NP+1))=\"\${sht41}\""
+eval "F$((FP+NP+2))=\"\${sht39}\""
+eval "F$((FP+NP+3))=\"\${sht33}\""
+eval "F$((FP+NP+4))=\"\${sht31}\""
+eval "F$((FP+NP+5))=\"\${sht30}\""
+eval "F$((FP+NP+6))=\"\${sht26}\""
+eval "F$((FP+NP+7))=\"\${sht23}\""
+eval "F$((FP+NP+8))=\"\${sht16}\""
+eval "F$((FP+NP+9))=\"\${sht13}\""
+eval "F$((FP+NP+10))=\"\${sht10}\""
+eval "F$((FP+NP+11))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht46}\""
-eval "F$((NFP+1))=\"\${sht47}\""
-CALLEE=append
-RPC=18; ACTION=call; return
+eval "F$((NFP+0))=\"\${sht23}\""
+eval "F$((NFP+1))=\"I:0\""
+eval "F$((NFP+2))=\"\${sht44}\""
+ARGC=3
+CALLEE=caseblocks
+RPC=25; ACTION=call; return
 ;;
-18)
-eval "sht24=\"\$F$((FP+NP+0))\""
-eval "sht21=\"\$F$((FP+NP+1))\""
-eval "sht14=\"\$F$((FP+NP+2))\""
-eval "sht11=\"\$F$((FP+NP+3))\""
-eval "sht8=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
+25)
+eval "sht43=\"\$F$((FP+NP+0))\""
+eval "sht41=\"\$F$((FP+NP+1))\""
+eval "sht39=\"\$F$((FP+NP+2))\""
+eval "sht33=\"\$F$((FP+NP+3))\""
+eval "sht31=\"\$F$((FP+NP+4))\""
+eval "sht30=\"\$F$((FP+NP+5))\""
+eval "sht26=\"\$F$((FP+NP+6))\""
+eval "sht23=\"\$F$((FP+NP+7))\""
+eval "sht16=\"\$F$((FP+NP+8))\""
+eval "sht13=\"\$F$((FP+NP+9))\""
+eval "sht10=\"\$F$((FP+NP+10))\""
+eval "sht2=\"\$F$((FP+NP+11))\""
+sht45="${R}"
+eval "F$((FP+NP+0))=\"\${sht43}\""
+eval "F$((FP+NP+1))=\"\${sht41}\""
+eval "F$((FP+NP+2))=\"\${sht39}\""
+eval "F$((FP+NP+3))=\"\${sht33}\""
+eval "F$((FP+NP+4))=\"\${sht31}\""
+eval "F$((FP+NP+5))=\"\${sht30}\""
+eval "F$((FP+NP+6))=\"\${sht26}\""
+eval "F$((FP+NP+7))=\"\${sht23}\""
+eval "F$((FP+NP+8))=\"\${sht16}\""
+eval "F$((FP+NP+9))=\"\${sht13}\""
+eval "F$((FP+NP+10))=\"\${sht10}\""
+eval "F$((FP+NP+11))=\"\${sht2}\""
+hp_cons "T:case \$PC in" "${sht45}"
+eval "sht43=\"\$F$((FP+NP+0))\""
+eval "sht41=\"\$F$((FP+NP+1))\""
+eval "sht39=\"\$F$((FP+NP+2))\""
+eval "sht33=\"\$F$((FP+NP+3))\""
+eval "sht31=\"\$F$((FP+NP+4))\""
+eval "sht30=\"\$F$((FP+NP+5))\""
+eval "sht26=\"\$F$((FP+NP+6))\""
+eval "sht23=\"\$F$((FP+NP+7))\""
+eval "sht16=\"\$F$((FP+NP+8))\""
+eval "sht13=\"\$F$((FP+NP+9))\""
+eval "sht10=\"\$F$((FP+NP+10))\""
+eval "sht2=\"\$F$((FP+NP+11))\""
+sht46="${R}"
+eval "F$((FP+NP+0))=\"\${sht41}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht31}\""
+eval "F$((FP+NP+4))=\"\${sht30}\""
+eval "F$((FP+NP+5))=\"\${sht26}\""
+eval "F$((FP+NP+6))=\"\${sht23}\""
+eval "F$((FP+NP+7))=\"\${sht16}\""
+eval "F$((FP+NP+8))=\"\${sht13}\""
+eval "F$((FP+NP+9))=\"\${sht10}\""
+eval "F$((FP+NP+10))=\"\${sht2}\""
+hp_cons "${sht43}" "${sht46}"
+eval "sht41=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht31=\"\$F$((FP+NP+3))\""
+eval "sht30=\"\$F$((FP+NP+4))\""
+eval "sht26=\"\$F$((FP+NP+5))\""
+eval "sht23=\"\$F$((FP+NP+6))\""
+eval "sht16=\"\$F$((FP+NP+7))\""
+eval "sht13=\"\$F$((FP+NP+8))\""
+eval "sht10=\"\$F$((FP+NP+9))\""
+eval "sht2=\"\$F$((FP+NP+10))\""
+sht47="${R}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht26}\""
+eval "F$((FP+NP+5))=\"\${sht23}\""
+eval "F$((FP+NP+6))=\"\${sht16}\""
+eval "F$((FP+NP+7))=\"\${sht13}\""
+eval "F$((FP+NP+8))=\"\${sht10}\""
+eval "F$((FP+NP+9))=\"\${sht2}\""
+hp_cons "${sht41}" "${sht47}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht26=\"\$F$((FP+NP+4))\""
+eval "sht23=\"\$F$((FP+NP+5))\""
+eval "sht16=\"\$F$((FP+NP+6))\""
+eval "sht13=\"\$F$((FP+NP+7))\""
+eval "sht10=\"\$F$((FP+NP+8))\""
+eval "sht2=\"\$F$((FP+NP+9))\""
 sht48="${R}"
-R="${sht48}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht26}\""
+eval "F$((FP+NP+5))=\"\${sht23}\""
+eval "F$((FP+NP+6))=\"\${sht16}\""
+eval "F$((FP+NP+7))=\"\${sht13}\""
+eval "F$((FP+NP+8))=\"\${sht10}\""
+eval "F$((FP+NP+9))=\"\${sht2}\""
+hp_cons "T:R=\$_clrs" "${sht48}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht26=\"\$F$((FP+NP+4))\""
+eval "sht23=\"\$F$((FP+NP+5))\""
+eval "sht16=\"\$F$((FP+NP+6))\""
+eval "sht13=\"\$F$((FP+NP+7))\""
+eval "sht10=\"\$F$((FP+NP+8))\""
+eval "sht2=\"\$F$((FP+NP+9))\""
+sht49="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht16}\""
+eval "F$((FP+NP+6))=\"\${sht13}\""
+eval "F$((FP+NP+7))=\"\${sht10}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht39}\""
+eval "F$((NFP+1))=\"\${sht49}\""
+ARGC=2
+CALLEE=append
+RPC=26; ACTION=call; return
+;;
+26)
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht16=\"\$F$((FP+NP+5))\""
+eval "sht13=\"\$F$((FP+NP+6))\""
+eval "sht10=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht50="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht26}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht16}\""
+eval "F$((FP+NP+6))=\"\${sht13}\""
+eval "F$((FP+NP+7))=\"\${sht10}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+hp_cons "T:_clrs=\$R" "${sht50}"
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht26=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht16=\"\$F$((FP+NP+5))\""
+eval "sht13=\"\$F$((FP+NP+6))\""
+eval "sht10=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht51="${R}"
+eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht26}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht16}\""
+eval "F$((FP+NP+5))=\"\${sht13}\""
+eval "F$((FP+NP+6))=\"\${sht10}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht33}\""
+eval "F$((NFP+1))=\"\${sht51}\""
+ARGC=2
+CALLEE=append
+RPC=27; ACTION=call; return
+;;
+27)
+eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht26=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht16=\"\$F$((FP+NP+4))\""
+eval "sht13=\"\$F$((FP+NP+5))\""
+eval "sht10=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht52="${R}"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht23}\""
+eval "F$((FP+NP+3))=\"\${sht16}\""
+eval "F$((FP+NP+4))=\"\${sht13}\""
+eval "F$((FP+NP+5))=\"\${sht10}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht31}" "${sht52}"
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht23=\"\$F$((FP+NP+2))\""
+eval "sht16=\"\$F$((FP+NP+3))\""
+eval "sht13=\"\$F$((FP+NP+4))\""
+eval "sht10=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht53="${R}"
+eval "F$((FP+NP+0))=\"\${sht26}\""
+eval "F$((FP+NP+1))=\"\${sht23}\""
+eval "F$((FP+NP+2))=\"\${sht16}\""
+eval "F$((FP+NP+3))=\"\${sht13}\""
+eval "F$((FP+NP+4))=\"\${sht10}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht30}" "${sht53}"
+eval "sht26=\"\$F$((FP+NP+0))\""
+eval "sht23=\"\$F$((FP+NP+1))\""
+eval "sht16=\"\$F$((FP+NP+2))\""
+eval "sht13=\"\$F$((FP+NP+3))\""
+eval "sht10=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht54="${R}"
+eval "F$((FP+NP+0))=\"\${sht54}\""
+eval "F$((FP+NP+1))=\"\${sht26}\""
+eval "F$((FP+NP+2))=\"\${sht23}\""
+eval "F$((FP+NP+3))=\"\${sht16}\""
+eval "F$((FP+NP+4))=\"\${sht13}\""
+eval "F$((FP+NP+5))=\"\${sht10}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "T:esac; }" "NIL"
+eval "sht54=\"\$F$((FP+NP+0))\""
+eval "sht26=\"\$F$((FP+NP+1))\""
+eval "sht23=\"\$F$((FP+NP+2))\""
+eval "sht16=\"\$F$((FP+NP+3))\""
+eval "sht13=\"\$F$((FP+NP+4))\""
+eval "sht10=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht55="${R}"
+eval "F$((FP+NP+0))=\"\${sht26}\""
+eval "F$((FP+NP+1))=\"\${sht23}\""
+eval "F$((FP+NP+2))=\"\${sht16}\""
+eval "F$((FP+NP+3))=\"\${sht13}\""
+eval "F$((FP+NP+4))=\"\${sht10}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht54}\""
+eval "F$((NFP+1))=\"\${sht55}\""
+ARGC=2
+CALLEE=append
+RPC=28; ACTION=call; return
+;;
+28)
+eval "sht26=\"\$F$((FP+NP+0))\""
+eval "sht23=\"\$F$((FP+NP+1))\""
+eval "sht16=\"\$F$((FP+NP+2))\""
+eval "sht13=\"\$F$((FP+NP+3))\""
+eval "sht10=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht56="${R}"
+R="${sht56}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_lift_program=9
@@ -12895,195 +13763,217 @@ hp_car "${sht27}"
 sht28="${R}"
 sht29="${sht28}"
 eval "F$((FP+NP+0))=\"\${sht29}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht22}\""
+eval "F$((FP+NP+3))=\"\${sht16}\""
+eval "F$((FP+NP+4))=\"\${sht1}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht22}\""
+ARGC=1
+CALLEE=fs_list
+RPC=14; ACTION=call; return
+;;
+13)
+hp_cdr "${p0}"
+sht49="${R}"
+eval "F$((FP+NP+0))=\"\${sht1}\""
+eval "F$((FP+NP+1))=\"\${sht1}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht49}\""
+eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
+CALLEE=lift_program
+RPC=18; ACTION=call; return
+;;
+14)
+eval "sht29=\"\$F$((FP+NP+0))\""
+eval "sht29=\"\$F$((FP+NP+1))\""
+eval "sht22=\"\$F$((FP+NP+2))\""
+eval "sht16=\"\$F$((FP+NP+3))\""
+eval "sht1=\"\$F$((FP+NP+4))\""
+sht30="${R}"
+eval "F$((FP+NP+0))=\"\${sht29}\""
 eval "F$((FP+NP+1))=\"\${sht22}\""
 eval "F$((FP+NP+2))=\"\${sht16}\""
 eval "F$((FP+NP+3))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht29}\""
-eval "F$((NFP+1))=\"\${sht22}\""
+eval "F$((NFP+1))=\"\${sht30}\""
 eval "F$((NFP+2))=\"\${p1}\""
+ARGC=3
 CALLEE=lift
-RPC=14; ACTION=call; return
+RPC=15; ACTION=call; return
 ;;
-13)
-hp_cdr "${p0}"
-sht48="${R}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht48}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=lift_program
-RPC=17; ACTION=call; return
-;;
-14)
+15)
 eval "sht29=\"\$F$((FP+NP+0))\""
 eval "sht22=\"\$F$((FP+NP+1))\""
 eval "sht16=\"\$F$((FP+NP+2))\""
 eval "sht1=\"\$F$((FP+NP+3))\""
-sht30="${R}"
-sht31="${sht30}"
-hp_car "${sht31}"
-sht32="${R}"
+sht31="${R}"
+sht32="${sht31}"
+hp_car "${sht32}"
+sht33="${R}"
 eval "F$((FP+NP+0))=\"\${sht22}\""
 eval "F$((FP+NP+1))=\"\${sht16}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
 eval "F$((FP+NP+3))=\"\${sht29}\""
 eval "F$((FP+NP+4))=\"\${sht22}\""
 eval "F$((FP+NP+5))=\"\${sht16}\""
 eval "F$((FP+NP+6))=\"\${sht1}\""
-hp_cons "${sht32}" "NIL"
+hp_cons "${sht33}" "NIL"
 eval "sht22=\"\$F$((FP+NP+0))\""
 eval "sht16=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
 eval "sht29=\"\$F$((FP+NP+3))\""
 eval "sht22=\"\$F$((FP+NP+4))\""
 eval "sht16=\"\$F$((FP+NP+5))\""
 eval "sht1=\"\$F$((FP+NP+6))\""
-sht33="${R}"
-eval "F$((FP+NP+0))=\"\${sht16}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
-eval "F$((FP+NP+2))=\"\${sht29}\""
-eval "F$((FP+NP+3))=\"\${sht22}\""
-eval "F$((FP+NP+4))=\"\${sht16}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
-hp_cons "${sht22}" "${sht33}"
-eval "sht16=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
-eval "sht29=\"\$F$((FP+NP+2))\""
-eval "sht22=\"\$F$((FP+NP+3))\""
-eval "sht16=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
 sht34="${R}"
 eval "F$((FP+NP+0))=\"\${sht16}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
 eval "F$((FP+NP+2))=\"\${sht29}\""
 eval "F$((FP+NP+3))=\"\${sht22}\""
 eval "F$((FP+NP+4))=\"\${sht16}\""
 eval "F$((FP+NP+5))=\"\${sht1}\""
-hp_cons "S:lambda" "${sht34}"
+hp_cons "${sht22}" "${sht34}"
 eval "sht16=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
 eval "sht29=\"\$F$((FP+NP+2))\""
 eval "sht22=\"\$F$((FP+NP+3))\""
 eval "sht16=\"\$F$((FP+NP+4))\""
 eval "sht1=\"\$F$((FP+NP+5))\""
 sht35="${R}"
 eval "F$((FP+NP+0))=\"\${sht16}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
 eval "F$((FP+NP+2))=\"\${sht29}\""
 eval "F$((FP+NP+3))=\"\${sht22}\""
 eval "F$((FP+NP+4))=\"\${sht16}\""
 eval "F$((FP+NP+5))=\"\${sht1}\""
-hp_cons "${sht35}" "NIL"
+hp_cons "S:lambda" "${sht35}"
 eval "sht16=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
 eval "sht29=\"\$F$((FP+NP+2))\""
 eval "sht22=\"\$F$((FP+NP+3))\""
 eval "sht16=\"\$F$((FP+NP+4))\""
 eval "sht1=\"\$F$((FP+NP+5))\""
 sht36="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht29}\""
-eval "F$((FP+NP+2))=\"\${sht22}\""
-eval "F$((FP+NP+3))=\"\${sht16}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
-hp_cons "${sht16}" "${sht36}"
-eval "sht31=\"\$F$((FP+NP+0))\""
-eval "sht29=\"\$F$((FP+NP+1))\""
-eval "sht22=\"\$F$((FP+NP+2))\""
-eval "sht16=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
+eval "F$((FP+NP+0))=\"\${sht16}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht29}\""
+eval "F$((FP+NP+3))=\"\${sht22}\""
+eval "F$((FP+NP+4))=\"\${sht16}\""
+eval "F$((FP+NP+5))=\"\${sht1}\""
+hp_cons "${sht36}" "NIL"
+eval "sht16=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht29=\"\$F$((FP+NP+2))\""
+eval "sht22=\"\$F$((FP+NP+3))\""
+eval "sht16=\"\$F$((FP+NP+4))\""
+eval "sht1=\"\$F$((FP+NP+5))\""
 sht37="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
+eval "F$((FP+NP+0))=\"\${sht32}\""
 eval "F$((FP+NP+1))=\"\${sht29}\""
 eval "F$((FP+NP+2))=\"\${sht22}\""
 eval "F$((FP+NP+3))=\"\${sht16}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
-hp_cons "S:define" "${sht37}"
-eval "sht31=\"\$F$((FP+NP+0))\""
+hp_cons "${sht16}" "${sht37}"
+eval "sht32=\"\$F$((FP+NP+0))\""
 eval "sht29=\"\$F$((FP+NP+1))\""
 eval "sht22=\"\$F$((FP+NP+2))\""
 eval "sht16=\"\$F$((FP+NP+3))\""
 eval "sht1=\"\$F$((FP+NP+4))\""
 sht38="${R}"
-hp_cdr "${sht31}"
+eval "F$((FP+NP+0))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht22}\""
+eval "F$((FP+NP+3))=\"\${sht16}\""
+eval "F$((FP+NP+4))=\"\${sht1}\""
+hp_cons "S:define" "${sht38}"
+eval "sht32=\"\$F$((FP+NP+0))\""
+eval "sht29=\"\$F$((FP+NP+1))\""
+eval "sht22=\"\$F$((FP+NP+2))\""
+eval "sht16=\"\$F$((FP+NP+3))\""
+eval "sht1=\"\$F$((FP+NP+4))\""
 sht39="${R}"
-hp_car "${sht39}"
+hp_cdr "${sht32}"
 sht40="${R}"
-hp_cdr "${p0}"
+hp_car "${sht40}"
 sht41="${R}"
-hp_cdr "${sht31}"
+hp_cdr "${p0}"
 sht42="${R}"
-hp_cdr "${sht42}"
+hp_cdr "${sht32}"
 sht43="${R}"
-hp_car "${sht43}"
+hp_cdr "${sht43}"
 sht44="${R}"
-eval "F$((FP+NP+0))=\"\${sht40}\""
-eval "F$((FP+NP+1))=\"\${sht38}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
+hp_car "${sht44}"
+sht45="${R}"
+eval "F$((FP+NP+0))=\"\${sht41}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
 eval "F$((FP+NP+3))=\"\${sht29}\""
 eval "F$((FP+NP+4))=\"\${sht22}\""
 eval "F$((FP+NP+5))=\"\${sht16}\""
 eval "F$((FP+NP+6))=\"\${sht1}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht41}\""
-eval "F$((NFP+1))=\"\${sht44}\""
+eval "F$((NFP+0))=\"\${sht42}\""
+eval "F$((NFP+1))=\"\${sht45}\""
+ARGC=2
 CALLEE=lift_program
-RPC=15; ACTION=call; return
+RPC=16; ACTION=call; return
 ;;
-15)
-eval "sht40=\"\$F$((FP+NP+0))\""
-eval "sht38=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
+16)
+eval "sht41=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
 eval "sht29=\"\$F$((FP+NP+3))\""
 eval "sht22=\"\$F$((FP+NP+4))\""
 eval "sht16=\"\$F$((FP+NP+5))\""
 eval "sht1=\"\$F$((FP+NP+6))\""
-sht45="${R}"
-eval "F$((FP+NP+0))=\"\${sht38}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
+sht46="${R}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
 eval "F$((FP+NP+2))=\"\${sht29}\""
 eval "F$((FP+NP+3))=\"\${sht22}\""
 eval "F$((FP+NP+4))=\"\${sht16}\""
 eval "F$((FP+NP+5))=\"\${sht1}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht40}\""
-eval "F$((NFP+1))=\"\${sht45}\""
+eval "F$((NFP+0))=\"\${sht41}\""
+eval "F$((NFP+1))=\"\${sht46}\""
+ARGC=2
 CALLEE=append
-RPC=16; ACTION=call; return
+RPC=17; ACTION=call; return
 ;;
-16)
-eval "sht38=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
+17)
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
 eval "sht29=\"\$F$((FP+NP+2))\""
 eval "sht22=\"\$F$((FP+NP+3))\""
 eval "sht16=\"\$F$((FP+NP+4))\""
 eval "sht1=\"\$F$((FP+NP+5))\""
-sht46="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
+sht47="${R}"
+eval "F$((FP+NP+0))=\"\${sht32}\""
 eval "F$((FP+NP+1))=\"\${sht29}\""
 eval "F$((FP+NP+2))=\"\${sht22}\""
 eval "F$((FP+NP+3))=\"\${sht16}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
-hp_cons "${sht38}" "${sht46}"
-eval "sht31=\"\$F$((FP+NP+0))\""
+hp_cons "${sht39}" "${sht47}"
+eval "sht32=\"\$F$((FP+NP+0))\""
 eval "sht29=\"\$F$((FP+NP+1))\""
 eval "sht22=\"\$F$((FP+NP+2))\""
 eval "sht16=\"\$F$((FP+NP+3))\""
 eval "sht1=\"\$F$((FP+NP+4))\""
-sht47="${R}"
-R="${sht47}"; ACTION=ret; return
+sht48="${R}"
+R="${sht48}"; ACTION=ret; return
 ;;
-17)
+18)
 eval "sht1=\"\$F$((FP+NP+0))\""
 eval "sht1=\"\$F$((FP+NP+1))\""
-sht49="${R}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-hp_cons "${sht1}" "${sht49}"
-eval "sht1=\"\$F$((FP+NP+0))\""
 sht50="${R}"
-R="${sht50}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${sht1}\""
+hp_cons "${sht1}" "${sht50}"
+eval "sht1=\"\$F$((FP+NP+0))\""
+sht51="${R}"
+R="${sht51}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_compile_fn_bb=17
@@ -13099,67 +13989,92 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p1}\""
-CALLEE=lenl
+ARGC=1
+CALLEE=fs_list
 RPC=1; ACTION=call; return
 ;;
 1)
 sht0="${R}"
-sht1="${sht0}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-hp_cons "S:__gfns" "${p3}"
-eval "sht1=\"\$F$((FP+NP+0))\""
-sht2="${R}"
-eval "F$((FP+NP+0))=\"\${sht2}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
-hp_cons "S:__gvars" "${p4}"
-eval "sht2=\"\$F$((FP+NP+0))\""
-eval "sht1=\"\$F$((FP+NP+1))\""
-sht3="${R}"
-eval "F$((FP+NP+0))=\"\${sht3}\""
-eval "F$((FP+NP+1))=\"\${sht2}\""
-eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p1}\""
-eval "F$((NFP+1))=\"I:0\""
-CALLEE=pmap_fr
+eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
+CALLEE=lenl
 RPC=2; ACTION=call; return
 ;;
 2)
+sht1="${R}"
+sht2="${sht1}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+hp_cons "S:__gfns" "${p3}"
+eval "sht2=\"\$F$((FP+NP+0))\""
+sht3="${R}"
+eval "F$((FP+NP+0))=\"\${sht3}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "S:__gvars" "${p4}"
 eval "sht3=\"\$F$((FP+NP+0))\""
 eval "sht2=\"\$F$((FP+NP+1))\""
-eval "sht1=\"\$F$((FP+NP+2))\""
 sht4="${R}"
-eval "F$((FP+NP+0))=\"\${sht2}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
-hp_cons "${sht3}" "${sht4}"
-eval "sht2=\"\$F$((FP+NP+0))\""
-eval "sht1=\"\$F$((FP+NP+1))\""
-sht5="${R}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-hp_cons "${sht2}" "${sht5}"
-eval "sht1=\"\$F$((FP+NP+0))\""
-sht6="${R}"
-sht7="${sht6}"
-sht8="T:${p0#??}"
-eval "F$((FP+NP+0))=\"\${sht7}\""
-eval "F$((FP+NP+1))=\"\${sht1}\""
+eval "F$((FP+NP+0))=\"\${sht4}\""
+eval "F$((FP+NP+1))=\"\${sht3}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht8}\""
-CALLEE=sh_mangle
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=fs_list
 RPC=3; ACTION=call; return
 ;;
 3)
-eval "sht7=\"\$F$((FP+NP+0))\""
-eval "sht1=\"\$F$((FP+NP+1))\""
-sht9="${R}"
-sht10="${sht9}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
+eval "sht4=\"\$F$((FP+NP+0))\""
+eval "sht3=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
+sht5="${R}"
+eval "F$((FP+NP+0))=\"\${sht4}\""
+eval "F$((FP+NP+1))=\"\${sht3}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht5}\""
+eval "F$((NFP+1))=\"I:0\""
+ARGC=2
+CALLEE=pmap_fr
+RPC=4; ACTION=call; return
+;;
+4)
+eval "sht4=\"\$F$((FP+NP+0))\""
+eval "sht3=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
+sht6="${R}"
+eval "F$((FP+NP+0))=\"\${sht3}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht4}" "${sht6}"
+eval "sht3=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht7="${R}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+hp_cons "${sht3}" "${sht7}"
+eval "sht2=\"\$F$((FP+NP+0))\""
+sht8="${R}"
+sht9="${sht8}"
+sht10="T:${p0#??}"
+eval "F$((FP+NP+0))=\"\${sht9}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht10}\""
+ARGC=1
+CALLEE=sh_mangle
+RPC=5; ACTION=call; return
+;;
+5)
+eval "sht9=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht11="${R}"
+sht12="${sht11}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
 eval "F$((FP+NP+1))=\"\${p0}\""
-eval "F$((FP+NP+2))=\"\${sht7}\""
+eval "F$((FP+NP+2))=\"\${sht9}\""
 eval "F$((FP+NP+3))=\"\${p2}\""
-eval "F$((FP+NP+4))=\"\${sht10}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-eval "F$((FP+NP+6))=\"\${sht1}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+eval "F$((FP+NP+5))=\"\${sht9}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
 NFP=$FTOP
 STGV="NIL"
 eval "F$((NFP+0))=\"\$STGV\""
@@ -13169,400 +14084,549 @@ eval "F$((NFP+2))=\"I:0\""
 eval "F$((NFP+3))=\"I:1\""
 eval "F$((NFP+4))=\"I:0\""
 eval "F$((NFP+5))=\"I:0\""
+ARGC=6
 CALLEE=mkb
-RPC=4; ACTION=call; return
-;;
-4)
-eval "sht1=\"\$F$((FP+NP+0))\""
-eval "p0=\"\$F$((FP+NP+1))\""
-eval "sht7=\"\$F$((FP+NP+2))\""
-eval "p2=\"\$F$((FP+NP+3))\""
-eval "sht10=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-eval "sht1=\"\$F$((FP+NP+6))\""
-sht11="${R}"
-eval "F$((FP+NP+0))=\"\${sht10}\""
-eval "F$((FP+NP+1))=\"\${sht7}\""
-eval "F$((FP+NP+2))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p2}\""
-eval "F$((NFP+1))=\"\${sht7}\""
-eval "F$((NFP+2))=\"\${p0}\""
-eval "F$((NFP+3))=\"\${sht1}\""
-eval "F$((NFP+4))=\"\${sht11}\""
-STGV="NIL"
-eval "F$((NFP+5))=\"\$STGV\""
-CALLEE=ltail
-RPC=5; ACTION=call; return
-;;
-5)
-eval "sht10=\"\$F$((FP+NP+0))\""
-eval "sht7=\"\$F$((FP+NP+1))\""
-eval "sht1=\"\$F$((FP+NP+2))\""
-sht12="${R}"
-sht13="${sht12}"
-eval "F$((FP+NP+0))=\"\${sht13}\""
-eval "F$((FP+NP+1))=\"\${sht10}\""
-eval "F$((FP+NP+2))=\"\${sht7}\""
-eval "F$((FP+NP+3))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
-CALLEE=b_pc
 RPC=6; ACTION=call; return
 ;;
 6)
-eval "sht13=\"\$F$((FP+NP+0))\""
-eval "sht10=\"\$F$((FP+NP+1))\""
-eval "sht7=\"\$F$((FP+NP+2))\""
-eval "sht1=\"\$F$((FP+NP+3))\""
-sht14="${R}"
-eval "F$((FP+NP+0))=\"\${sht14}\""
-eval "F$((FP+NP+1))=\"\${sht13}\""
-eval "F$((FP+NP+2))=\"\${sht10}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
+eval "sht2=\"\$F$((FP+NP+0))\""
+eval "p0=\"\$F$((FP+NP+1))\""
+eval "sht9=\"\$F$((FP+NP+2))\""
+eval "p2=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
+eval "sht9=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht13="${R}"
+eval "F$((FP+NP+0))=\"\${sht12}\""
+eval "F$((FP+NP+1))=\"\${sht9}\""
+eval "F$((FP+NP+2))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
-CALLEE=b_cur
+eval "F$((NFP+0))=\"\${p2}\""
+eval "F$((NFP+1))=\"\${sht9}\""
+eval "F$((NFP+2))=\"\${p0}\""
+eval "F$((NFP+3))=\"\${sht2}\""
+eval "F$((NFP+4))=\"\${sht13}\""
+STGV="NIL"
+eval "F$((NFP+5))=\"\$STGV\""
+ARGC=6
+CALLEE=ltail
 RPC=7; ACTION=call; return
 ;;
 7)
-eval "sht14=\"\$F$((FP+NP+0))\""
-eval "sht13=\"\$F$((FP+NP+1))\""
-eval "sht10=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
-sht15="${R}"
-eval "F$((FP+NP+0))=\"\${sht14}\""
-eval "F$((FP+NP+1))=\"\${sht13}\""
-eval "F$((FP+NP+2))=\"\${sht10}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
+eval "sht12=\"\$F$((FP+NP+0))\""
+eval "sht9=\"\$F$((FP+NP+1))\""
+eval "sht2=\"\$F$((FP+NP+2))\""
+sht14="${R}"
+sht15="${sht14}"
+eval "F$((FP+NP+0))=\"\${sht15}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${sht9}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht15}\""
-STGV="NIL"
-eval "F$((NFP+1))=\"\$STGV\""
-CALLEE=rev
+ARGC=1
+CALLEE=b_pc
 RPC=8; ACTION=call; return
 ;;
 8)
-eval "sht14=\"\$F$((FP+NP+0))\""
-eval "sht13=\"\$F$((FP+NP+1))\""
-eval "sht10=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
+eval "sht15=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht9=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
 sht16="${R}"
-eval "F$((FP+NP+0))=\"\${sht13}\""
-eval "F$((FP+NP+1))=\"\${sht10}\""
-eval "F$((FP+NP+2))=\"\${sht7}\""
-eval "F$((FP+NP+3))=\"\${sht1}\""
-hp_cons "${sht14}" "${sht16}"
-eval "sht13=\"\$F$((FP+NP+0))\""
-eval "sht10=\"\$F$((FP+NP+1))\""
-eval "sht7=\"\$F$((FP+NP+2))\""
-eval "sht1=\"\$F$((FP+NP+3))\""
-sht17="${R}"
-eval "F$((FP+NP+0))=\"\${sht17}\""
-eval "F$((FP+NP+1))=\"\${sht13}\""
-eval "F$((FP+NP+2))=\"\${sht10}\""
-eval "F$((FP+NP+3))=\"\${sht7}\""
-eval "F$((FP+NP+4))=\"\${sht1}\""
+eval "F$((FP+NP+0))=\"\${sht16}\""
+eval "F$((FP+NP+1))=\"\${sht15}\""
+eval "F$((FP+NP+2))=\"\${sht12}\""
+eval "F$((FP+NP+3))=\"\${sht9}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
-CALLEE=b_blk
+eval "F$((NFP+0))=\"\${sht15}\""
+ARGC=1
+CALLEE=b_cur
 RPC=9; ACTION=call; return
 ;;
 9)
-eval "sht17=\"\$F$((FP+NP+0))\""
-eval "sht13=\"\$F$((FP+NP+1))\""
-eval "sht10=\"\$F$((FP+NP+2))\""
-eval "sht7=\"\$F$((FP+NP+3))\""
-eval "sht1=\"\$F$((FP+NP+4))\""
-sht18="${R}"
-eval "F$((FP+NP+0))=\"\${sht13}\""
-eval "F$((FP+NP+1))=\"\${sht10}\""
-eval "F$((FP+NP+2))=\"\${sht7}\""
-eval "F$((FP+NP+3))=\"\${sht1}\""
-hp_cons "${sht17}" "${sht18}"
-eval "sht13=\"\$F$((FP+NP+0))\""
-eval "sht10=\"\$F$((FP+NP+1))\""
-eval "sht7=\"\$F$((FP+NP+2))\""
-eval "sht1=\"\$F$((FP+NP+3))\""
-sht19="${R}"
-sht20="${sht19}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
-eval "F$((FP+NP+1))=\"\${sht20}\""
-eval "F$((FP+NP+2))=\"\${sht13}\""
-eval "F$((FP+NP+3))=\"\${sht10}\""
-eval "F$((FP+NP+4))=\"\${sht7}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
+eval "sht16=\"\$F$((FP+NP+0))\""
+eval "sht15=\"\$F$((FP+NP+1))\""
+eval "sht12=\"\$F$((FP+NP+2))\""
+eval "sht9=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht17="${R}"
+eval "F$((FP+NP+0))=\"\${sht16}\""
+eval "F$((FP+NP+1))=\"\${sht15}\""
+eval "F$((FP+NP+2))=\"\${sht12}\""
+eval "F$((FP+NP+3))=\"\${sht9}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
-CALLEE=b_smax
+eval "F$((NFP+0))=\"\${sht17}\""
+STGV="NIL"
+eval "F$((NFP+1))=\"\$STGV\""
+ARGC=2
+CALLEE=rev
 RPC=10; ACTION=call; return
 ;;
 10)
-eval "sht1=\"\$F$((FP+NP+0))\""
-eval "sht20=\"\$F$((FP+NP+1))\""
-eval "sht13=\"\$F$((FP+NP+2))\""
-eval "sht10=\"\$F$((FP+NP+3))\""
-eval "sht7=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
-sht21="${R}"
-sht22="I:$(( ${sht1#??} + ${sht21#??} ))"
-sht23="${sht22}"
-sht24="T:${sht23#??}"
-sht25="T:=${sht24#??}"
-sht26="T:${sht10#??}${sht25#??}"
-sht27="T:SIZE_${sht26#??}"
-sht28="T:${sht10#??}() {"
-eval "F$((FP+NP+0))=\"\${sht28}\""
-eval "F$((FP+NP+1))=\"\${sht27}\""
-eval "F$((FP+NP+2))=\"\${sht23}\""
-eval "F$((FP+NP+3))=\"\${sht20}\""
-eval "F$((FP+NP+4))=\"\${sht13}\""
-eval "F$((FP+NP+5))=\"\${sht10}\""
-eval "F$((FP+NP+6))=\"\${sht7}\""
-eval "F$((FP+NP+7))=\"\${sht1}\""
+eval "sht16=\"\$F$((FP+NP+0))\""
+eval "sht15=\"\$F$((FP+NP+1))\""
+eval "sht12=\"\$F$((FP+NP+2))\""
+eval "sht9=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht18="${R}"
+eval "F$((FP+NP+0))=\"\${sht15}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${sht9}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+hp_cons "${sht16}" "${sht18}"
+eval "sht15=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht9=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht19="${R}"
+eval "F$((FP+NP+0))=\"\${sht19}\""
+eval "F$((FP+NP+1))=\"\${sht15}\""
+eval "F$((FP+NP+2))=\"\${sht12}\""
+eval "F$((FP+NP+3))=\"\${sht9}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${p1}\""
-eval "F$((NFP+1))=\"I:0\""
-CALLEE=ploads
+eval "F$((NFP+0))=\"\${sht15}\""
+ARGC=1
+CALLEE=b_blk
 RPC=11; ACTION=call; return
 ;;
 11)
-eval "sht28=\"\$F$((FP+NP+0))\""
-eval "sht27=\"\$F$((FP+NP+1))\""
-eval "sht23=\"\$F$((FP+NP+2))\""
-eval "sht20=\"\$F$((FP+NP+3))\""
-eval "sht13=\"\$F$((FP+NP+4))\""
-eval "sht10=\"\$F$((FP+NP+5))\""
-eval "sht7=\"\$F$((FP+NP+6))\""
-eval "sht1=\"\$F$((FP+NP+7))\""
-sht29="${R}"
-sht30="T:${sht10#??}))"
-sht31="T:FTOP=\$((FP + SIZE_${sht30#??}"
-sht32="T:${sht1#??}"
-sht33="T:NP=${sht32#??}"
-eval "F$((FP+NP+0))=\"\${sht20}\""
-eval "F$((FP+NP+1))=\"\${sht33}\""
-eval "F$((FP+NP+2))=\"\${sht31}\""
-eval "F$((FP+NP+3))=\"\${sht29}\""
-eval "F$((FP+NP+4))=\"\${sht28}\""
-eval "F$((FP+NP+5))=\"\${sht27}\""
-eval "F$((FP+NP+6))=\"\${sht23}\""
-eval "F$((FP+NP+7))=\"\${sht20}\""
-eval "F$((FP+NP+8))=\"\${sht13}\""
-eval "F$((FP+NP+9))=\"\${sht10}\""
-eval "F$((FP+NP+10))=\"\${sht7}\""
-eval "F$((FP+NP+11))=\"\${sht1}\""
+eval "sht19=\"\$F$((FP+NP+0))\""
+eval "sht15=\"\$F$((FP+NP+1))\""
+eval "sht12=\"\$F$((FP+NP+2))\""
+eval "sht9=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht20="${R}"
+eval "F$((FP+NP+0))=\"\${sht15}\""
+eval "F$((FP+NP+1))=\"\${sht12}\""
+eval "F$((FP+NP+2))=\"\${sht9}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+hp_cons "${sht19}" "${sht20}"
+eval "sht15=\"\$F$((FP+NP+0))\""
+eval "sht12=\"\$F$((FP+NP+1))\""
+eval "sht9=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht21="${R}"
+sht22="${sht21}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+eval "F$((FP+NP+1))=\"\${sht22}\""
+eval "F$((FP+NP+2))=\"\${sht15}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+eval "F$((FP+NP+4))=\"\${sht9}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
-CALLEE=b_npc
+eval "F$((NFP+0))=\"\${sht15}\""
+ARGC=1
+CALLEE=b_smax
 RPC=12; ACTION=call; return
 ;;
 12)
-eval "sht20=\"\$F$((FP+NP+0))\""
-eval "sht33=\"\$F$((FP+NP+1))\""
-eval "sht31=\"\$F$((FP+NP+2))\""
-eval "sht29=\"\$F$((FP+NP+3))\""
-eval "sht28=\"\$F$((FP+NP+4))\""
-eval "sht27=\"\$F$((FP+NP+5))\""
-eval "sht23=\"\$F$((FP+NP+6))\""
-eval "sht20=\"\$F$((FP+NP+7))\""
-eval "sht13=\"\$F$((FP+NP+8))\""
-eval "sht10=\"\$F$((FP+NP+9))\""
-eval "sht7=\"\$F$((FP+NP+10))\""
-eval "sht1=\"\$F$((FP+NP+11))\""
-sht34="${R}"
-eval "F$((FP+NP+0))=\"\${sht33}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
-eval "F$((FP+NP+2))=\"\${sht29}\""
-eval "F$((FP+NP+3))=\"\${sht28}\""
-eval "F$((FP+NP+4))=\"\${sht27}\""
-eval "F$((FP+NP+5))=\"\${sht23}\""
-eval "F$((FP+NP+6))=\"\${sht20}\""
-eval "F$((FP+NP+7))=\"\${sht13}\""
-eval "F$((FP+NP+8))=\"\${sht10}\""
-eval "F$((FP+NP+9))=\"\${sht7}\""
-eval "F$((FP+NP+10))=\"\${sht1}\""
+eval "sht2=\"\$F$((FP+NP+0))\""
+eval "sht22=\"\$F$((FP+NP+1))\""
+eval "sht15=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+eval "sht9=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht23="${R}"
+sht24="I:$(( ${sht2#??} + ${sht23#??} ))"
+sht25="${sht24}"
+sht26="T:${sht25#??}"
+sht27="T:=${sht26#??}"
+sht28="T:${sht12#??}${sht27#??}"
+sht29="T:SIZE_${sht28#??}"
+sht30="T:${sht12#??}() {"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht25}\""
+eval "F$((FP+NP+3))=\"\${sht22}\""
+eval "F$((FP+NP+4))=\"\${sht15}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+eval "F$((FP+NP+6))=\"\${sht9}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht20}\""
-eval "F$((NFP+1))=\"I:0\""
-eval "F$((NFP+2))=\"\${sht34}\""
-CALLEE=caseblocks
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=varargszzQ
 RPC=13; ACTION=call; return
 ;;
 13)
-eval "sht33=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
-eval "sht29=\"\$F$((FP+NP+2))\""
-eval "sht28=\"\$F$((FP+NP+3))\""
-eval "sht27=\"\$F$((FP+NP+4))\""
-eval "sht23=\"\$F$((FP+NP+5))\""
-eval "sht20=\"\$F$((FP+NP+6))\""
-eval "sht13=\"\$F$((FP+NP+7))\""
-eval "sht10=\"\$F$((FP+NP+8))\""
-eval "sht7=\"\$F$((FP+NP+9))\""
-eval "sht1=\"\$F$((FP+NP+10))\""
-sht35="${R}"
-eval "F$((FP+NP+0))=\"\${sht33}\""
-eval "F$((FP+NP+1))=\"\${sht31}\""
-eval "F$((FP+NP+2))=\"\${sht29}\""
-eval "F$((FP+NP+3))=\"\${sht28}\""
-eval "F$((FP+NP+4))=\"\${sht27}\""
-eval "F$((FP+NP+5))=\"\${sht23}\""
-eval "F$((FP+NP+6))=\"\${sht20}\""
-eval "F$((FP+NP+7))=\"\${sht13}\""
-eval "F$((FP+NP+8))=\"\${sht10}\""
-eval "F$((FP+NP+9))=\"\${sht7}\""
-eval "F$((FP+NP+10))=\"\${sht1}\""
-hp_cons "T:case \$PC in" "${sht35}"
-eval "sht33=\"\$F$((FP+NP+0))\""
-eval "sht31=\"\$F$((FP+NP+1))\""
-eval "sht29=\"\$F$((FP+NP+2))\""
-eval "sht28=\"\$F$((FP+NP+3))\""
-eval "sht27=\"\$F$((FP+NP+4))\""
-eval "sht23=\"\$F$((FP+NP+5))\""
-eval "sht20=\"\$F$((FP+NP+6))\""
-eval "sht13=\"\$F$((FP+NP+7))\""
-eval "sht10=\"\$F$((FP+NP+8))\""
-eval "sht7=\"\$F$((FP+NP+9))\""
-eval "sht1=\"\$F$((FP+NP+10))\""
-sht36="${R}"
-eval "F$((FP+NP+0))=\"\${sht31}\""
-eval "F$((FP+NP+1))=\"\${sht29}\""
-eval "F$((FP+NP+2))=\"\${sht28}\""
-eval "F$((FP+NP+3))=\"\${sht27}\""
-eval "F$((FP+NP+4))=\"\${sht23}\""
-eval "F$((FP+NP+5))=\"\${sht20}\""
-eval "F$((FP+NP+6))=\"\${sht13}\""
-eval "F$((FP+NP+7))=\"\${sht10}\""
-eval "F$((FP+NP+8))=\"\${sht7}\""
-eval "F$((FP+NP+9))=\"\${sht1}\""
-hp_cons "${sht33}" "${sht36}"
-eval "sht31=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+0))\""
 eval "sht29=\"\$F$((FP+NP+1))\""
-eval "sht28=\"\$F$((FP+NP+2))\""
-eval "sht27=\"\$F$((FP+NP+3))\""
-eval "sht23=\"\$F$((FP+NP+4))\""
-eval "sht20=\"\$F$((FP+NP+5))\""
-eval "sht13=\"\$F$((FP+NP+6))\""
-eval "sht10=\"\$F$((FP+NP+7))\""
-eval "sht7=\"\$F$((FP+NP+8))\""
-eval "sht1=\"\$F$((FP+NP+9))\""
-sht37="${R}"
-eval "F$((FP+NP+0))=\"\${sht29}\""
-eval "F$((FP+NP+1))=\"\${sht28}\""
-eval "F$((FP+NP+2))=\"\${sht27}\""
-eval "F$((FP+NP+3))=\"\${sht23}\""
-eval "F$((FP+NP+4))=\"\${sht20}\""
-eval "F$((FP+NP+5))=\"\${sht13}\""
-eval "F$((FP+NP+6))=\"\${sht10}\""
-eval "F$((FP+NP+7))=\"\${sht7}\""
-eval "F$((FP+NP+8))=\"\${sht1}\""
-hp_cons "${sht31}" "${sht37}"
-eval "sht29=\"\$F$((FP+NP+0))\""
-eval "sht28=\"\$F$((FP+NP+1))\""
-eval "sht27=\"\$F$((FP+NP+2))\""
-eval "sht23=\"\$F$((FP+NP+3))\""
-eval "sht20=\"\$F$((FP+NP+4))\""
-eval "sht13=\"\$F$((FP+NP+5))\""
-eval "sht10=\"\$F$((FP+NP+6))\""
-eval "sht7=\"\$F$((FP+NP+7))\""
-eval "sht1=\"\$F$((FP+NP+8))\""
-sht38="${R}"
-eval "F$((FP+NP+0))=\"\${sht28}\""
-eval "F$((FP+NP+1))=\"\${sht27}\""
-eval "F$((FP+NP+2))=\"\${sht23}\""
-eval "F$((FP+NP+3))=\"\${sht20}\""
-eval "F$((FP+NP+4))=\"\${sht13}\""
-eval "F$((FP+NP+5))=\"\${sht10}\""
-eval "F$((FP+NP+6))=\"\${sht7}\""
-eval "F$((FP+NP+7))=\"\${sht1}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht29}\""
-eval "F$((NFP+1))=\"\${sht38}\""
-CALLEE=append
-RPC=14; ACTION=call; return
+eval "sht25=\"\$F$((FP+NP+2))\""
+eval "sht22=\"\$F$((FP+NP+3))\""
+eval "sht15=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+eval "sht9=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht31="${R}"
+if [ "${sht31}" != NIL ]; then PC=14; else PC=15; fi
+ACTION=jump; return
 ;;
 14)
-eval "sht28=\"\$F$((FP+NP+0))\""
-eval "sht27=\"\$F$((FP+NP+1))\""
-eval "sht23=\"\$F$((FP+NP+2))\""
-eval "sht20=\"\$F$((FP+NP+3))\""
-eval "sht13=\"\$F$((FP+NP+4))\""
-eval "sht10=\"\$F$((FP+NP+5))\""
-eval "sht7=\"\$F$((FP+NP+6))\""
-eval "sht1=\"\$F$((FP+NP+7))\""
-sht39="${R}"
-eval "F$((FP+NP+0))=\"\${sht27}\""
-eval "F$((FP+NP+1))=\"\${sht23}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht13}\""
-eval "F$((FP+NP+4))=\"\${sht10}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-eval "F$((FP+NP+6))=\"\${sht1}\""
-hp_cons "${sht28}" "${sht39}"
-eval "sht27=\"\$F$((FP+NP+0))\""
-eval "sht23=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht13=\"\$F$((FP+NP+3))\""
-eval "sht10=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-eval "sht1=\"\$F$((FP+NP+6))\""
-sht40="${R}"
-eval "F$((FP+NP+0))=\"\${sht23}\""
-eval "F$((FP+NP+1))=\"\${sht20}\""
-eval "F$((FP+NP+2))=\"\${sht13}\""
-eval "F$((FP+NP+3))=\"\${sht10}\""
-eval "F$((FP+NP+4))=\"\${sht7}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
-hp_cons "${sht27}" "${sht40}"
-eval "sht23=\"\$F$((FP+NP+0))\""
-eval "sht20=\"\$F$((FP+NP+1))\""
-eval "sht13=\"\$F$((FP+NP+2))\""
-eval "sht10=\"\$F$((FP+NP+3))\""
-eval "sht7=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
-sht41="${R}"
-eval "F$((FP+NP+0))=\"\${sht41}\""
-eval "F$((FP+NP+1))=\"\${sht23}\""
-eval "F$((FP+NP+2))=\"\${sht20}\""
-eval "F$((FP+NP+3))=\"\${sht13}\""
-eval "F$((FP+NP+4))=\"\${sht10}\""
-eval "F$((FP+NP+5))=\"\${sht7}\""
-eval "F$((FP+NP+6))=\"\${sht1}\""
-hp_cons "T:esac; }" "NIL"
-eval "sht41=\"\$F$((FP+NP+0))\""
-eval "sht23=\"\$F$((FP+NP+1))\""
-eval "sht20=\"\$F$((FP+NP+2))\""
-eval "sht13=\"\$F$((FP+NP+3))\""
-eval "sht10=\"\$F$((FP+NP+4))\""
-eval "sht7=\"\$F$((FP+NP+5))\""
-eval "sht1=\"\$F$((FP+NP+6))\""
-sht42="${R}"
-eval "F$((FP+NP+0))=\"\${sht23}\""
-eval "F$((FP+NP+1))=\"\${sht20}\""
-eval "F$((FP+NP+2))=\"\${sht13}\""
-eval "F$((FP+NP+3))=\"\${sht10}\""
-eval "F$((FP+NP+4))=\"\${sht7}\""
-eval "F$((FP+NP+5))=\"\${sht1}\""
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht25}\""
+eval "F$((FP+NP+3))=\"\${sht22}\""
+eval "F$((FP+NP+4))=\"\${sht15}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+eval "F$((FP+NP+6))=\"\${sht9}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht41}\""
-eval "F$((NFP+1))=\"\${sht42}\""
-CALLEE=append
-RPC=15; ACTION=call; return
+ARGC=0
+CALLEE=va_collect_sh
+RPC=17; ACTION=call; return
 ;;
 15)
-eval "sht23=\"\$F$((FP+NP+0))\""
-eval "sht20=\"\$F$((FP+NP+1))\""
-eval "sht13=\"\$F$((FP+NP+2))\""
-eval "sht10=\"\$F$((FP+NP+3))\""
-eval "sht7=\"\$F$((FP+NP+4))\""
-eval "sht1=\"\$F$((FP+NP+5))\""
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht25}\""
+eval "F$((FP+NP+3))=\"\${sht22}\""
+eval "F$((FP+NP+4))=\"\${sht15}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+eval "F$((FP+NP+6))=\"\${sht9}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p1}\""
+eval "F$((NFP+1))=\"I:0\""
+ARGC=2
+CALLEE=ploads
+RPC=21; ACTION=call; return
+;;
+16)
+sht38="T:${sht12#??}))"
+sht39="T:FTOP=\$((FP + SIZE_${sht38#??}"
+sht40="T:${sht2#??}"
+sht41="T:NP=${sht40#??}"
+eval "F$((FP+NP+0))=\"\${sht22}\""
+eval "F$((FP+NP+1))=\"\${sht41}\""
+eval "F$((FP+NP+2))=\"\${sht39}\""
+eval "F$((FP+NP+3))=\"\${sht32}\""
+eval "F$((FP+NP+4))=\"\${sht30}\""
+eval "F$((FP+NP+5))=\"\${sht29}\""
+eval "F$((FP+NP+6))=\"\${sht25}\""
+eval "F$((FP+NP+7))=\"\${sht22}\""
+eval "F$((FP+NP+8))=\"\${sht15}\""
+eval "F$((FP+NP+9))=\"\${sht12}\""
+eval "F$((FP+NP+10))=\"\${sht9}\""
+eval "F$((FP+NP+11))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht15}\""
+ARGC=1
+CALLEE=b_npc
+RPC=22; ACTION=call; return
+;;
+17)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht29=\"\$F$((FP+NP+1))\""
+eval "sht25=\"\$F$((FP+NP+2))\""
+eval "sht22=\"\$F$((FP+NP+3))\""
+eval "sht15=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+eval "sht9=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht33="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht29}\""
+eval "F$((FP+NP+3))=\"\${sht25}\""
+eval "F$((FP+NP+4))=\"\${sht22}\""
+eval "F$((FP+NP+5))=\"\${sht15}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+eval "F$((FP+NP+7))=\"\${sht9}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=fs_list
+RPC=18; ACTION=call; return
+;;
+18)
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht29=\"\$F$((FP+NP+2))\""
+eval "sht25=\"\$F$((FP+NP+3))\""
+eval "sht22=\"\$F$((FP+NP+4))\""
+eval "sht15=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+eval "sht9=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht34="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht29}\""
+eval "F$((FP+NP+3))=\"\${sht25}\""
+eval "F$((FP+NP+4))=\"\${sht22}\""
+eval "F$((FP+NP+5))=\"\${sht15}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+eval "F$((FP+NP+7))=\"\${sht9}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht34}\""
+eval "F$((NFP+1))=\"I:0\""
+ARGC=2
+CALLEE=ploads
+RPC=19; ACTION=call; return
+;;
+19)
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht29=\"\$F$((FP+NP+2))\""
+eval "sht25=\"\$F$((FP+NP+3))\""
+eval "sht22=\"\$F$((FP+NP+4))\""
+eval "sht15=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+eval "sht9=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht35="${R}"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht25}\""
+eval "F$((FP+NP+3))=\"\${sht22}\""
+eval "F$((FP+NP+4))=\"\${sht15}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+eval "F$((FP+NP+6))=\"\${sht9}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht33}\""
+eval "F$((NFP+1))=\"\${sht35}\""
+ARGC=2
+CALLEE=append
+RPC=20; ACTION=call; return
+;;
+20)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht29=\"\$F$((FP+NP+1))\""
+eval "sht25=\"\$F$((FP+NP+2))\""
+eval "sht22=\"\$F$((FP+NP+3))\""
+eval "sht15=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+eval "sht9=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht36="${R}"
+sht32="${sht36}"
+PC=16; ACTION=jump; return
+;;
+21)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht29=\"\$F$((FP+NP+1))\""
+eval "sht25=\"\$F$((FP+NP+2))\""
+eval "sht22=\"\$F$((FP+NP+3))\""
+eval "sht15=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+eval "sht9=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht37="${R}"
+sht32="${sht37}"
+PC=16; ACTION=jump; return
+;;
+22)
+eval "sht22=\"\$F$((FP+NP+0))\""
+eval "sht41=\"\$F$((FP+NP+1))\""
+eval "sht39=\"\$F$((FP+NP+2))\""
+eval "sht32=\"\$F$((FP+NP+3))\""
+eval "sht30=\"\$F$((FP+NP+4))\""
+eval "sht29=\"\$F$((FP+NP+5))\""
+eval "sht25=\"\$F$((FP+NP+6))\""
+eval "sht22=\"\$F$((FP+NP+7))\""
+eval "sht15=\"\$F$((FP+NP+8))\""
+eval "sht12=\"\$F$((FP+NP+9))\""
+eval "sht9=\"\$F$((FP+NP+10))\""
+eval "sht2=\"\$F$((FP+NP+11))\""
+sht42="${R}"
+eval "F$((FP+NP+0))=\"\${sht41}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht29}\""
+eval "F$((FP+NP+5))=\"\${sht25}\""
+eval "F$((FP+NP+6))=\"\${sht22}\""
+eval "F$((FP+NP+7))=\"\${sht15}\""
+eval "F$((FP+NP+8))=\"\${sht12}\""
+eval "F$((FP+NP+9))=\"\${sht9}\""
+eval "F$((FP+NP+10))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht22}\""
+eval "F$((NFP+1))=\"I:0\""
+eval "F$((NFP+2))=\"\${sht42}\""
+ARGC=3
+CALLEE=caseblocks
+RPC=23; ACTION=call; return
+;;
+23)
+eval "sht41=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht29=\"\$F$((FP+NP+4))\""
+eval "sht25=\"\$F$((FP+NP+5))\""
+eval "sht22=\"\$F$((FP+NP+6))\""
+eval "sht15=\"\$F$((FP+NP+7))\""
+eval "sht12=\"\$F$((FP+NP+8))\""
+eval "sht9=\"\$F$((FP+NP+9))\""
+eval "sht2=\"\$F$((FP+NP+10))\""
 sht43="${R}"
-R="${sht43}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${sht41}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht29}\""
+eval "F$((FP+NP+5))=\"\${sht25}\""
+eval "F$((FP+NP+6))=\"\${sht22}\""
+eval "F$((FP+NP+7))=\"\${sht15}\""
+eval "F$((FP+NP+8))=\"\${sht12}\""
+eval "F$((FP+NP+9))=\"\${sht9}\""
+eval "F$((FP+NP+10))=\"\${sht2}\""
+hp_cons "T:case \$PC in" "${sht43}"
+eval "sht41=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht29=\"\$F$((FP+NP+4))\""
+eval "sht25=\"\$F$((FP+NP+5))\""
+eval "sht22=\"\$F$((FP+NP+6))\""
+eval "sht15=\"\$F$((FP+NP+7))\""
+eval "sht12=\"\$F$((FP+NP+8))\""
+eval "sht9=\"\$F$((FP+NP+9))\""
+eval "sht2=\"\$F$((FP+NP+10))\""
+sht44="${R}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht29}\""
+eval "F$((FP+NP+4))=\"\${sht25}\""
+eval "F$((FP+NP+5))=\"\${sht22}\""
+eval "F$((FP+NP+6))=\"\${sht15}\""
+eval "F$((FP+NP+7))=\"\${sht12}\""
+eval "F$((FP+NP+8))=\"\${sht9}\""
+eval "F$((FP+NP+9))=\"\${sht2}\""
+hp_cons "${sht41}" "${sht44}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht32=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht29=\"\$F$((FP+NP+3))\""
+eval "sht25=\"\$F$((FP+NP+4))\""
+eval "sht22=\"\$F$((FP+NP+5))\""
+eval "sht15=\"\$F$((FP+NP+6))\""
+eval "sht12=\"\$F$((FP+NP+7))\""
+eval "sht9=\"\$F$((FP+NP+8))\""
+eval "sht2=\"\$F$((FP+NP+9))\""
+sht45="${R}"
+eval "F$((FP+NP+0))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht29}\""
+eval "F$((FP+NP+3))=\"\${sht25}\""
+eval "F$((FP+NP+4))=\"\${sht22}\""
+eval "F$((FP+NP+5))=\"\${sht15}\""
+eval "F$((FP+NP+6))=\"\${sht12}\""
+eval "F$((FP+NP+7))=\"\${sht9}\""
+eval "F$((FP+NP+8))=\"\${sht2}\""
+hp_cons "${sht39}" "${sht45}"
+eval "sht32=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht29=\"\$F$((FP+NP+2))\""
+eval "sht25=\"\$F$((FP+NP+3))\""
+eval "sht22=\"\$F$((FP+NP+4))\""
+eval "sht15=\"\$F$((FP+NP+5))\""
+eval "sht12=\"\$F$((FP+NP+6))\""
+eval "sht9=\"\$F$((FP+NP+7))\""
+eval "sht2=\"\$F$((FP+NP+8))\""
+sht46="${R}"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht29}\""
+eval "F$((FP+NP+2))=\"\${sht25}\""
+eval "F$((FP+NP+3))=\"\${sht22}\""
+eval "F$((FP+NP+4))=\"\${sht15}\""
+eval "F$((FP+NP+5))=\"\${sht12}\""
+eval "F$((FP+NP+6))=\"\${sht9}\""
+eval "F$((FP+NP+7))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht32}\""
+eval "F$((NFP+1))=\"\${sht46}\""
+ARGC=2
+CALLEE=append
+RPC=24; ACTION=call; return
+;;
+24)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht29=\"\$F$((FP+NP+1))\""
+eval "sht25=\"\$F$((FP+NP+2))\""
+eval "sht22=\"\$F$((FP+NP+3))\""
+eval "sht15=\"\$F$((FP+NP+4))\""
+eval "sht12=\"\$F$((FP+NP+5))\""
+eval "sht9=\"\$F$((FP+NP+6))\""
+eval "sht2=\"\$F$((FP+NP+7))\""
+sht47="${R}"
+eval "F$((FP+NP+0))=\"\${sht29}\""
+eval "F$((FP+NP+1))=\"\${sht25}\""
+eval "F$((FP+NP+2))=\"\${sht22}\""
+eval "F$((FP+NP+3))=\"\${sht15}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+eval "F$((FP+NP+5))=\"\${sht9}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht30}" "${sht47}"
+eval "sht29=\"\$F$((FP+NP+0))\""
+eval "sht25=\"\$F$((FP+NP+1))\""
+eval "sht22=\"\$F$((FP+NP+2))\""
+eval "sht15=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
+eval "sht9=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht48="${R}"
+eval "F$((FP+NP+0))=\"\${sht25}\""
+eval "F$((FP+NP+1))=\"\${sht22}\""
+eval "F$((FP+NP+2))=\"\${sht15}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+eval "F$((FP+NP+4))=\"\${sht9}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht29}" "${sht48}"
+eval "sht25=\"\$F$((FP+NP+0))\""
+eval "sht22=\"\$F$((FP+NP+1))\""
+eval "sht15=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+eval "sht9=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht49="${R}"
+eval "F$((FP+NP+0))=\"\${sht49}\""
+eval "F$((FP+NP+1))=\"\${sht25}\""
+eval "F$((FP+NP+2))=\"\${sht22}\""
+eval "F$((FP+NP+3))=\"\${sht15}\""
+eval "F$((FP+NP+4))=\"\${sht12}\""
+eval "F$((FP+NP+5))=\"\${sht9}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "T:esac; }" "NIL"
+eval "sht49=\"\$F$((FP+NP+0))\""
+eval "sht25=\"\$F$((FP+NP+1))\""
+eval "sht22=\"\$F$((FP+NP+2))\""
+eval "sht15=\"\$F$((FP+NP+3))\""
+eval "sht12=\"\$F$((FP+NP+4))\""
+eval "sht9=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
+sht50="${R}"
+eval "F$((FP+NP+0))=\"\${sht25}\""
+eval "F$((FP+NP+1))=\"\${sht22}\""
+eval "F$((FP+NP+2))=\"\${sht15}\""
+eval "F$((FP+NP+3))=\"\${sht12}\""
+eval "F$((FP+NP+4))=\"\${sht9}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht49}\""
+eval "F$((NFP+1))=\"\${sht50}\""
+ARGC=2
+CALLEE=append
+RPC=25; ACTION=call; return
+;;
+25)
+eval "sht25=\"\$F$((FP+NP+0))\""
+eval "sht22=\"\$F$((FP+NP+1))\""
+eval "sht15=\"\$F$((FP+NP+2))\""
+eval "sht12=\"\$F$((FP+NP+3))\""
+eval "sht9=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht51="${R}"
+R="${sht51}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_compile_def_sh=3
@@ -13656,6 +14720,7 @@ eval "F$((NFP+2))=\"\${sht21}\""
 eval "F$((NFP+3))=\"\${sht28}\""
 eval "F$((NFP+4))=\"\${p1}\""
 eval "F$((NFP+5))=\"\${p2}\""
+ARGC=6
 CALLEE=compile_clambda
 RPC=6; ACTION=call; return
 ;;
@@ -13692,6 +14757,7 @@ eval "F$((NFP+1))=\"\${sht36}\""
 eval "F$((NFP+2))=\"\${sht42}\""
 eval "F$((NFP+3))=\"\${p1}\""
 eval "F$((NFP+4))=\"\${p2}\""
+ARGC=5
 CALLEE=compile_fn_bb
 RPC=7; ACTION=call; return
 ;;
@@ -13766,6 +14832,7 @@ eval "F$((FP+NP+0))=\"\${sht12}\""
 eval "F$((FP+NP+1))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht13}\""
+ARGC=1
 CALLEE=gfn_names
 RPC=8; ACTION=call; return
 ;;
@@ -13773,6 +14840,7 @@ RPC=8; ACTION=call; return
 hp_cdr "${p0}"
 sht16="${R}"
 eval "F$((FP+0))=\"\${sht16}\""
+ARGC=1
 PC=0; ACTION=tail; return
 ;;
 8)
@@ -13838,6 +14906,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=compile_def_sh
 RPC=3; ACTION=call; return
 ;;
@@ -13856,6 +14925,7 @@ sht9="${R}"
 eval "F$((FP+NP+0))=\"\${sht6}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht9}\""
+ARGC=1
 CALLEE=cval_sh
 RPC=4; ACTION=call; return
 ;;
@@ -13897,6 +14967,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=gen1_sh
 RPC=3; ACTION=call; return
 ;;
@@ -13909,6 +14980,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${p2}\""
+ARGC=3
 CALLEE=compile_all_sh
 RPC=4; ACTION=call; return
 ;;
@@ -13918,6 +14990,7 @@ sht3="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${sht3}\""
+ARGC=2
 CALLEE=append
 RPC=5; ACTION=call; return
 ;;
@@ -13981,6 +15054,7 @@ ACTION=jump; return
 hp_cdr "${p0}"
 sht11="${R}"
 eval "F$((FP+0))=\"\${sht11}\""
+ARGC=1
 PC=0; ACTION=tail; return
 ;;
 7)
@@ -13994,6 +15068,7 @@ eval "F$((FP+NP+0))=\"\${sht13}\""
 eval "F$((FP+NP+1))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht14}\""
+ARGC=1
 CALLEE=gvar_names
 RPC=8; ACTION=call; return
 ;;
@@ -14019,6 +15094,7 @@ case $PC in
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"I:0\""
+ARGC=2
 CALLEE=lift_program
 RPC=1; ACTION=call; return
 ;;
@@ -14030,6 +15106,7 @@ eval "F$((FP+NP+1))=\"\${p1}\""
 eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=gfn_names
 RPC=2; ACTION=call; return
 ;;
@@ -14044,6 +15121,7 @@ eval "F$((FP+NP+2))=\"\${p1}\""
 eval "F$((FP+NP+3))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
+ARGC=1
 CALLEE=gvar_names
 RPC=3; ACTION=call; return
 ;;
@@ -14059,6 +15137,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${sht2}\""
 eval "F$((NFP+2))=\"\${sht3}\""
+ARGC=3
 CALLEE=compile_all_sh
 RPC=4; ACTION=call; return
 ;;
@@ -14184,237 +15263,259 @@ hp_car "${sht28}"
 sht29="${R}"
 sht30="${sht29}"
 eval "F$((FP+NP+0))=\"\${sht30}\""
-eval "F$((FP+NP+1))=\"\${sht23}\""
-eval "F$((FP+NP+2))=\"\${sht17}\""
-eval "F$((FP+NP+3))=\"\${sht2}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht30}\""
-eval "F$((NFP+1))=\"\${sht23}\""
-eval "F$((NFP+2))=\"\${p1}\""
-CALLEE=lift
-RPC=14; ACTION=call; return
-;;
-13)
-hp_cdr "${p0}"
-sht53="${R}"
-eval "F$((FP+NP+0))=\"\${sht2}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht53}\""
-eval "F$((NFP+1))=\"\${p1}\""
-CALLEE=lift_program_c
-RPC=17; ACTION=call; return
-;;
-14)
-eval "sht30=\"\$F$((FP+NP+0))\""
-eval "sht23=\"\$F$((FP+NP+1))\""
-eval "sht17=\"\$F$((FP+NP+2))\""
-eval "sht2=\"\$F$((FP+NP+3))\""
-sht31="${R}"
-sht32="${sht31}"
-hp_cdr "${p0}"
-sht33="${R}"
-hp_cdr "${sht32}"
-sht34="${R}"
-hp_cdr "${sht34}"
-sht35="${R}"
-hp_car "${sht35}"
-sht36="${R}"
-eval "F$((FP+NP+0))=\"\${sht32}\""
 eval "F$((FP+NP+1))=\"\${sht30}\""
 eval "F$((FP+NP+2))=\"\${sht23}\""
 eval "F$((FP+NP+3))=\"\${sht17}\""
 eval "F$((FP+NP+4))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht33}\""
-eval "F$((NFP+1))=\"\${sht36}\""
-CALLEE=lift_program_c
-RPC=15; ACTION=call; return
+eval "F$((NFP+0))=\"\${sht23}\""
+ARGC=1
+CALLEE=fs_list
+RPC=14; ACTION=call; return
 ;;
-15)
-eval "sht32=\"\$F$((FP+NP+0))\""
+13)
+hp_cdr "${p0}"
+sht54="${R}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht54}\""
+eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
+CALLEE=lift_program_c
+RPC=18; ACTION=call; return
+;;
+14)
+eval "sht30=\"\$F$((FP+NP+0))\""
 eval "sht30=\"\$F$((FP+NP+1))\""
 eval "sht23=\"\$F$((FP+NP+2))\""
 eval "sht17=\"\$F$((FP+NP+3))\""
 eval "sht2=\"\$F$((FP+NP+4))\""
+sht31="${R}"
+eval "F$((FP+NP+0))=\"\${sht30}\""
+eval "F$((FP+NP+1))=\"\${sht23}\""
+eval "F$((FP+NP+2))=\"\${sht17}\""
+eval "F$((FP+NP+3))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht30}\""
+eval "F$((NFP+1))=\"\${sht31}\""
+eval "F$((NFP+2))=\"\${p1}\""
+ARGC=3
+CALLEE=lift
+RPC=15; ACTION=call; return
+;;
+15)
+eval "sht30=\"\$F$((FP+NP+0))\""
+eval "sht23=\"\$F$((FP+NP+1))\""
+eval "sht17=\"\$F$((FP+NP+2))\""
+eval "sht2=\"\$F$((FP+NP+3))\""
+sht32="${R}"
+sht33="${sht32}"
+hp_cdr "${p0}"
+sht34="${R}"
+hp_cdr "${sht33}"
+sht35="${R}"
+hp_cdr "${sht35}"
+sht36="${R}"
+hp_car "${sht36}"
 sht37="${R}"
-sht38="${sht37}"
-hp_car "${sht32}"
-sht39="${R}"
+eval "F$((FP+NP+0))=\"\${sht33}\""
+eval "F$((FP+NP+1))=\"\${sht30}\""
+eval "F$((FP+NP+2))=\"\${sht23}\""
+eval "F$((FP+NP+3))=\"\${sht17}\""
+eval "F$((FP+NP+4))=\"\${sht2}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht34}\""
+eval "F$((NFP+1))=\"\${sht37}\""
+ARGC=2
+CALLEE=lift_program_c
+RPC=16; ACTION=call; return
+;;
+16)
+eval "sht33=\"\$F$((FP+NP+0))\""
+eval "sht30=\"\$F$((FP+NP+1))\""
+eval "sht23=\"\$F$((FP+NP+2))\""
+eval "sht17=\"\$F$((FP+NP+3))\""
+eval "sht2=\"\$F$((FP+NP+4))\""
+sht38="${R}"
+sht39="${sht38}"
+hp_car "${sht33}"
+sht40="${R}"
 eval "F$((FP+NP+0))=\"\${sht23}\""
 eval "F$((FP+NP+1))=\"\${sht17}\""
-eval "F$((FP+NP+2))=\"\${sht38}\""
-eval "F$((FP+NP+3))=\"\${sht32}\""
+eval "F$((FP+NP+2))=\"\${sht39}\""
+eval "F$((FP+NP+3))=\"\${sht33}\""
 eval "F$((FP+NP+4))=\"\${sht30}\""
 eval "F$((FP+NP+5))=\"\${sht23}\""
 eval "F$((FP+NP+6))=\"\${sht17}\""
 eval "F$((FP+NP+7))=\"\${sht2}\""
-hp_cons "${sht39}" "NIL"
+hp_cons "${sht40}" "NIL"
 eval "sht23=\"\$F$((FP+NP+0))\""
 eval "sht17=\"\$F$((FP+NP+1))\""
-eval "sht38=\"\$F$((FP+NP+2))\""
-eval "sht32=\"\$F$((FP+NP+3))\""
+eval "sht39=\"\$F$((FP+NP+2))\""
+eval "sht33=\"\$F$((FP+NP+3))\""
 eval "sht30=\"\$F$((FP+NP+4))\""
 eval "sht23=\"\$F$((FP+NP+5))\""
 eval "sht17=\"\$F$((FP+NP+6))\""
 eval "sht2=\"\$F$((FP+NP+7))\""
-sht40="${R}"
-eval "F$((FP+NP+0))=\"\${sht17}\""
-eval "F$((FP+NP+1))=\"\${sht38}\""
-eval "F$((FP+NP+2))=\"\${sht32}\""
-eval "F$((FP+NP+3))=\"\${sht30}\""
-eval "F$((FP+NP+4))=\"\${sht23}\""
-eval "F$((FP+NP+5))=\"\${sht17}\""
-eval "F$((FP+NP+6))=\"\${sht2}\""
-hp_cons "${sht23}" "${sht40}"
-eval "sht17=\"\$F$((FP+NP+0))\""
-eval "sht38=\"\$F$((FP+NP+1))\""
-eval "sht32=\"\$F$((FP+NP+2))\""
-eval "sht30=\"\$F$((FP+NP+3))\""
-eval "sht23=\"\$F$((FP+NP+4))\""
-eval "sht17=\"\$F$((FP+NP+5))\""
-eval "sht2=\"\$F$((FP+NP+6))\""
 sht41="${R}"
 eval "F$((FP+NP+0))=\"\${sht17}\""
-eval "F$((FP+NP+1))=\"\${sht38}\""
-eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
 eval "F$((FP+NP+3))=\"\${sht30}\""
 eval "F$((FP+NP+4))=\"\${sht23}\""
 eval "F$((FP+NP+5))=\"\${sht17}\""
 eval "F$((FP+NP+6))=\"\${sht2}\""
-hp_cons "S:lambda" "${sht41}"
+hp_cons "${sht23}" "${sht41}"
 eval "sht17=\"\$F$((FP+NP+0))\""
-eval "sht38=\"\$F$((FP+NP+1))\""
-eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
 eval "sht30=\"\$F$((FP+NP+3))\""
 eval "sht23=\"\$F$((FP+NP+4))\""
 eval "sht17=\"\$F$((FP+NP+5))\""
 eval "sht2=\"\$F$((FP+NP+6))\""
 sht42="${R}"
 eval "F$((FP+NP+0))=\"\${sht17}\""
-eval "F$((FP+NP+1))=\"\${sht38}\""
-eval "F$((FP+NP+2))=\"\${sht32}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
 eval "F$((FP+NP+3))=\"\${sht30}\""
 eval "F$((FP+NP+4))=\"\${sht23}\""
 eval "F$((FP+NP+5))=\"\${sht17}\""
 eval "F$((FP+NP+6))=\"\${sht2}\""
-hp_cons "${sht42}" "NIL"
+hp_cons "S:lambda" "${sht42}"
 eval "sht17=\"\$F$((FP+NP+0))\""
-eval "sht38=\"\$F$((FP+NP+1))\""
-eval "sht32=\"\$F$((FP+NP+2))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
 eval "sht30=\"\$F$((FP+NP+3))\""
 eval "sht23=\"\$F$((FP+NP+4))\""
 eval "sht17=\"\$F$((FP+NP+5))\""
 eval "sht2=\"\$F$((FP+NP+6))\""
 sht43="${R}"
-eval "F$((FP+NP+0))=\"\${sht38}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
-eval "F$((FP+NP+2))=\"\${sht30}\""
-eval "F$((FP+NP+3))=\"\${sht23}\""
-eval "F$((FP+NP+4))=\"\${sht17}\""
-eval "F$((FP+NP+5))=\"\${sht2}\""
-hp_cons "${sht17}" "${sht43}"
-eval "sht38=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
-eval "sht30=\"\$F$((FP+NP+2))\""
-eval "sht23=\"\$F$((FP+NP+3))\""
-eval "sht17=\"\$F$((FP+NP+4))\""
-eval "sht2=\"\$F$((FP+NP+5))\""
+eval "F$((FP+NP+0))=\"\${sht17}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
+eval "F$((FP+NP+3))=\"\${sht30}\""
+eval "F$((FP+NP+4))=\"\${sht23}\""
+eval "F$((FP+NP+5))=\"\${sht17}\""
+eval "F$((FP+NP+6))=\"\${sht2}\""
+hp_cons "${sht43}" "NIL"
+eval "sht17=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
+eval "sht30=\"\$F$((FP+NP+3))\""
+eval "sht23=\"\$F$((FP+NP+4))\""
+eval "sht17=\"\$F$((FP+NP+5))\""
+eval "sht2=\"\$F$((FP+NP+6))\""
 sht44="${R}"
-eval "F$((FP+NP+0))=\"\${sht38}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
 eval "F$((FP+NP+2))=\"\${sht30}\""
 eval "F$((FP+NP+3))=\"\${sht23}\""
 eval "F$((FP+NP+4))=\"\${sht17}\""
 eval "F$((FP+NP+5))=\"\${sht2}\""
-hp_cons "S:define" "${sht44}"
-eval "sht38=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
+hp_cons "${sht17}" "${sht44}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
 eval "sht30=\"\$F$((FP+NP+2))\""
 eval "sht23=\"\$F$((FP+NP+3))\""
 eval "sht17=\"\$F$((FP+NP+4))\""
 eval "sht2=\"\$F$((FP+NP+5))\""
 sht45="${R}"
-hp_cdr "${sht32}"
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "S:define" "${sht45}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
 sht46="${R}"
-hp_car "${sht46}"
+hp_cdr "${sht33}"
 sht47="${R}"
-hp_car "${sht38}"
+hp_car "${sht47}"
 sht48="${R}"
-eval "F$((FP+NP+0))=\"\${sht45}\""
-eval "F$((FP+NP+1))=\"\${sht38}\""
-eval "F$((FP+NP+2))=\"\${sht32}\""
+hp_car "${sht39}"
+sht49="${R}"
+eval "F$((FP+NP+0))=\"\${sht46}\""
+eval "F$((FP+NP+1))=\"\${sht39}\""
+eval "F$((FP+NP+2))=\"\${sht33}\""
 eval "F$((FP+NP+3))=\"\${sht30}\""
 eval "F$((FP+NP+4))=\"\${sht23}\""
 eval "F$((FP+NP+5))=\"\${sht17}\""
 eval "F$((FP+NP+6))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht47}\""
-eval "F$((NFP+1))=\"\${sht48}\""
+eval "F$((NFP+0))=\"\${sht48}\""
+eval "F$((NFP+1))=\"\${sht49}\""
+ARGC=2
 CALLEE=append
-RPC=16; ACTION=call; return
+RPC=17; ACTION=call; return
 ;;
-16)
-eval "sht45=\"\$F$((FP+NP+0))\""
-eval "sht38=\"\$F$((FP+NP+1))\""
-eval "sht32=\"\$F$((FP+NP+2))\""
+17)
+eval "sht46=\"\$F$((FP+NP+0))\""
+eval "sht39=\"\$F$((FP+NP+1))\""
+eval "sht33=\"\$F$((FP+NP+2))\""
 eval "sht30=\"\$F$((FP+NP+3))\""
 eval "sht23=\"\$F$((FP+NP+4))\""
 eval "sht17=\"\$F$((FP+NP+5))\""
 eval "sht2=\"\$F$((FP+NP+6))\""
-sht49="${R}"
-eval "F$((FP+NP+0))=\"\${sht38}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
-eval "F$((FP+NP+2))=\"\${sht30}\""
-eval "F$((FP+NP+3))=\"\${sht23}\""
-eval "F$((FP+NP+4))=\"\${sht17}\""
-eval "F$((FP+NP+5))=\"\${sht2}\""
-hp_cons "${sht45}" "${sht49}"
-eval "sht38=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
-eval "sht30=\"\$F$((FP+NP+2))\""
-eval "sht23=\"\$F$((FP+NP+3))\""
-eval "sht17=\"\$F$((FP+NP+4))\""
-eval "sht2=\"\$F$((FP+NP+5))\""
 sht50="${R}"
-hp_cdr "${sht38}"
-sht51="${R}"
-eval "F$((FP+NP+0))=\"\${sht38}\""
-eval "F$((FP+NP+1))=\"\${sht32}\""
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
 eval "F$((FP+NP+2))=\"\${sht30}\""
 eval "F$((FP+NP+3))=\"\${sht23}\""
 eval "F$((FP+NP+4))=\"\${sht17}\""
 eval "F$((FP+NP+5))=\"\${sht2}\""
-hp_cons "${sht50}" "${sht51}"
-eval "sht38=\"\$F$((FP+NP+0))\""
-eval "sht32=\"\$F$((FP+NP+1))\""
+hp_cons "${sht46}" "${sht50}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
 eval "sht30=\"\$F$((FP+NP+2))\""
 eval "sht23=\"\$F$((FP+NP+3))\""
 eval "sht17=\"\$F$((FP+NP+4))\""
 eval "sht2=\"\$F$((FP+NP+5))\""
+sht51="${R}"
+hp_cdr "${sht39}"
 sht52="${R}"
-R="${sht52}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${sht39}\""
+eval "F$((FP+NP+1))=\"\${sht33}\""
+eval "F$((FP+NP+2))=\"\${sht30}\""
+eval "F$((FP+NP+3))=\"\${sht23}\""
+eval "F$((FP+NP+4))=\"\${sht17}\""
+eval "F$((FP+NP+5))=\"\${sht2}\""
+hp_cons "${sht51}" "${sht52}"
+eval "sht39=\"\$F$((FP+NP+0))\""
+eval "sht33=\"\$F$((FP+NP+1))\""
+eval "sht30=\"\$F$((FP+NP+2))\""
+eval "sht23=\"\$F$((FP+NP+3))\""
+eval "sht17=\"\$F$((FP+NP+4))\""
+eval "sht2=\"\$F$((FP+NP+5))\""
+sht53="${R}"
+R="${sht53}"; ACTION=ret; return
 ;;
-17)
+18)
 eval "sht2=\"\$F$((FP+NP+0))\""
-sht54="${R}"
-sht55="${sht54}"
-hp_car "${sht55}"
-sht56="${R}"
-eval "F$((FP+NP+0))=\"\${sht55}\""
-eval "F$((FP+NP+1))=\"\${sht2}\""
-hp_cons "${sht2}" "${sht56}"
-eval "sht55=\"\$F$((FP+NP+0))\""
-eval "sht2=\"\$F$((FP+NP+1))\""
+sht55="${R}"
+sht56="${sht55}"
+hp_car "${sht56}"
 sht57="${R}"
-hp_cdr "${sht55}"
-sht58="${R}"
-eval "F$((FP+NP+0))=\"\${sht55}\""
+eval "F$((FP+NP+0))=\"\${sht56}\""
 eval "F$((FP+NP+1))=\"\${sht2}\""
-hp_cons "${sht57}" "${sht58}"
-eval "sht55=\"\$F$((FP+NP+0))\""
+hp_cons "${sht2}" "${sht57}"
+eval "sht56=\"\$F$((FP+NP+0))\""
 eval "sht2=\"\$F$((FP+NP+1))\""
+sht58="${R}"
+hp_cdr "${sht56}"
 sht59="${R}"
-R="${sht59}"; ACTION=ret; return
+eval "F$((FP+NP+0))=\"\${sht56}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht58}" "${sht59}"
+eval "sht56=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht60="${R}"
+R="${sht60}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_repl_compile_sh=11
@@ -14431,6 +15532,7 @@ case $PC in
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p2}\""
+ARGC=2
 CALLEE=lift_program_c
 RPC=1; ACTION=call; return
 ;;
@@ -14449,6 +15551,7 @@ eval "F$((FP+NP+2))=\"\${sht3}\""
 eval "F$((FP+NP+3))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
+ARGC=1
 CALLEE=gfn_names
 RPC=2; ACTION=call; return
 ;;
@@ -14464,6 +15567,7 @@ eval "F$((FP+NP+2))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p3}\""
 eval "F$((NFP+1))=\"\${sht6}\""
+ARGC=2
 CALLEE=append
 RPC=3; ACTION=call; return
 ;;
@@ -14480,6 +15584,7 @@ eval "F$((FP+NP+3))=\"\${sht3}\""
 eval "F$((FP+NP+4))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
+ARGC=1
 CALLEE=gvar_names
 RPC=4; ACTION=call; return
 ;;
@@ -14497,6 +15602,7 @@ eval "F$((FP+NP+3))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p4}\""
 eval "F$((NFP+1))=\"\${sht9}\""
+ARGC=2
 CALLEE=append
 RPC=5; ACTION=call; return
 ;;
@@ -14517,6 +15623,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht3}\""
 eval "F$((NFP+1))=\"\${sht8}\""
 eval "F$((NFP+2))=\"\${sht11}\""
+ARGC=3
 CALLEE=compile_all_sh
 RPC=6; ACTION=call; return
 ;;
@@ -15854,7 +16961,7 @@ drive() {
       call) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO"; RSP=$((RSP+1)); FP=$NFP; PC=0; CLO=""
             case $CALLEE in K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CURFN=${R#S:}; CLO=$_ri ;; C:*) CURFN=${CALLEE#C:} ;; *) CURFN=$CALLEE ;; esac ;;
       apply) eval "RSF$RSP=\$CURFN; RSC$RSP=\$RPC; RSB$RSP=\$FP; RSL$RSP=\$CLO"; RSP=$((RSP+1)); FP=$NFP; PC=0; CLO=""
-            _ai=0; _ac=$APLIST; while [ "$_ac" != NIL ]; do hp_car "$_ac"; eval "F$((FP+_ai))=\$R"; hp_cdr "$_ac"; _ac=$R; _ai=$((_ai+1)); done
+            _ai=0; _ac=$APLIST; while [ "$_ac" != NIL ]; do hp_car "$_ac"; eval "F$((FP+_ai))=\$R"; hp_cdr "$_ac"; _ac=$R; _ai=$((_ai+1)); done; ARGC=$_ai
             case $CALLEE in K:*) _ri=${CALLEE#K:}; hp_car "P:$_ri"; CURFN=${R#S:}; CLO=$_ri ;; C:*) CURFN=${CALLEE#C:} ;; *) CURFN=$CALLEE ;; esac ;;
       ret)  if [ "$RSP" -eq 0 ]; then CURFN=HALT; else RSP=$((RSP-1)); eval "FP=\$RSB$RSP; CURFN=\$RSF$RSP; PC=\$RSC$RSP; CLO=\$RSL$RSP"; fi ;;
       tail|jump) ;;
@@ -16017,11 +17124,11 @@ rm -f "$_tmp"
 exit $?
 :CMDSTART
 @echo off
-rem ============ portsh cmd OSR front-end (build 5a40cf0c805c) -- generated by build-polyglot.sh ============
+rem ============ portsh cmd OSR front-end (build c973e7654967) -- generated by build-polyglot.sh ============
 if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__warm" goto :PWARM
 setlocal enabledelayedexpansion
-set "CACHE=%LOCALAPPDATA%\portsh\5a40cf0c805c"
+set "CACHE=%LOCALAPPDATA%\portsh\c973e7654967"
 if exist "%CACHE%\.ok" goto pcache_ok
 rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomic: tmp -> move -> .ok)
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
@@ -16085,7 +17192,7 @@ set "WPROG=%~2"
 set "WPUB=%~3"
 set "WSTG=%~4"
 set "WTASK=%~5"
-set "PATH=%LOCALAPPDATA%\portsh\5a40cf0c805c;!PATH!"
+set "PATH=%LOCALAPPDATA%\portsh\c973e7654967;!PATH!"
 if exist "!WSTG!" rmdir /s /q "!WSTG!"
 mkdir "!WSTG!"
 if not exist "!WPUB!" mkdir "!WPUB!"
@@ -16170,7 +17277,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -16179,7 +17286,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -16332,6 +17439,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=not"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -16440,11 +17548,12 @@ echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zt0=T:!p1:~2!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -16461,6 +17570,7 @@ echo(set "zt4=T:!zt0:~2!!zt3:~2!"
 echo(set "zt5=T:A!zt4:~2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -16472,13 +17582,14 @@ echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zt6=!R!"
 echo(set "zi7=!p0:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a zt8=!p1:~2!+1
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:!zt8!"
+echo(set "ARGC=2"
 echo(set "CALLEE=aas"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -16503,6 +17614,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=rvar"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -16556,11 +17668,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -16580,10 +17693,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\all-inzzQ_pc5.cmd" (
@@ -16611,7 +17725,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -16621,7 +17735,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -16630,14 +17744,15 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=and-zzGif"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -17152,15 +18267,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -17183,7 +18299,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="S:lit" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -17193,7 +18309,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -17202,7 +18318,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:raw" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -17212,7 +18328,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -17221,7 +18337,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(if "!zt4!"=="S:cst" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
@@ -17231,7 +18347,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "R=!zt5!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -17240,7 +18356,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zt7=T:!zt6:~2!:~2!BANG!"
 echo(set "zt8=T:!BANG!!zt7:~2!"
@@ -17839,6 +18955,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caar"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -17858,7 +18975,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi1=!p1:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -17868,10 +18985,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\atom-constzzQ_pc0.cmd" (
@@ -17880,6 +18998,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -17905,6 +19024,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=not"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -17936,7 +19056,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:define" ^(set "PC=6" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
@@ -17953,6 +19073,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -17985,7 +19106,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -17994,10 +19115,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18006,19 +19127,19 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "R=!zt4!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18028,6 +19149,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadddr"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -18044,13 +19166,13 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18059,22 +19181,22 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!zt4:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!zt4:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "R=!zt5!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18096,10 +19218,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -18110,11 +19233,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bargs"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -18135,6 +19259,7 @@ echo(set /a FT=!FP!+6
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-blk"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -18147,6 +19272,7 @@ echo(set "zt0=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-cur"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -18161,6 +19287,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-pc"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -18177,6 +19304,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -18195,6 +19323,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -18216,6 +19345,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-smax"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -18237,6 +19367,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=I:!zt5!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=6"
 echo(set "CALLEE=mkb"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -18269,10 +19400,10 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="!p1!" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -18283,10 +19414,10 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18296,10 +19427,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\bnpc+_pc0.cmd" (
@@ -18308,6 +19440,7 @@ echo(set /a FT=!FP!+6
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-blk"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -18320,6 +19453,7 @@ echo(set "zt0=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-cur"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -18334,6 +19468,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-pc"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -18350,6 +19485,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -18369,6 +19505,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -18389,6 +19526,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-smax"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -18410,6 +19548,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:!zt4!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=6"
 echo(set "CALLEE=mkb"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -18428,6 +19567,7 @@ echo(set /a FT=!FP!+7
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-blk"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -18441,6 +19581,7 @@ echo(set "zt0=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-cur"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -18456,6 +19597,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-pc"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -18473,6 +19615,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -18492,6 +19635,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -18513,6 +19657,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-smax"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -18536,6 +19681,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=maxi"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -18558,6 +19704,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=6"
 echo(set "CALLEE=mkb"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -18604,10 +19751,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -18627,10 +19775,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -18641,10 +19790,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi12=!p0:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\build-adj_pc6.cmd" (
@@ -18654,11 +19804,12 @@ echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zt3=!R!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=1"
 echo(set "CALLEE=fn-body"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -18674,6 +19825,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
+echo(set "ARGC=2"
 echo(set "CALLEE=callees"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -18689,6 +19841,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=keep-defined"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -18705,12 +19858,13 @@ echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt7!#
 echo(set "zt8=P:!HN!"
 echo(set "zi9=!p0:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=build-adj"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -18934,10 +20088,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18946,16 +20100,16 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18964,13 +20118,13 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -18979,10 +20133,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -19002,15 +20156,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=callees"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19031,6 +20186,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt3=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\callees_pc0.cmd" (
@@ -19049,7 +20205,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=2"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:quote" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -19083,7 +20239,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=2"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zp3=!zt2!"
 echo(set "zp3=!zp3:~0,1!"
@@ -19096,11 +20252,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=2"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=set-add"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -19120,16 +20277,17 @@ echo(set /a FT=!FP!+4
 echo(set "NP=2"
 echo(set "zt7=!zt4!"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zi9=!p0:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt7!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=2"
 echo(set "CALLEE=callees"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -19155,6 +20313,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=2"
 echo(set "CALLEE=callees-list"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -19184,6 +20343,7 @@ echo(set "zt1=T:!zt0:~2!=!BANG!R:~0,-1!BANG!"
 echo(set "zt2=T:p!zt1:~2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19197,6 +20357,7 @@ echo(set "zt3=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:_cl=!BANG!R:~2,-1!BANG!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -19225,13 +20386,14 @@ echo(^>%%HD%%\car%%HN%% echo^(T:for !BANG2!!BANG2!v in ^(!BANG!_cl!BANG!^) do se
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt7!#
 echo(set "zt8=P:!HN!"
 echo(set "zi9=!p0:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a zt10=!p1:~2!+1
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:!zt10!"
+echo(set "ARGC=2"
 echo(set "CALLEE=cap-loads-go"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -19246,6 +20408,7 @@ echo(set "zt11=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -19280,6 +20443,7 @@ echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:_cl=!BANG!R:~2,-1!BANG!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19294,6 +20458,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=cap-loads-go"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -19320,7 +20485,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="S:else" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -19330,7 +20495,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(S:t#
@@ -19343,7 +20508,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
@@ -19366,7 +20531,7 @@ echo(^>%%HD%%\car%%HN%% echo^(S:eq?#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt7!#
 echo(set "zt8=P:!HN!"
 echo(set "zi9=!p0:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt8!#
@@ -19392,10 +20557,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=case-clause"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19406,11 +20572,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=case-clauses"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -19447,6 +20614,7 @@ echo(set "zt2=P:!HN!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=case-clauses"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -19505,6 +20673,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=blkget"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19527,6 +20696,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:!zt4!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=caseblocks"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -19542,6 +20712,7 @@ echo(set "zt5=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -19563,6 +20734,7 @@ echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
 echo(set "CALLEE=cmp-names"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -19580,6 +20752,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=cmp-pairs"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -19602,6 +20775,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=3"
 echo(set "CALLEE=cmp-wrap"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19624,6 +20798,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=NIL"
+echo(set "ARGC=3"
 echo(set "CALLEE=clean-pass"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -19636,7 +20811,7 @@ echo(set "NP=2"
 echo(set "zt0=!R!"
 echo(set "zt1=!zt0!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if not "!zt2!"=="NIL" ^(set "PC=2" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
@@ -19647,10 +20822,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi3=!zt1:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\clean-fix_pc3.cmd" (
@@ -19659,7 +20835,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi4=!zt1:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "R=!zt4!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -19691,17 +20867,17 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!zt4:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!zt4:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zt6=!zt5!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
@@ -19709,6 +20885,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19732,11 +20909,12 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\clean-pass_pc5.cmd" (
@@ -19750,6 +20928,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=all-inzzQ"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -19773,7 +20952,7 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
@@ -19782,6 +20961,7 @@ echo(set "zt11=P:!HN!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=S:t"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\clean-pass_pc8.cmd" (
@@ -19791,11 +20971,12 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi12=!p0:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\cmp-names_pc0.cmd" (
@@ -19822,13 +21003,14 @@ echo(set "zt0=T:!p1:~2!"
 echo(set "zt1=T:__cmp!zt0:~2!"
 echo(set "zt2=S:!zt1:~2!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a zt4=!p1:~2!+1
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:!zt4!"
+echo(set "ARGC=2"
 echo(set "CALLEE=cmp-names"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19905,7 +21087,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p1:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -19923,13 +21105,13 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi1=!p1:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
@@ -19944,12 +21126,13 @@ echo(^>%%HD%%\car%%HN%% echo^(!p0!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt5!#
 echo(set "zt6=P:!HN!"
 echo(set "zi7=!p1:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=2"
 echo(set "CALLEE=cmp-pairs"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -19991,10 +21174,10 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=3"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p1:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt1!#
@@ -20009,16 +21192,17 @@ echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
 echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
 echo(set "zt4=P:!HN!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!p1:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=cmp-wrap"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -21435,7 +22619,8 @@ echo(set /a FT=!FP!+17
 echo(set "NP=6"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=lenl"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21449,22 +22634,10 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
 echo(set "zt0=!R!"
-echo(set "zt1=!zt0!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(T:$GFNS#
-echo(^>%%HD%%\cdr%%HN%% echo^(!p4!#
-echo(set "zt2=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(T:$GVARS#
-echo(^>%%HD%%\cdr%%HN%% echo^(!p5!#
-echo(set "zt3=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
-echo(set "CALLEE=append"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
+echo(set "CALLEE=lenl"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21477,26 +22650,22 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt18=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt19=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt18!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt19!#
-echo(set "zt20=P:!HN!"
-echo(set "zt21=!zt20!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt17=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt18=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt17!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
-echo(set "CALLEE=b-smax"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt18!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
+echo(set "ARGC=2"
+echo(set "CALLEE=rev"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21509,25 +22678,25 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt22=!R!"
-echo(set /a zt23=!zt1:~2!+!zt22:~2!
-echo(set "zt24=I:!zt23!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt17=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt19=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt17!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt19!#
+echo(set "zt20=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
-echo(set "CALLEE=ploads"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-blk"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21540,23 +22709,27 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt25=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt20=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt21=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt20!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt21!#
+echo(set "zt22=P:!HN!"
+echo(set "zt23=!zt22!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:_clrs=!BANG!R!BANG!"
-echo(set "CALLEE=qset"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-smax"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21569,26 +22742,25 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt26=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt24=!R!"
+echo(set /a zt25=!zt2:~2!+!zt24:~2!
+echo(set "zt26=I:!zt25!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt26!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt1!"
-echo(set "CALLEE=cap-loads"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
+echo(set "CALLEE=varargszzQ"
 echo(set "RPC=14"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21602,28 +22774,14 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt26=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+7 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt27=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt27!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt26!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt1!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:R=!BANG!_clrs!BANG!"
-echo(set "CALLEE=qset"
-echo(set "RPC=15"
-echo(set "ACTION=call" ^& goto :eof
+echo(if not "!zt27!"=="NIL" ^(set "PC=15" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=16" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\compile-clambda_pc15.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -21634,35 +22792,16 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt27=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt26=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+7 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+8 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt28=!R!"
-echo(set "zt29=T:!zt24:~2!"
-echo(set "zt30=T:set /a FT=!BANG!FP!BANG!+!zt29:~2!"
-echo(set "zt31=T:!zt1:~2!"
-echo(set "zt32=T:NP=!zt31:~2!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt30!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt28!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt27!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt26!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt32!"
-echo(set "CALLEE=qset"
-echo(set "RPC=16"
+echo(set "ARGC=0"
+echo(set "CALLEE=va-collect-cmd"
+echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\compile-clambda_pc16.cmd" (
@@ -21674,43 +22813,18 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt30=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt28=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt27=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt26=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+7 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+8 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+9 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+10 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt33=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt33!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt34=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt30!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt34!#
-echo(set "zt35=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt28!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt35!#
-echo(set "zt36=P:!HN!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt26!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt27!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt36!"
-echo(set "CALLEE=append"
-echo(set "RPC=17"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
+echo(set "CALLEE=ploads"
+echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\compile-clambda_pc17.cmd" (
@@ -21722,30 +22836,18 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt26=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+7 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt37=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt26!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt37!#
-echo(set "zt38=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt28!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt38!"
-echo(set "CALLEE=append"
-echo(set "RPC=18"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:_clrs=!BANG!R!BANG!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=23"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\compile-clambda_pc18.cmd" (
@@ -21757,26 +22859,24 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt39=!R!"
-echo(set "zt40=!zt39!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt29=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt29!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
-echo(set "CALLEE=b-npc"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21789,30 +22889,26 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt40=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt40=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+7 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+8 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt41=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt29=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt30=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt29!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
-echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt41!"
-echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt11!"
-echo(set "CALLEE=seg-files"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt30!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
+echo(set "CALLEE=ploads"
 echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21825,17 +22921,23 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt2=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt4=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
+echo(set "zt1=!R!"
+echo(set "zt2=!zt1!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:$GFNS#
+echo(^>%%HD%%\cdr%%HN%% echo^(!p4!#
+echo(set "zt3=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:$GVARS#
+echo(^>%%HD%%\cdr%%HN%% echo^(!p5!#
+echo(set "zt4=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
-echo(set "CALLEE=pmap-fr"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21848,15 +22950,328 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt40=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt42=!R!"
-echo(set "R=!zt42!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt29=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt31=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt29!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt31!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=21"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt32=!R!"
+echo(set "zt28=!zt32!"
+echo(set "PC=17" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc22.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt33=!R!"
+echo(set "zt28=!zt33!"
+echo(set "PC=17" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc23.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt34=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt28!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
+echo(set "CALLEE=cap-loads"
+echo(set "RPC=24"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc24.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+7 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt35=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt28!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:R=!BANG!_clrs!BANG!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=25"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc25.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt35=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+7 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+8 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt36=!R!"
+echo(set "zt37=T:!zt26:~2!"
+echo(set "zt38=T:set /a FT=!BANG!FP!BANG!+!zt37:~2!"
+echo(set "zt39=T:!zt2:~2!"
+echo(set "zt40=T:NP=!zt39:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt38!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt36!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt28!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=26"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc26.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt38=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt36=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt35=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+7 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+8 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+9 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+10 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt41=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt41!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt42=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt38!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt42!#
+echo(set "zt43=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt36!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt43!#
+echo(set "zt44=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt28!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt44!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=27"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc27.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+7 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt45=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt45!#
+echo(set "zt46=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt28!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt46!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=28"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc28.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt47=!R!"
+echo(set "zt48=!zt47!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt48!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt48!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-npc"
+echo(set "RPC=29"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc29.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt48=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt48=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+7 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+8 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt49=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt48!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt48!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt49!"
+echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=5"
+echo(set "CALLEE=seg-files"
+echo(set "RPC=30"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\compile-clambda_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -21867,27 +23282,39 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt2=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt5=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt5!#
-echo(set "zt6=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt2!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt6!#
-echo(set "zt7=P:!HN!"
-echo(set "zt8=!zt7!"
-echo(set "zt9=T:!p0:~2!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
-echo(set "CALLEE=mangle"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-clambda_pc30.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+17
+echo(set "NP=6"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt48=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt26=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt50=!R!"
+echo(set "R=!zt50!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\compile-clambda_pc4.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -21898,25 +23325,18 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt10=!R!"
-echo(set "zt11=!zt10!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p0!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!p3!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt6=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=NIL"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
-echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:1"
-echo(set /a _i=!NFP!+4 ^& set "F!_i!=I:0"
-echo(set /a _i=!NFP!+5 ^& set "F!_i!=I:0"
-echo(set "CALLEE=mkb"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
+echo(set "CALLEE=pmap-fr"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21929,25 +23349,26 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "p0=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "p3=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt12=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt7=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt4!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt7!#
+echo(set "zt8=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt8!#
+echo(set "zt9=P:!HN!"
+echo(set "zt10=!zt9!"
+echo(set "zt11=T:!p0:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p3!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p0!"
-echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt12!"
-echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
-echo(set "CALLEE=ltail"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=1"
+echo(set "CALLEE=mangle"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21960,18 +23381,26 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt13=!R!"
-echo(set "zt14=!zt13!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt12=!R!"
+echo(set "zt13=!zt12!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p0!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!p3!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
-echo(set "CALLEE=b-pc"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=NIL"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:1"
+echo(set /a _i=!NFP!+4 ^& set "F!_i!=I:0"
+echo(set /a _i=!NFP!+5 ^& set "F!_i!=I:0"
+echo(set "ARGC=6"
+echo(set "CALLEE=mkb"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -21984,19 +23413,26 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt15=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt14=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
-echo(set "CALLEE=b-cur"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p3!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p0!"
+echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt14!"
+echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
+echo(set "ARGC=6"
+echo(set "CALLEE=ltail"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22009,21 +23445,19 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt15=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt16=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt15=!R!"
+echo(set "zt16=!zt15!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
-echo(set "CALLEE=rev"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-pc"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22036,24 +23470,20 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=6"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt15=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt8=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt10=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt17=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt15!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt17!#
-echo(set "zt18=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt17!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
-echo(set "CALLEE=b-blk"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-cur"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22070,7 +23500,8 @@ echo(set /a FT=!FP!+16
 echo(set "NP=8"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
-echo(set "CALLEE=lenl"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22086,22 +23517,10 @@ echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
 echo(set "zt0=!R!"
-echo(set "zt1=!zt0!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(T:$GFNS#
-echo(^>%%HD%%\cdr%%HN%% echo^(!p6!#
-echo(set "zt2=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(T:$GVARS#
-echo(^>%%HD%%\cdr%%HN%% echo^(!p7!#
-echo(set "zt3=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
-echo(set "CALLEE=pmap-fr"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
+echo(set "CALLEE=lenl"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22116,26 +23535,25 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt20=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt21=!R!"
-echo(set "zt22=T:!zt20:~2!"
-echo(set "zt23=T:set /a FT=!BANG!FP!BANG!+!zt22:~2!"
-echo(set "zt24=T:!zt1:~2!"
-echo(set "zt25=T:NP=!zt24:~2!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt23!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt20!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt17=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt16!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt17!#
+echo(set "zt18=P:!HN!"
+echo(set "zt19=!zt18!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
-echo(set "CALLEE=qset"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-smax"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22150,31 +23568,23 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt23=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt20=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt26=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt26!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt27=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt23!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt27!#
-echo(set "zt28=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt20=!R!"
+echo(set /a zt21=!zt2:~2!+!zt20:~2!
+echo(set "zt22=I:!zt21!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt28!"
-echo(set "CALLEE=append"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set "ARGC=1"
+echo(set "CALLEE=varargszzQ"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22189,26 +23599,14 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt20=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt29=!R!"
-echo(set "zt30=!zt29!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt30!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt30!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt20!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt1!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
-echo(set "CALLEE=b-npc"
-echo(set "RPC=13"
-echo(set "ACTION=call" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt23=!R!"
+echo(if not "!zt23!"=="NIL" ^(set "PC=13" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=14" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\compile-fn_pc13.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -22221,29 +23619,15 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt30=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt30=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt20=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+7 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt31=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt30!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt20!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt30!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
-echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt31!"
-echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=seg-files"
-echo(set "RPC=14"
+echo(set "ARGC=0"
+echo(set "CALLEE=va-collect-cmd"
+echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\compile-fn_pc14.cmd" (
@@ -22257,18 +23641,160 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt30=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt20=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt32=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt32!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!p4!#
-echo(set "zt33=P:!HN!"
-echo(set "R=!zt33!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
+echo(set "CALLEE=ploads"
+echo(set "RPC=20"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc15.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set "zt30=T:!zt22:~2!"
+echo(set "zt31=T:set /a FT=!BANG!FP!BANG!+!zt30:~2!"
+echo(set "zt32=T:!zt2:~2!"
+echo(set "zt33=T:NP=!zt32:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt33!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=21"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc16.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt25=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
+echo(set "RPC=17"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc17.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt25=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt26=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
+echo(set "CALLEE=ploads"
+echo(set "RPC=18"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc18.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt25=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt27=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt27!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=19"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc19.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt28=!R!"
+echo(set "zt24=!zt28!"
+echo(set "PC=15" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\compile-fn_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -22281,35 +23807,179 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt2=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt4=!R!"
+echo(set "zt1=!R!"
+echo(set "zt2=!zt1!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt4!#
-echo(set "zt5=P:!HN!"
+echo(^>%%HD%%\car%%HN%% echo^(T:$GFNS#
+echo(^>%%HD%%\cdr%%HN%% echo^(!p6!#
+echo(set "zt3=P:!HN!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt2!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt5!#
-echo(set "zt6=P:!HN!"
-echo(set "zt7=!zt6!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p0!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!p3!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(^>%%HD%%\car%%HN%% echo^(T:$GVARS#
+echo(^>%%HD%%\cdr%%HN%% echo^(!p7!#
+echo(set "zt4=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=NIL"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
-echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:1"
-echo(set /a _i=!NFP!+4 ^& set "F!_i!=I:0"
-echo(set /a _i=!NFP!+5 ^& set "F!_i!=I:0"
-echo(set "CALLEE=mkb"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc20.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt29=!R!"
+echo(set "zt24=!zt29!"
+echo(set "PC=15" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt31=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt24=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt34=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt35=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt31!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt35!#
+echo(set "zt36=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt36!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=22"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc22.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt37=!R!"
+echo(set "zt38=!zt37!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt38!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt38!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-npc"
+echo(set "RPC=23"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc23.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt38=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt38=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+7 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt39=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt38!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt38!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt39!"
+echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p1!"
+echo(set "ARGC=5"
+echo(set "CALLEE=seg-files"
+echo(set "RPC=24"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\compile-fn_pc24.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+16
+echo(set "NP=8"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt38=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt40=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt40!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!p4!#
+echo(set "zt41=P:!HN!"
+echo(set "R=!zt41!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\compile-fn_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -22322,23 +23992,18 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "p0=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "p3=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt8=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt5=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p3!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p0!"
-echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt8!"
-echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
-echo(set "CALLEE=ltail"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
+echo(set "CALLEE=pmap-fr"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22353,16 +24018,34 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt9=!R!"
-echo(set "zt10=!zt9!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt6=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt4!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt6!#
+echo(set "zt7=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt3!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt7!#
+echo(set "zt8=P:!HN!"
+echo(set "zt9=!zt8!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p0!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!p3!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
-echo(set "CALLEE=b-pc"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=NIL"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:1"
+echo(set /a _i=!NFP!+4 ^& set "F!_i!=I:0"
+echo(set /a _i=!NFP!+5 ^& set "F!_i!=I:0"
+echo(set "ARGC=6"
+echo(set "CALLEE=mkb"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22377,17 +24060,24 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt11=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "p3=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt10=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
-echo(set "CALLEE=b-cur"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p3!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p0!"
+echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
+echo(set "ARGC=6"
+echo(set "CALLEE=ltail"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22402,19 +24092,17 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt12=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt11=!R!"
+echo(set "zt12=!zt11!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
-echo(set "CALLEE=rev"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-pc"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22429,22 +24117,18 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt11=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt13=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt11!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt13!#
-echo(set "zt14=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
-echo(set "CALLEE=b-blk"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-cur"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22459,24 +24143,20 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt15=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt14!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt15!#
-echo(set "zt16=P:!HN!"
-echo(set "zt17=!zt16!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt14=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
-echo(set "CALLEE=b-smax"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
+echo(set "ARGC=2"
+echo(set "CALLEE=rev"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22491,23 +24171,23 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+7 ^& call set "p7=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+16
 echo(set "NP=8"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt17=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt10=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt7=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt18=!R!"
-echo(set /a zt19=!zt1:~2!+!zt18:~2!
-echo(set "zt20=I:!zt19!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt9=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt15=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt13!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt15!#
+echo(set "zt16=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt9!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
-echo(set "CALLEE=ploads"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
+echo(set "CALLEE=b-blk"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -22519,6 +24199,7 @@ echo(set /a FT=!FP!+8
 echo(set "NP=3"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mexpand-program"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -22533,6 +24214,7 @@ echo(set "zt0=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
+echo(set "ARGC=2"
 echo(set "CALLEE=lift-program"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -22550,6 +24232,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=const-inits"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -22577,6 +24260,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=defnames"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -22599,6 +24283,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=gvarnames"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -22624,6 +24309,7 @@ echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:0"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=NIL"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+6 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=7"
 echo(set "CALLEE=cp"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -22656,14 +24342,15 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=concat"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -22677,6 +24364,7 @@ echo(set "zt2=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -22706,10 +24394,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:t" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -22719,10 +24407,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(S:begin#
@@ -22735,28 +24423,29 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!p0:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!zt7:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!zt7:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(S:begin#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt8!#
 echo(set "zt9=P:!HN!"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cond-zzGif"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -22810,6 +24499,7 @@ echo(set "zt12=T:!zt4:~2!!zt11:~2!"
 echo(set "zt13=T:G_!zt12:~2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
@@ -22820,11 +24510,12 @@ echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zt14=!R!"
 echo(set "zi15=!p0:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt15!"
+echo(set "ARGC=1"
 echo(set "CALLEE=const-inits"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -22846,10 +24537,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=atom-constzzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -22867,10 +24559,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -22880,9 +24573,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi18=!p0:~2!"
-echo(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\cdr%%%%v^) else set "zt18=NIL#"
 echo(set "zt18=!zt18:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt18!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\const-inits_pc6.cmd" (
@@ -22892,11 +24586,12 @@ echo(set "NP=1"
 echo(set "zt3=!R!"
 echo(set "zt4=T:!zt3:~2!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -22916,6 +24611,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=I:1"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=I:0"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=I:0"
+echo(set "ARGC=6"
 echo(set "CALLEE=mkb"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -22933,6 +24629,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=NIL"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -22944,11 +24641,12 @@ echo(set "NP=1"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt4=%%%%F!_i!%%%%"
 echo(set "zt8=!R!"
 echo(set "zi9=!zt8:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!zt8:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -23466,6 +25164,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p5!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p6!"
+echo(set "ARGC=6"
 echo(set "CALLEE=compile-clambda"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
@@ -23486,6 +25185,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=write-segs"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -23503,7 +25203,7 @@ echo(set "NP=7"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt5=%%%%F!_i!%%%%"
 echo(set "zt12=!R!"
 echo(set "zi13=!p0:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt13!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
@@ -23512,6 +25212,7 @@ echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
 echo(set /a _i=!FP!+6 ^& set "F!_i!=!p6!"
+echo(set "ARGC=7"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\cp_pc13.cmd" (
@@ -23539,10 +25240,11 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=7"
 echo(set "zi16=!p0:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
@@ -23558,10 +25260,11 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=7"
 echo(set "zi42=!p0:~2!"
-echo(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\car%%%%v^) else set "zt42=NIL#"
 echo(set "zt42=!zt42:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt42!"
+echo(set "ARGC=1"
 echo(set "CALLEE=atom-constzzQ"
 echo(set "RPC=28"
 echo(set "ACTION=call" ^& goto :eof
@@ -23580,6 +25283,7 @@ echo(set "zt17=!R!"
 echo(set "zt18=T:!zt17:~2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt18!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mangle"
 echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
@@ -23597,11 +25301,12 @@ echo(set "NP=7"
 echo(set "zt19=!R!"
 echo(set "zt20=!zt19!"
 echo(set "zi21=!p0:~2!"
-echo(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v^) else set "zt21=NIL#"
 echo(set "zt21=!zt21:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -23619,13 +25324,14 @@ echo(set "NP=7"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set "zt22=!R!"
 echo(set "zi23=!p0:~2!"
-echo(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v^) else set "zt23=NIL#"
 echo(set "zt23=!zt23:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt22!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt23!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -23649,6 +25355,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt22!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt24!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
@@ -23666,10 +25373,11 @@ echo(set "NP=7"
 echo(call gc.cmd
 echo(set "zt0=!R!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-clambdazzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -23689,7 +25397,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt22=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set "zt25=!R!"
 echo(set "zi26=!p0:~2!"
-echo(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\car%%%%v^) else set "zt26=NIL#"
 echo(set "zt26=!zt26:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt25!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt20!"
@@ -23697,6 +25405,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt22!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt26!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=21"
 echo(set "ACTION=call" ^& goto :eof
@@ -23722,6 +25431,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt22!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt27!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
@@ -23751,6 +25461,7 @@ echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+6 ^& set "F!_i!=!p5!"
 echo(set /a _i=!NFP!+7 ^& set "F!_i!=!p6!"
+echo(set "ARGC=8"
 echo(set "CALLEE=compile-fn"
 echo(set "RPC=23"
 echo(set "ACTION=call" ^& goto :eof
@@ -23769,11 +25480,11 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set "zt29=!R!"
 echo(set "zt30=!zt29!"
 echo(set "zi31=!zt30:~2!"
-echo(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\cdr%%%%v
+echo(if "!zt30:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\cdr%%%%v^) else set "zt31=NIL#"
 echo(set "zt31=!zt31:~0,-1!"
 echo(set "zt32=!zt31!"
 echo(set "zi33=!zt30:~2!"
-echo(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\car%%%%v
+echo(if "!zt30:~0,2!"=="P:" ^(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\car%%%%v^) else set "zt33=NIL#"
 echo(set "zt33=!zt33:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt32!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt30!"
@@ -23781,6 +25492,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt33!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=write-segs"
 echo(set "RPC=24"
 echo(set "ACTION=call" ^& goto :eof
@@ -23800,7 +25512,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt30=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set "zt34=!R!"
 echo(set "zi35=!p0:~2!"
-echo(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\car%%%%v^) else set "zt35=NIL#"
 echo(set "zt35=!zt35:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt32!"
@@ -23808,6 +25520,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt30!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt35!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=25"
 echo(set "ACTION=call" ^& goto :eof
@@ -23833,6 +25546,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt30!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt36!"
+echo(set "ARGC=1"
 echo(set "CALLEE=resid-bind"
 echo(set "RPC=26"
 echo(set "ACTION=call" ^& goto :eof
@@ -23858,6 +25572,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt30!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt37!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=27"
 echo(set "ACTION=call" ^& goto :eof
@@ -23886,7 +25601,7 @@ echo(set "A2=!zt39!"
 echo(call append-lines.cmd
 echo(set "zt40=!R!"
 echo(set "zi41=!p0:~2!"
-echo(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v^) else set "zt41=NIL#"
 echo(set "zt41=!zt41:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt41!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
@@ -23895,6 +25610,7 @@ echo(set /a _i=!FP!+3 ^& set "F!_i!=!zt32!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
 echo(set /a _i=!FP!+6 ^& set "F!_i!=!p6!"
+echo(set "ARGC=7"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\cp_pc28.cmd" (
@@ -23922,7 +25638,7 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=7"
 echo(set "zi44=!p0:~2!"
-echo(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v^) else set "zt44=NIL#"
 echo(set "zt44=!zt44:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt44!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
@@ -23931,6 +25647,7 @@ echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
 echo(set /a _i=!FP!+6 ^& set "F!_i!=!p6!"
+echo(set "ARGC=7"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\cp_pc3.cmd" (
@@ -23958,11 +25675,12 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=7"
 echo(set "zi45=!p0:~2!"
-echo(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\car%%%%v^) else set "zt45=NIL#"
 echo(set "zt45=!zt45:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt45!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=31"
 echo(set "ACTION=call" ^& goto :eof
@@ -23988,7 +25706,7 @@ echo(set "A2=!zt47!"
 echo(call append-lines.cmd
 echo(set "zt48=!R!"
 echo(set "zi49=!p0:~2!"
-echo(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\cdr%%%%v^) else set "zt49=NIL#"
 echo(set "zt49=!zt49:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt49!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
@@ -23997,6 +25715,7 @@ echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
 echo(set /a _i=!FP!+6 ^& set "F!_i!=!p6!"
+echo(set "ARGC=7"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\cp_pc4.cmd" (
@@ -24010,10 +25729,11 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=7"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -24029,10 +25749,11 @@ echo(set /a _i=!FP!+6 ^& call set "p6=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=7"
 echo(set "zi14=!p0:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
@@ -24050,11 +25771,12 @@ echo(set "NP=7"
 echo(set "zt4=!R!"
 echo(set "zt5=!zt4!"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -24075,6 +25797,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -24097,6 +25820,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -24121,6 +25845,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadddr"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -24130,7 +25855,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="S:lit" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -24140,7 +25865,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -24149,7 +25874,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:cst" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -24159,10 +25884,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zc5=!zt4:~2!"
 echo(set /a zt5=0
@@ -24185,7 +25910,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zt9=T:!zt8:~2!:~2!BANG!"
 echo(set "zt10=T:!BANG!!zt9:~2!"
@@ -24211,10 +25936,11 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tpredzzQ"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -24253,16 +25979,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi24=!p0:~2!"
-echo(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\cdr%%%%v^) else set "zt24=NIL#"
 echo(set "zt24=!zt24:~0,-1!"
 echo(set "zi25=!zt24:~2!"
-echo(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\car%%%%v
+echo(if "!zt24:~0,2!"=="P:" ^(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\car%%%%v^) else set "zt25=NIL#"
 echo(set "zt25=!zt25:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
@@ -24275,7 +26002,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi50=!p0:~2!"
-echo(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\car%%%%v^) else set "zt50=NIL#"
 echo(set "zt50=!zt50:~0,-1!"
 echo(if "!zt50!"=="S:pair?" ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=18" ^& set "ACTION=jump" ^& goto :eof
@@ -24290,16 +26017,16 @@ echo(set "NP=4"
 echo(set "zt26=!R!"
 echo(set "zt27=!zt26!"
 echo(set "zi28=!p0:~2!"
-echo(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v^) else set "zt28=NIL#"
 echo(set "zt28=!zt28:~0,-1!"
 echo(set "zi29=!zt28:~2!"
-echo(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v
+echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v^) else set "zt29=NIL#"
 echo(set "zt29=!zt29:~0,-1!"
 echo(set "zi30=!zt29:~2!"
-echo(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v
+echo(if "!zt29:~0,2!"=="P:" ^(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v^) else set "zt30=NIL#"
 echo(set "zt30=!zt30:~0,-1!"
 echo(set "zi31=!zt27:~2!"
-echo(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v
+echo(if "!zt27:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v^) else set "zt31=NIL#"
 echo(set "zt31=!zt31:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt27!"
 echo(set /a NFP=!FT!
@@ -24307,6 +26034,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt30!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt31!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=14"
 echo(set "ACTION=call" ^& goto :eof
@@ -24322,11 +26050,11 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt27=%%%%F!_i!%%%%"
 echo(set "zt32=!R!"
 echo(set "zt33=!zt32!"
 echo(set "zi34=!zt33:~2!"
-echo(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v
+echo(if "!zt33:~0,2!"=="P:" ^(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v^) else set "zt34=NIL#"
 echo(set "zt34=!zt34:~0,-1!"
 echo(set "zt35=T:!BANG8!"
 echo(set "zi36=!zt27:~2!"
-echo(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v
+echo(if "!zt27:~0,2!"=="P:" ^(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v^) else set "zt36=NIL#"
 echo(set "zt36=!zt36:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt35!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt34!"
@@ -24334,6 +26062,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt33!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt27!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt36!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -24353,7 +26082,7 @@ echo(set "zt37=!R!"
 echo(set "zt38=T:!BANG8!"
 echo(set "zt39=T:!BANG8!"
 echo(set "zi40=!zt33:~2!"
-echo(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v
+echo(if "!zt33:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v^) else set "zt40=NIL#"
 echo(set "zt40=!zt40:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt38!"
@@ -24364,6 +26093,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt33!"
 echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt27!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
@@ -24404,10 +26134,10 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi51=!p0:~2!"
-echo(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\cdr%%%%v^) else set "zt51=NIL#"
 echo(set "zt51=!zt51:~0,-1!"
 echo(set "zi52=!zt51:~2!"
-echo(for %%%%v in ^(!zi52!^) do set /p zt52=^<%%HD%%\car%%%%v
+echo(if "!zt51:~0,2!"=="P:" ^(for %%%%v in ^(!zi52!^) do set /p zt52=^<%%HD%%\car%%%%v^) else set "zt52=NIL#"
 echo(set "zt52=!zt52:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt52!"
@@ -24416,6 +26146,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltagtest"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -24428,7 +26159,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi54=!p0:~2!"
-echo(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\car%%%%v^) else set "zt54=NIL#"
 echo(set "zt54=!zt54:~0,-1!"
 echo(if "!zt54!"=="S:atom?" ^(set "PC=20" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=21" ^& set "ACTION=jump" ^& goto :eof
@@ -24461,10 +26192,10 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi55=!p0:~2!"
-echo(for %%%%v in ^(!zi55!^) do set /p zt55=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi55!^) do set /p zt55=^<%%HD%%\cdr%%%%v^) else set "zt55=NIL#"
 echo(set "zt55=!zt55:~0,-1!"
 echo(set "zi56=!zt55:~2!"
-echo(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\car%%%%v
+echo(if "!zt55:~0,2!"=="P:" ^(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\car%%%%v^) else set "zt56=NIL#"
 echo(set "zt56=!zt56:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt56!"
@@ -24473,6 +26204,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=S:t"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltagtest"
 echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
@@ -24485,7 +26217,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi58=!p0:~2!"
-echo(for %%%%v in ^(!zi58!^) do set /p zt58=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi58!^) do set /p zt58=^<%%HD%%\car%%%%v^) else set "zt58=NIL#"
 echo(set "zt58=!zt58:~0,-1!"
 echo(if "!zt58!"=="S:number?" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
@@ -24508,10 +26240,10 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi59=!p0:~2!"
-echo(for %%%%v in ^(!zi59!^) do set /p zt59=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi59!^) do set /p zt59=^<%%HD%%\cdr%%%%v^) else set "zt59=NIL#"
 echo(set "zt59=!zt59:~0,-1!"
 echo(set "zi60=!zt59:~2!"
-echo(for %%%%v in ^(!zi60!^) do set /p zt60=^<%%HD%%\car%%%%v
+echo(if "!zt59:~0,2!"=="P:" ^(for %%%%v in ^(!zi60!^) do set /p zt60=^<%%HD%%\car%%%%v^) else set "zt60=NIL#"
 echo(set "zt60=!zt60:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt60!"
@@ -24520,6 +26252,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltagtest"
 echo(set "RPC=25"
 echo(set "ACTION=call" ^& goto :eof
@@ -24532,7 +26265,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi62=!p0:~2!"
-echo(for %%%%v in ^(!zi62!^) do set /p zt62=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi62!^) do set /p zt62=^<%%HD%%\car%%%%v^) else set "zt62=NIL#"
 echo(set "zt62=!zt62:~0,-1!"
 echo(if "!zt62!"=="S:string?" ^(set "PC=26" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=27" ^& set "ACTION=jump" ^& goto :eof
@@ -24555,10 +26288,10 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi63=!p0:~2!"
-echo(for %%%%v in ^(!zi63!^) do set /p zt63=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi63!^) do set /p zt63=^<%%HD%%\cdr%%%%v^) else set "zt63=NIL#"
 echo(set "zt63=!zt63:~0,-1!"
 echo(set "zi64=!zt63:~2!"
-echo(for %%%%v in ^(!zi64!^) do set /p zt64=^<%%HD%%\car%%%%v
+echo(if "!zt63:~0,2!"=="P:" ^(for %%%%v in ^(!zi64!^) do set /p zt64=^<%%HD%%\car%%%%v^) else set "zt64=NIL#"
 echo(set "zt64=!zt64:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt64!"
@@ -24567,6 +26300,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltagtest"
 echo(set "RPC=28"
 echo(set "ACTION=call" ^& goto :eof
@@ -24579,7 +26313,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi66=!p0:~2!"
-echo(for %%%%v in ^(!zi66!^) do set /p zt66=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi66!^) do set /p zt66=^<%%HD%%\car%%%%v^) else set "zt66=NIL#"
 echo(set "zt66=!zt66:~0,-1!"
 echo(if "!zt66!"=="S:symbol?" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=30" ^& set "ACTION=jump" ^& goto :eof
@@ -24602,10 +26336,10 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi67=!p0:~2!"
-echo(for %%%%v in ^(!zi67!^) do set /p zt67=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi67!^) do set /p zt67=^<%%HD%%\cdr%%%%v^) else set "zt67=NIL#"
 echo(set "zt67=!zt67:~0,-1!"
 echo(set "zi68=!zt67:~2!"
-echo(for %%%%v in ^(!zi68!^) do set /p zt68=^<%%HD%%\car%%%%v
+echo(if "!zt67:~0,2!"=="P:" ^(for %%%%v in ^(!zi68!^) do set /p zt68=^<%%HD%%\car%%%%v^) else set "zt68=NIL#"
 echo(set "zt68=!zt68:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt68!"
@@ -24614,6 +26348,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=NIL"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltagtest"
 echo(set "RPC=31"
 echo(set "ACTION=call" ^& goto :eof
@@ -24636,16 +26371,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi70=!p0:~2!"
-echo(for %%%%v in ^(!zi70!^) do set /p zt70=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi70!^) do set /p zt70=^<%%HD%%\cdr%%%%v^) else set "zt70=NIL#"
 echo(set "zt70=!zt70:~0,-1!"
 echo(set "zi71=!zt70:~2!"
-echo(for %%%%v in ^(!zi71!^) do set /p zt71=^<%%HD%%\car%%%%v
+echo(if "!zt70:~0,2!"=="P:" ^(for %%%%v in ^(!zi71!^) do set /p zt71=^<%%HD%%\car%%%%v^) else set "zt71=NIL#"
 echo(set "zt71=!zt71:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt71!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=32"
 echo(set "ACTION=call" ^& goto :eof
@@ -24670,16 +26406,16 @@ echo(set "NP=4"
 echo(set "zt72=!R!"
 echo(set "zt73=!zt72!"
 echo(set "zi74=!p0:~2!"
-echo(for %%%%v in ^(!zi74!^) do set /p zt74=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi74!^) do set /p zt74=^<%%HD%%\cdr%%%%v^) else set "zt74=NIL#"
 echo(set "zt74=!zt74:~0,-1!"
 echo(set "zi75=!zt74:~2!"
-echo(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\cdr%%%%v
+echo(if "!zt74:~0,2!"=="P:" ^(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\cdr%%%%v^) else set "zt75=NIL#"
 echo(set "zt75=!zt75:~0,-1!"
 echo(set "zi76=!zt75:~2!"
-echo(for %%%%v in ^(!zi76!^) do set /p zt76=^<%%HD%%\car%%%%v
+echo(if "!zt75:~0,2!"=="P:" ^(for %%%%v in ^(!zi76!^) do set /p zt76=^<%%HD%%\car%%%%v^) else set "zt76=NIL#"
 echo(set "zt76=!zt76:~0,-1!"
 echo(set "zi77=!zt73:~2!"
-echo(for %%%%v in ^(!zi77!^) do set /p zt77=^<%%HD%%\car%%%%v
+echo(if "!zt73:~0,2!"=="P:" ^(for %%%%v in ^(!zi77!^) do set /p zt77=^<%%HD%%\car%%%%v^) else set "zt77=NIL#"
 echo(set "zt77=!zt77:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt73!"
 echo(set /a NFP=!FT!
@@ -24687,6 +26423,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt76!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt77!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=33"
 echo(set "ACTION=call" ^& goto :eof
@@ -24702,16 +26439,17 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt73=%%%%F!_i!%%%%"
 echo(set "zt78=!R!"
 echo(set "zt79=!zt78!"
 echo(set "zi80=!zt79:~2!"
-echo(for %%%%v in ^(!zi80!^) do set /p zt80=^<%%HD%%\car%%%%v
+echo(if "!zt79:~0,2!"=="P:" ^(for %%%%v in ^(!zi80!^) do set /p zt80=^<%%HD%%\car%%%%v^) else set "zt80=NIL#"
 echo(set "zt80=!zt80:~0,-1!"
 echo(set "zi81=!zt73:~2!"
-echo(for %%%%v in ^(!zi81!^) do set /p zt81=^<%%HD%%\cdr%%%%v
+echo(if "!zt73:~0,2!"=="P:" ^(for %%%%v in ^(!zi81!^) do set /p zt81=^<%%HD%%\cdr%%%%v^) else set "zt81=NIL#"
 echo(set "zt81=!zt81:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt80!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt79!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt73!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt81!"
+echo(set "ARGC=1"
 echo(set "CALLEE=iref"
 echo(set "RPC=34"
 echo(set "ACTION=call" ^& goto :eof
@@ -24728,7 +26466,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt79=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt73=%%%%F!_i!%%%%"
 echo(set "zt82=!R!"
 echo(set "zi83=!p0:~2!"
-echo(for %%%%v in ^(!zi83!^) do set /p zt83=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi83!^) do set /p zt83=^<%%HD%%\car%%%%v^) else set "zt83=NIL#"
 echo(set "zt83=!zt83:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt82!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt80!"
@@ -24736,6 +26474,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt79!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt73!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt83!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cmp-zzGbatch"
 echo(set "RPC=35"
 echo(set "ACTION=call" ^& goto :eof
@@ -24753,7 +26492,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& call set "zt79=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+3 ^& call set "zt73=%%%%F!_i!%%%%"
 echo(set "zt84=!R!"
 echo(set "zi85=!zt79:~2!"
-echo(for %%%%v in ^(!zi85!^) do set /p zt85=^<%%HD%%\cdr%%%%v
+echo(if "!zt79:~0,2!"=="P:" ^(for %%%%v in ^(!zi85!^) do set /p zt85=^<%%HD%%\cdr%%%%v^) else set "zt85=NIL#"
 echo(set "zt85=!zt85:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt84!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt82!"
@@ -24762,6 +26501,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt79!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt73!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt85!"
+echo(set "ARGC=1"
 echo(set "CALLEE=iref"
 echo(set "RPC=36"
 echo(set "ACTION=call" ^& goto :eof
@@ -24799,17 +26539,18 @@ echo(set "NP=4"
 echo(set "zt92=!R!"
 echo(set "zt93=!zt92!"
 echo(set "zi94=!zt93:~2!"
-echo(for %%%%v in ^(!zi94!^) do set /p zt94=^<%%HD%%\car%%%%v
+echo(if "!zt93:~0,2!"=="P:" ^(for %%%%v in ^(!zi94!^) do set /p zt94=^<%%HD%%\car%%%%v^) else set "zt94=NIL#"
 echo(set "zt94=!zt94:~0,-1!"
 echo(set "zt95=T:!BANG8!"
 echo(set "zi96=!zt93:~2!"
-echo(for %%%%v in ^(!zi96!^) do set /p zt96=^<%%HD%%\cdr%%%%v
+echo(if "!zt93:~0,2!"=="P:" ^(for %%%%v in ^(!zi96!^) do set /p zt96=^<%%HD%%\cdr%%%%v^) else set "zt96=NIL#"
 echo(set "zt96=!zt96:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt95!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt94!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt93!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt96!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=38"
 echo(set "ACTION=call" ^& goto :eof
@@ -24860,7 +26601,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(if "!zt4!"=="S:null?" ^(set "PC=7" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=8" ^& set "ACTION=jump" ^& goto :eof
@@ -24877,6 +26618,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=37"
 echo(set "ACTION=call" ^& goto :eof
@@ -24889,16 +26631,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -24911,7 +26654,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=4"
 echo(set "zi23=!p0:~2!"
-echo(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v^) else set "zt23=NIL#"
 echo(set "zt23=!zt23:~0,-1!"
 echo(if "!zt23!"=="S:eq?" ^(set "PC=11" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=12" ^& set "ACTION=jump" ^& goto :eof
@@ -24926,17 +26669,18 @@ echo(set "NP=4"
 echo(set "zt7=!R!"
 echo(set "zt8=!zt7!"
 echo(set "zi9=!zt8:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v
+echo(if "!zt8:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set "zt10=T:!BANG8!"
 echo(set "zi11=!zt8:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!zt8:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt8!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -24955,7 +26699,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:define" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -24985,6 +26729,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -25011,6 +26756,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -25027,7 +26773,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zt4=!R!"
 echo(set "zi5=!zt4:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!zt4:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(if "!zt5!"=="S:clambda" ^(set "PC=9" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
@@ -25053,7 +26799,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:define" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -25083,6 +26829,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -25109,6 +26856,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -25125,7 +26873,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zt4=!R!"
 echo(set "zi5=!zt4:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!zt4:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(if "!zt5!"=="S:lambda" ^(set "PC=9" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
@@ -25155,10 +26903,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -25176,10 +26925,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -25189,9 +26939,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi7=!p0:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\defnames_pc6.cmd" (
@@ -25200,11 +26951,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt3=!R!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=1"
 echo(set "CALLEE=defnames"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -25693,6 +27445,7 @@ echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:$ELIDE"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p0!"
+echo(set "ARGC=2"
 echo(set "CALLEE=assoc"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -25717,7 +27470,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -25742,11 +27495,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p1:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -25758,10 +27512,11 @@ echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zt1=!R!"
 echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\emit_pc0.cmd" (
@@ -25771,6 +27526,7 @@ echo(set /a FT=!FP!+7
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-blk"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -25785,6 +27541,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-cur"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -25805,6 +27562,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-pc"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -25822,6 +27580,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -25841,6 +27600,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -25862,6 +27622,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-smax"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -25884,6 +27645,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=6"
 echo(set "CALLEE=mkb"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -25938,6 +27700,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!p0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mc-at"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -25959,6 +27722,7 @@ echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=I:!zt0!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=4"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\enc-mc_pc0.cmd" (
@@ -25974,6 +27738,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:!zt0!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=T:"
+echo(set "ARGC=4"
 echo(set "CALLEE=enc-mc-go"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -26468,7 +28233,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -26484,10 +28249,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="NIL" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
@@ -26975,6 +28740,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -26986,6 +28752,7 @@ echo(set "NP=1"
 echo(set "zt0=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -26996,6 +28763,31 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\fs-list_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zp0=!p0!"
+echo(set "zp0=!zp0:~0,1!"
+echo(if !zp0!==S ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\fs-list_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!p0!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt1=P:!HN!"
+echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\fs-list_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\fv-binds_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27015,16 +28807,16 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
@@ -27032,6 +28824,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=fv"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -27056,6 +28849,7 @@ echo(set "zt5=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\fv-list_pc0.cmd" (
@@ -27076,10 +28870,10 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
@@ -27087,6 +28881,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=fv"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -27111,6 +28906,7 @@ echo(set "zt3=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\fv_pc0.cmd" (
@@ -27131,7 +28927,7 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:quote" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -27144,10 +28940,14 @@ echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt7=%%%%F!_i!%%%%"
 echo(set "zt10=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt7!"
-echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt10!"
-echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
-echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt7!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=11"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\fv_pc11.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27155,29 +28955,44 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set "zi12=!p0:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
-echo(set "zt12=!zt12:~0,-1!"
-echo(set "zi13=!zt12:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
-echo(set "zt13=!zt13:~0,-1!"
-echo(set "zi14=!zt13:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v
-echo(set "zt14=!zt14:~0,-1!"
-echo(set "zi15=!p0:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v
-echo(set "zt15=!zt15:~0,-1!"
-echo(set "zi16=!zt15:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
-echo(set "zt16=!zt16:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
-echo(set "CALLEE=lv-names"
-echo(set "RPC=13"
-echo(set "ACTION=call" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt7=%%%%F!_i!%%%%"
+echo(set "zt11=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt7!"
+echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt11!"
+echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
+echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\fv_pc12.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+5
+echo(set "NP=3"
+echo(set "zi13=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
+echo(set "zt13=!zt13:~0,-1!"
+echo(set "zi14=!zt13:~2!"
+echo(if "!zt13:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
+echo(set "zt14=!zt14:~0,-1!"
+echo(set "zi15=!zt14:~2!"
+echo(if "!zt14:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v^) else set "zt15=NIL#"
+echo(set "zt15=!zt15:~0,-1!"
+echo(set "zi16=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v^) else set "zt16=NIL#"
+echo(set "zt16=!zt16:~0,-1!"
+echo(set "zi17=!zt16:~2!"
+echo(if "!zt16:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\car%%%%v^) else set "zt17=NIL#"
+echo(set "zt17=!zt17:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt17!"
+echo(set "ARGC=1"
+echo(set "CALLEE=lv-names"
+echo(set "RPC=14"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\fv_pc13.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
@@ -27187,24 +29002,9 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=fv-list"
-echo(set "RPC=16"
-echo(set "ACTION=call" ^& goto :eof
-)
->"%PSDIR%\fv_pc13.cmd" (
-echo(call set "p0=%%%%F!FP!%%%%"
-echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
-echo(set /a FT=!FP!+5
-echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set "zt17=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt17!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=append"
-echo(set "RPC=14"
+echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\fv_pc14.cmd" (
@@ -27213,21 +29013,14 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt14=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt15=%%%%F!_i!%%%%"
 echo(set "zt18=!R!"
-echo(set "zi19=!p0:~2!"
-echo(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v
-echo(set "zt19=!zt19:~0,-1!"
-echo(set "zi20=!zt19:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v
-echo(set "zt20=!zt20:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt14!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt20!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt18!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
-echo(set "CALLEE=fv-binds"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -27237,13 +29030,24 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt18=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt14=%%%%F!_i!%%%%"
-echo(set "zt21=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt14!"
-echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt21!"
-echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt15=%%%%F!_i!%%%%"
+echo(set "zt19=!R!"
+echo(set "zi20=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v^) else set "zt20=NIL#"
+echo(set "zt20=!zt20:~0,-1!"
+echo(set "zi21=!zt20:~2!"
+echo(if "!zt20:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v^) else set "zt21=NIL#"
+echo(set "zt21=!zt21:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
+echo(set "CALLEE=fv-binds"
+echo(set "RPC=16"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\fv_pc16.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27251,10 +29055,25 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt15=%%%%F!_i!%%%%"
 echo(set "zt22=!R!"
-echo(set "R=!zt22!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt15!"
+echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt22!"
+echo(set "ARGC=3"
+echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\fv_pc17.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+5
+echo(set "NP=3"
+echo(set "zt23=!R!"
+echo(set "R=!zt23!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\fv_pc18.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
@@ -27263,17 +29082,10 @@ echo(set "NP=3"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
-echo(set "RPC=19"
+echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
-)
->"%PSDIR%\fv_pc18.cmd" (
-echo(call set "p0=%%%%F!FP!%%%%"
-echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
-echo(set /a FT=!FP!+5
-echo(set "NP=3"
-echo(set "R=!p2!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\fv_pc19.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27281,9 +29093,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set "zt24=!R!"
-echo(if not "!zt24!"=="NIL" ^(set "PC=20" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=21" ^& set "ACTION=jump" ^& goto :eof
+echo(set "R=!p2!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\fv_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27291,10 +29101,10 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set "zp23=!p0!"
-echo(set "zp23=!zp23:~0,1!"
-echo(if !zp23!==S ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=18" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zp24=!p0!"
+echo(set "zp24=!zp24:~0,1!"
+echo(if !zp24!==S ^(set "PC=18" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=19" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\fv_pc20.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27302,9 +29112,19 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set "R=!p2!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zt25=!R!"
+echo(if not "!zt25!"=="NIL" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=22" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\fv_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+5
+echo(set "NP=3"
+echo(set "R=!p2!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\fv_pc22.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
@@ -27313,18 +29133,19 @@ echo(set "NP=3"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
+echo(set "ARGC=2"
 echo(set "CALLEE=set-add"
-echo(set "RPC=22"
+echo(set "RPC=23"
 echo(set "ACTION=call" ^& goto :eof
 )
->"%PSDIR%\fv_pc22.cmd" (
+>"%PSDIR%\fv_pc23.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set "zt25=!R!"
-echo(set "R=!zt25!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zt26=!R!"
+echo(set "R=!zt26!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\fv_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27341,10 +29162,11 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=runopzzQ"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -27374,7 +29196,7 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(if "!zt4!"=="S:lambda" ^(set "PC=8" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=9" ^& set "ACTION=jump" ^& goto :eof
@@ -27386,25 +29208,25 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt6:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zi9=!zt8:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v
+echo(if "!zt8:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=append"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -27414,11 +29236,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
-echo(set "zi11=!p0:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v
-echo(set "zt11=!zt11:~0,-1!"
-echo(if "!zt11!"=="S:let" ^(set "PC=11" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=12" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zi12=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v^) else set "zt12=NIL#"
+echo(set "zt12=!zt12:~0,-1!"
+echo(if "!zt12!"=="S:let" ^(set "PC=12" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=13" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\fval_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -27426,6 +29248,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -28374,6 +30197,7 @@ echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:$GFNS"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p0!"
+echo(set "ARGC=2"
 echo(set "CALLEE=assoc"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -28398,7 +30222,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -28420,10 +30244,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\car%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -28433,9 +30258,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi13=!p0:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\gvarnames_pc12.cmd" (
@@ -28444,11 +30270,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt9=!R!"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=1"
 echo(set "CALLEE=gvarnames"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
@@ -28470,10 +30297,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -28498,10 +30326,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-clambdazzQ"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -28526,9 +30355,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\gvarnames_pc9.cmd" (
@@ -28536,10 +30366,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt6:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(if "!zt7!"=="S:define" ^(set "PC=10" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=11" ^& set "ACTION=jump" ^& goto :eof
@@ -28583,11 +30413,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=2"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=assoc"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -28601,6 +30432,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt12=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\inline-expr_pc2.cmd" (
@@ -28626,16 +30458,17 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=2"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=map-inline-expr"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -28648,6 +30481,7 @@ echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -28674,13 +30508,14 @@ echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt8=!R!"
 echo(set "zi9=!p0:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=map-inline-expr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -28698,6 +30533,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -28716,6 +30552,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=3"
 echo(set "CALLEE=substzzS"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -28727,6 +30564,7 @@ echo(set /a FT=!FP!+4
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -28747,6 +30585,7 @@ echo(set /a FT=!FP!+4
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -28767,6 +30606,7 @@ echo(set "zt1=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -28781,6 +30621,7 @@ echo(set "zt2=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -28796,6 +30637,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -28812,6 +30654,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -28829,6 +30672,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=inline-expr"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -28873,6 +30717,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mk-tbl"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -28887,6 +30732,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=map-inline-form"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -29074,6 +30920,24 @@ echo(:itk_fresh
 echo(set /a ITOP=!NP!+!ipnc!
 echo(if !ITOP! LSS 1 set "ITOP=1"
 echo(set "ISCP=NIL"
+echo(if not defined ILAM_!ICUR!_va goto itk_caps0
+echo(rem variadic: cons F[FP..FP+ARGC^) into the rest slot F[FP] ^(BEFORE caps -- they land at F[1..]
+echo(rem and would clobber staged args^). Inline pre-inc cons with the guard byte.
+echo(set "ipvL=NIL"
+echo(set /a ipvI=ARGC
+echo(:itk_vcl
+echo(if !ipvI! LEQ 0 goto itk_vfin
+echo(set /a ipvI-=1
+echo(set /a ipx=!FP!+!ipvI!
+echo(call set "ipvV=%%%%F!ipx!%%%%"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!ipvV!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!ipvL!#
+echo(set "ipvL=P:%%HN%%"
+echo(goto itk_vcl
+echo(:itk_vfin
+echo(set "F!FP!=!ipvL!"
+echo(:itk_caps0
 echo(if "!ipnc!"=="0" goto itk_body
 echo(rem clambda: load captures from the K: record ^(CLO^) into frame slots after the params
 echo(call :hp_cdr "P:!CLO!"
@@ -29444,6 +31308,7 @@ echo(set "ISC_!FP!=!ICS!"
 echo(set "ISV_!FP!=!IVS!"
 echo(set "ISS_!FP!=!ISCP!"
 echo(set "IST_!FP!=!ITOP!"
+echo(set "ARGC=!IPN!"
 echo(set "CALLEE=!ipfv!"
 echo(set "RPC=1"
 echo(set "ACTION=call"
@@ -29945,7 +31810,7 @@ echo(goto :eof
 echo(:eld_apply_spread
 echo(set "_ai=0" ^& set "_ac=!APLIST!"
 echo(:eld_ap_loop
-echo(if "!_ac!"=="NIL" goto :eof
+echo(if "!_ac!"=="NIL" ^(set "ARGC=!_ai!" ^& goto :eof^)
 echo(call :hp_car "!_ac!"
 echo(set /a _i=!FP!+!_ai!
 echo(set "F!_i!=!R!"
@@ -30193,11 +32058,21 @@ echo(set "MN=!R!"
 echo(rem REDEFINITION: any cached compiled artifact for this name is now STALE -- never flip it again this
 echo(rem session ^(OSRSKIP^) and un-memoize a prior flip. Semantics stay exact; the fn just stays interpreted.
 echo(if defined ILAM_!MN!_body ^(set "OSRSKIP_!MN!=1" ^& set "COMPILED_!MN!="^)
+echo(if "!PS:~0,2!"=="S:" goto in_reg_lam_va
 echo(set "ILL=!PS!"
 echo(call :ilen
 echo(set "ILAM_!MN!_np=!R!"
 echo(set "ILAM_!MN!_ncap=0"
 echo(set "ILAM_!MN!_vars=!PS!"
+echo(set "ILAM_!MN!_body=!BODY!"
+echo(goto in_reg
+echo(:in_reg_lam_va
+echo(rem variadic ^(lambda args body^): one rest slot; itk_fresh collects F[FP..ARGC^) into it
+echo(call :hp_cons "!PS!" "NIL"
+echo(set "ILAM_!MN!_np=1"
+echo(set "ILAM_!MN!_va=1"
+echo(set "ILAM_!MN!_ncap=0"
+echo(set "ILAM_!MN!_vars=!R!"
 echo(set "ILAM_!MN!_body=!BODY!"
 echo(goto in_reg
 echo(:in_reg_clam
@@ -30213,6 +32088,10 @@ echo(set "CAPS=!R!"
 echo(call :hp_cdr "!C2!"
 echo(call :hp_car "!R!"
 echo(set "BODY=!R!"
+echo(rem variadic clambda: convert the symbol formals to a 1-list ^(rest slot^) + mark va; the rest of
+echo(rem the registration ^(rev/append/ilen^) then works unchanged with np=1.
+echo(set "VAFL="
+echo(if "!PS:~0,2!"=="S:" ^(set "VAFL=1" ^& call :hp_cons "!PS!" "NIL" ^& set "PS=!R!"^)
 echo(rem vars = append^(PS, CAPS^): reverse PS, cons onto CAPS
 echo(set "RV=NIL"
 echo(set "PL=!PS!"
@@ -30242,6 +32121,7 @@ echo(if defined ILAM_!MN!_body ^(set "OSRSKIP_!MN!=1" ^& set "COMPILED_!MN!="^)
 echo(set "ILL=!PS!"
 echo(call :ilen
 echo(set "ILAM_!MN!_np=!R!"
+echo(if defined VAFL set "ILAM_!MN!_va=1"
 echo(set "ILL=!CAPS!"
 echo(call :ilen
 echo(set "ILAM_!MN!_ncap=!R!"
@@ -31410,7 +33290,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="S:lit" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -31420,7 +33300,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -31429,7 +33309,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:raw" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -31439,7 +33319,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zt4=T:!zt3:~2!!BANG!"
 echo(set "zt5=T:!BANG!!zt4:~2!"
@@ -31450,7 +33330,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(if "!zt6!"=="S:cst" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
@@ -31460,7 +33340,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi7=!p0:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "R=!zt7!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -31469,7 +33349,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zt9=T:!zt8:~2!:~2!BANG!"
 echo(set "zt10=T:!BANG!!zt9:~2!"
@@ -31491,7 +33371,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="!p1!" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -31544,10 +33424,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tok-text"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -31558,11 +33439,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=join-toks"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -31618,11 +33500,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -31642,15 +33525,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=keep-bound"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -31661,10 +33545,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\keep-bound_pc6.cmd" (
@@ -31701,11 +33586,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -31725,15 +33611,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=keep-defined"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -31744,10 +33631,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\keep-defined_pc6.cmd" (
@@ -31794,13 +33682,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=4"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -31815,13 +33704,13 @@ echo(set "NP=4"
 echo(set "zt2=!R!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!zt3:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt3:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p1!"
@@ -31830,6 +33719,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -31852,6 +33742,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=4"
 echo(set "CALLEE=largs"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -31867,13 +33758,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt8=!R!"
 echo(set "zt9=!zt8!"
 echo(set "zi10=!zt9:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!zt9:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set "zi11=!zt3:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set "zi12=!zt9:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!zt9:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt11!#
@@ -31893,7 +33784,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=4"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -31906,13 +33797,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=4"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -31925,13 +33817,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=4"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -31956,15 +33849,16 @@ echo(set "NP=4"
 echo(set "zt4=!R!"
 echo(set "zt5=!zt4!"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt5:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\lbinds_pc0.cmd" (
@@ -32002,19 +33896,20 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+10
 echo(set "NP=4"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -32029,11 +33924,12 @@ echo(set "NP=4"
 echo(set "zt5=!R!"
 echo(set "zt6=!zt5!"
 echo(set "zi7=!zt6:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -32049,13 +33945,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt6=%%%%F!_i!%%%%"
 echo(set "zt8=!R!"
 echo(set "zt9=!zt8!"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set "zi11=!p0:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set "zi12=!zt11:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt12!#
@@ -32066,10 +33962,10 @@ echo(^>%%HD%%\car%%HN%% echo^(!zt13!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!p1!#
 echo(set "zt14=P:!HN!"
 echo(set "zi15=!zt6:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set "zi16=!zt6:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
@@ -32079,6 +33975,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -32106,6 +34003,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -32130,6 +34028,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt20!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -32152,6 +34051,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -32176,6 +34076,7 @@ echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt22!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!zt23!"
+echo(set "ARGC=4"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\lbuiltin_pc0.cmd" (
@@ -32186,13 +34087,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+10
 echo(set "NP=4"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=largs"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -32207,11 +34109,12 @@ echo(set "NP=4"
 echo(set "zt1=!R!"
 echo(set "zt2=!zt1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -32227,13 +34130,14 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt4=!R!"
 echo(set "zt5=!zt4!"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zt7=T:!zt6:~2!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mangle"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -32250,10 +34154,10 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt8=!R!"
 echo(set "zt9=!zt8!"
 echo(set "zi10=!zt2:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set "zi11=!zt2:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt9!"
@@ -32262,6 +34166,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:1"
+echo(set "ARGC=2"
 echo(set "CALLEE=aas"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -32284,6 +34189,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit-list"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -32309,6 +34215,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -32335,6 +34242,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -32361,6 +34269,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt18!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt20!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -32385,6 +34294,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -32421,16 +34331,17 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=5"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p4!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -32446,11 +34357,12 @@ echo(set "NP=5"
 echo(set "zt2=!R!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -32469,12 +34381,13 @@ echo(set "zt6=T:!zt5:~2!"
 echo(set "zt7=T:zi!zt6:~2!"
 echo(set "zt8=!zt7!"
 echo(set "zi9=!zt3:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -32492,13 +34405,13 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt10=!R!"
 echo(set "zt11=!zt10!"
 echo(set "zi12=!zt3:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set "zi13=!zt3:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set "zi14=!zt13:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v
+echo(if "!zt13:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set "zt15=T:!zt14:~2!:~2!BANG!"
 echo(set "zt16=T:=!BANG!!zt15:~2!"
@@ -32509,6 +34422,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt17!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -32532,6 +34446,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt18!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -32549,19 +34464,46 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt8=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt19=!R!"
 echo(set "zt20=!zt19!"
-echo(set "zt21=T:!p1:~2!!BANG2!!BANG2!v"
-echo(set "zt22=T:=!LT!!BANG2!HD!BANG2!\!zt21:~2!"
-echo(set "zt23=T:!zt11:~2!!zt22:~2!"
-echo(set "zt24=T:!BANG!) do set /p !zt23:~2!"
-echo(set "zt25=T:!zt8:~2!!zt24:~2!"
-echo(set "zt26=T:for !BANG2!!BANG2!v in (!BANG!!zt25:~2!"
+echo(set "zt21=T:!BANG8!"
+echo(set "zi22=!zt3:~2!"
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v^) else set "zt22=NIL#"
+echo(set "zt22=!zt22:~0,-1!"
+echo(set "zi23=!zt22:~2!"
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\cdr%%%%v^) else set "zt23=NIL#"
+echo(set "zt23=!zt23:~0,-1!"
+echo(set "zt24=T:!BANG8!"
+echo(set "zt25=T:!BANG8!"
+echo(set "zt26=T:!BANG8!"
+echo(set "zt27=T:!BANG8!"
+echo(set "zt28=T:!BANG8!"
+echo(set "zt29=T:=NIL#!zt28:~2!"
+echo(set "zt30=T:!zt11:~2!!zt29:~2!"
+echo(set "zt31=T:!zt27:~2!!zt30:~2!"
+echo(set "zt32=T:!BANG2!!BANG2!v) else set !zt31:~2!"
+echo(set "zt33=T:!p1:~2!!zt32:~2!"
+echo(set "zt34=T:=!LT!!BANG2!HD!BANG2!\!zt33:~2!"
+echo(set "zt35=T:!zt11:~2!!zt34:~2!"
+echo(set "zt36=T:!BANG!) do set /p !zt35:~2!"
+echo(set "zt37=T:!zt8:~2!!zt36:~2!"
+echo(set "zt38=T: (for !BANG2!!BANG2!v in (!BANG!!zt37:~2!"
+echo(set "zt39=T:!zt26:~2!!zt38:~2!"
+echo(set "zt40=T:P:!zt39:~2!"
+echo(set "zt41=T:!zt25:~2!!zt40:~2!"
+echo(set "zt42=T:==!zt41:~2!"
+echo(set "zt43=T:!zt24:~2!!zt42:~2!"
+echo(set "zt44=T::~0,2!BANG!!zt43:~2!"
+echo(set "zt45=T:!zt23:~2!!zt44:~2!"
+echo(set "zt46=T:!BANG!!zt45:~2!"
+echo(set "zt47=T:!zt21:~2!!zt46:~2!"
+echo(set "zt48=T:if !zt47:~2!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt20!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt26!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt48!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -32578,19 +34520,20 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+1 ^& call set "zt11=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt8=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+3 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set "zt27=!R!"
-echo(set "zt28=!zt27!"
-echo(set "zt29=T:!zt11:~2!:~0,-1!BANG!"
-echo(set "zt30=T:=!BANG!!zt29:~2!"
-echo(set "zt31=T:!zt11:~2!!zt30:~2!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt28!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt28!"
+echo(set "zt49=!R!"
+echo(set "zt50=!zt49!"
+echo(set "zt51=T:!zt11:~2!:~0,-1!BANG!"
+echo(set "zt52=T:=!BANG!!zt51:~2!"
+echo(set "zt53=T:!zt11:~2!!zt52:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt50!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt50!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt53!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -32603,21 +34546,22 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=5"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt28=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt50=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt50=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+3 ^& call set "zt11=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+4 ^& call set "zt8=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+5 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set "zt32=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt28!"
+echo(set "zt54=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt50!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt28!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt50!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt54!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -32630,19 +34574,20 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=5"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt50=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+1 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt11=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+3 ^& call set "zt8=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+4 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set "zt33=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt28!"
+echo(set "zt55=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt50!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt33!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt55!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -32655,21 +34600,21 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+11
 echo(set "NP=5"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt28=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt50=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+1 ^& call set "zt20=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt11=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+3 ^& call set "zt8=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+4 ^& call set "zt3=%%%%F!_i!%%%%"
-echo(set "zt34=!R!"
+echo(set "zt56=!R!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(S:val#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt11!#
-echo(set "zt35=P:!HN!"
+echo(set "zt57=P:!HN!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt35!#
-echo(set "zt36=P:!HN!"
-echo(set "R=!zt36!" ^& set "ACTION=ret" ^& goto :eof
+echo(^>%%HD%%\car%%HN%% echo^(!zt56!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt57!#
+echo(set "zt58=P:!HN!"
+echo(set "R=!zt58!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\lenl_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -32689,10 +34634,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=lenl"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -32730,19 +34676,20 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt1!#
 echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
 echo(set "zt2=P:!HN!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=letzzS-zzGlets"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -32782,6 +34729,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=ctest"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -32798,11 +34746,12 @@ echo(set "NP=6"
 echo(set "zt0=!R!"
 echo(set "zt1=!zt0!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -32831,6 +34780,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt22!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
@@ -32858,6 +34808,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=1"
 echo(set "CALLEE=jumpto"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -32886,6 +34837,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt23!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt24!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
@@ -32917,6 +34869,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt26!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=14"
 echo(set "ACTION=call" ^& goto :eof
@@ -32950,6 +34903,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt27!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -32972,10 +34926,10 @@ echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt28=!R!"
 echo(set "zt29=!zt28!"
 echo(set "zi30=!zt29:~2!"
-echo(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v
+echo(if "!zt29:~0,2!"=="P:" ^(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v^) else set "zt30=NIL#"
 echo(set "zt30=!zt30:~0,-1!"
 echo(set "zi31=!zt29:~2!"
-echo(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\cdr%%%%v
+echo(if "!zt29:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\cdr%%%%v^) else set "zt31=NIL#"
 echo(set "zt31=!zt31:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt30!"
@@ -32988,6 +34942,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt31!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
@@ -33023,6 +34978,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt34!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
@@ -33055,6 +35011,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt30!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt35!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -33086,6 +35043,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "CALLEE=jumpto"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -33118,6 +35076,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt36!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt37!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
@@ -33135,12 +35094,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt3=!R!"
 echo(set "zt4=!zt3!"
 echo(set "zi5=!zt1:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -33176,6 +35136,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=21"
 echo(set "ACTION=call" ^& goto :eof
@@ -33213,6 +35174,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt40!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
@@ -33237,10 +35199,10 @@ echo(set /a _i=!FP!+!NP!+7 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt41=!R!"
 echo(set "zt42=!zt41!"
 echo(set "zi43=!zt42:~2!"
-echo(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\car%%%%v
+echo(if "!zt42:~0,2!"=="P:" ^(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\car%%%%v^) else set "zt43=NIL#"
 echo(set "zt43=!zt43:~0,-1!"
 echo(set "zi44=!zt42:~2!"
-echo(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v
+echo(if "!zt42:~0,2!"=="P:" ^(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v^) else set "zt44=NIL#"
 echo(set "zt44=!zt44:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt43!"
@@ -33255,6 +35217,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt44!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=23"
 echo(set "ACTION=call" ^& goto :eof
@@ -33294,6 +35257,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt47!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=24"
 echo(set "ACTION=call" ^& goto :eof
@@ -33330,6 +35294,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt43!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt48!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=25"
 echo(set "ACTION=call" ^& goto :eof
@@ -33365,6 +35330,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "CALLEE=jumpto"
 echo(set "RPC=26"
 echo(set "ACTION=call" ^& goto :eof
@@ -33401,6 +35367,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt49!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt50!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=27"
 echo(set "ACTION=call" ^& goto :eof
@@ -33438,6 +35405,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt52!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=28"
 echo(set "ACTION=call" ^& goto :eof
@@ -33487,13 +35455,14 @@ echo(set "zt6=!R!"
 echo(set /a zt7=!zt6:~2!+1
 echo(set "zt8=I:!zt7!"
 echo(set "zi9=!zt1:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt9!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -33514,7 +35483,7 @@ echo(set "zt10=!R!"
 echo(set /a zt11=!zt10:~2!+2
 echo(set "zt12=I:!zt11!"
 echo(set "zi13=!zt1:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt8!"
@@ -33522,6 +35491,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -33542,7 +35512,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt14=!R!"
 echo(set "zt15=!zt14!"
 echo(set "zi16=!zt1:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt12!"
@@ -33551,6 +35521,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -33577,6 +35548,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt17!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -33603,6 +35575,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt18!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -33629,6 +35602,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -33649,7 +35623,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& call set "zt4=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt20=!R!"
 echo(set "zi21=!zt1:~2!"
-echo(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\cdr%%%%v^) else set "zt21=NIL#"
 echo(set "zt21=!zt21:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
@@ -33660,6 +35634,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=2"
 echo(set "CALLEE=ifjump"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -33682,12 +35657,13 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=lift"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -33721,22 +35697,23 @@ echo(set "NP=3"
 echo(set "zt2=!R!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!zt3:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt6:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=3"
 echo(set "CALLEE=lift-list"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -33751,26 +35728,26 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt8=!R!"
 echo(set "zt9=!zt8!"
 echo(set "zi10=!zt3:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set "zi11=!zt9:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v
+echo(if "!zt9:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt10!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt11!#
 echo(set "zt12=P:!HN!"
 echo(set "zi13=!zt3:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set "zi14=!zt13:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v
+echo(if "!zt13:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set "zi15=!zt9:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v
+echo(if "!zt9:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set "zi16=!zt15:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
+echo(if "!zt15:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt9!"
@@ -33778,6 +35755,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -33793,13 +35771,13 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt9=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt17=!R!"
 echo(set "zi18=!zt9:~2!"
-echo(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\cdr%%%%v
+echo(if "!zt9:~0,2!"=="P:" ^(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\cdr%%%%v^) else set "zt18=NIL#"
 echo(set "zt18=!zt18:~0,-1!"
 echo(set "zi19=!zt18:~2!"
-echo(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v
+echo(if "!zt18:~0,2!"=="P:" ^(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v^) else set "zt19=NIL#"
 echo(set "zt19=!zt19:~0,-1!"
 echo(set "zi20=!zt19:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v
+echo(if "!zt19:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt20!#
@@ -33880,56 +35858,56 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi17=!zt2:~2!"
-echo(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v^) else set "zt17=NIL#"
 echo(set "zt17=!zt17:~0,-1!"
 echo(set "zi18=!zt17:~2!"
-echo(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\car%%%%v
+echo(if "!zt17:~0,2!"=="P:" ^(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\car%%%%v^) else set "zt18=NIL#"
 echo(set "zt18=!zt18:~0,-1!"
 echo(set "zt19=!zt18!"
 echo(set "zi20=!zt2:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set "zi21=!zt20:~2!"
-echo(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\cdr%%%%v
+echo(if "!zt20:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\cdr%%%%v^) else set "zt21=NIL#"
 echo(set "zt21=!zt21:~0,-1!"
 echo(set "zi22=!zt21:~2!"
-echo(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\car%%%%v
+echo(if "!zt21:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\car%%%%v^) else set "zt22=NIL#"
 echo(set "zt22=!zt22:~0,-1!"
 echo(set "zi23=!zt22:~2!"
-echo(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\cdr%%%%v
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\cdr%%%%v^) else set "zt23=NIL#"
 echo(set "zt23=!zt23:~0,-1!"
 echo(set "zi24=!zt23:~2!"
-echo(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\car%%%%v
+echo(if "!zt23:~0,2!"=="P:" ^(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\car%%%%v^) else set "zt24=NIL#"
 echo(set "zt24=!zt24:~0,-1!"
 echo(set "zt25=!zt24!"
 echo(set "zi26=!zt2:~2!"
-echo(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v^) else set "zt26=NIL#"
 echo(set "zt26=!zt26:~0,-1!"
 echo(set "zi27=!zt26:~2!"
-echo(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\cdr%%%%v
+echo(if "!zt26:~0,2!"=="P:" ^(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\cdr%%%%v^) else set "zt27=NIL#"
 echo(set "zt27=!zt27:~0,-1!"
 echo(set "zi28=!zt27:~2!"
-echo(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\car%%%%v
+echo(if "!zt27:~0,2!"=="P:" ^(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\car%%%%v^) else set "zt28=NIL#"
 echo(set "zt28=!zt28:~0,-1!"
 echo(set "zi29=!zt28:~2!"
-echo(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v
+echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v^) else set "zt29=NIL#"
 echo(set "zt29=!zt29:~0,-1!"
 echo(set "zi30=!zt29:~2!"
-echo(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\cdr%%%%v
+echo(if "!zt29:~0,2!"=="P:" ^(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\cdr%%%%v^) else set "zt30=NIL#"
 echo(set "zt30=!zt30:~0,-1!"
 echo(set "zi31=!zt30:~2!"
-echo(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v
+echo(if "!zt30:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v^) else set "zt31=NIL#"
 echo(set "zt31=!zt31:~0,-1!"
 echo(set "zt32=!zt31!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt32!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt19!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt32!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=lift"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -33938,15 +35916,16 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
-echo(set "zi55=!p0:~2!"
-echo(for %%%%v in ^(!zi55!^) do set /p zt55=^<%%HD%%\cdr%%%%v
-echo(set "zt55=!zt55:~0,-1!"
+echo(set "zi56=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\cdr%%%%v^) else set "zt56=NIL#"
+echo(set "zt56=!zt56:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt55!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt56!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=lift-program-c"
-echo(set "RPC=20"
+echo(set "RPC=21"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\lift-program-c_pc17.cmd" (
@@ -33955,32 +35934,21 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt32=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt19=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt32=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt25=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
 echo(set "zt33=!R!"
-echo(set "zt34=!zt33!"
-echo(set "zi35=!p0:~2!"
-echo(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\cdr%%%%v
-echo(set "zt35=!zt35:~0,-1!"
-echo(set "zi36=!zt34:~2!"
-echo(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v
-echo(set "zt36=!zt36:~0,-1!"
-echo(set "zi37=!zt36:~2!"
-echo(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\cdr%%%%v
-echo(set "zt37=!zt37:~0,-1!"
-echo(set "zi38=!zt37:~2!"
-echo(for %%%%v in ^(!zi38!^) do set /p zt38=^<%%HD%%\car%%%%v
-echo(set "zt38=!zt38:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt34!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt32!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt19!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt35!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt38!"
-echo(set "CALLEE=lift-program-c"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt33!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
+echo(set "ARGC=3"
+echo(set "CALLEE=lift"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -33989,60 +35957,34 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt34=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt32=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt19=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
-echo(set "zt39=!R!"
-echo(set "zt40=!zt39!"
-echo(set "zi41=!zt34:~2!"
-echo(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\car%%%%v
-echo(set "zt41=!zt41:~0,-1!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt41!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt42=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt25!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt42!#
-echo(set "zt43=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:lambda#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt43!#
-echo(set "zt44=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt44!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt45=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt19!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt45!#
-echo(set "zt46=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:define#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt46!#
-echo(set "zt47=P:!HN!"
-echo(set "zi48=!zt34:~2!"
-echo(for %%%%v in ^(!zi48!^) do set /p zt48=^<%%HD%%\cdr%%%%v
-echo(set "zt48=!zt48:~0,-1!"
-echo(set "zi49=!zt48:~2!"
-echo(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\car%%%%v
-echo(set "zt49=!zt49:~0,-1!"
-echo(set "zi50=!zt40:~2!"
-echo(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\car%%%%v
-echo(set "zt50=!zt50:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt47!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt34!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt32!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt19!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt32=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt25=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt34=!R!"
+echo(set "zt35=!zt34!"
+echo(set "zi36=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v^) else set "zt36=NIL#"
+echo(set "zt36=!zt36:~0,-1!"
+echo(set "zi37=!zt35:~2!"
+echo(if "!zt35:~0,2!"=="P:" ^(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\cdr%%%%v^) else set "zt37=NIL#"
+echo(set "zt37=!zt37:~0,-1!"
+echo(set "zi38=!zt37:~2!"
+echo(if "!zt37:~0,2!"=="P:" ^(for %%%%v in ^(!zi38!^) do set /p zt38=^<%%HD%%\cdr%%%%v^) else set "zt38=NIL#"
+echo(set "zt38=!zt38:~0,-1!"
+echo(set "zi39=!zt38:~2!"
+echo(if "!zt38:~0,2!"=="P:" ^(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v^) else set "zt39=NIL#"
+echo(set "zt39=!zt39:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt49!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt50!"
-echo(set "CALLEE=append"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt36!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt39!"
+echo(set "ARGC=2"
+echo(set "CALLEE=lift-program-c"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34051,26 +35993,63 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt47=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt40=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt34=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt32=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt19=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
-echo(set "zt51=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt35=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt32=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt25=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt40=!R!"
+echo(set "zt41=!zt40!"
+echo(set "zi42=!zt35:~2!"
+echo(if "!zt35:~0,2!"=="P:" ^(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\car%%%%v^) else set "zt42=NIL#"
+echo(set "zt42=!zt42:~0,-1!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt47!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt51!#
-echo(set "zt52=P:!HN!"
-echo(set "zi53=!zt40:~2!"
-echo(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\cdr%%%%v
-echo(set "zt53=!zt53:~0,-1!"
+echo(^>%%HD%%\car%%HN%% echo^(!zt42!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt43=P:!HN!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt52!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt53!#
-echo(set "zt54=P:!HN!"
-echo(set "R=!zt54!" ^& set "ACTION=ret" ^& goto :eof
+echo(^>%%HD%%\car%%HN%% echo^(!zt25!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt43!#
+echo(set "zt44=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:lambda#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt44!#
+echo(set "zt45=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt45!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt46=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt19!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt46!#
+echo(set "zt47=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:define#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt47!#
+echo(set "zt48=P:!HN!"
+echo(set "zi49=!zt35:~2!"
+echo(if "!zt35:~0,2!"=="P:" ^(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\cdr%%%%v^) else set "zt49=NIL#"
+echo(set "zt49=!zt49:~0,-1!"
+echo(set "zi50=!zt49:~2!"
+echo(if "!zt49:~0,2!"=="P:" ^(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\car%%%%v^) else set "zt50=NIL#"
+echo(set "zt50=!zt50:~0,-1!"
+echo(set "zi51=!zt41:~2!"
+echo(if "!zt41:~0,2!"=="P:" ^(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\car%%%%v^) else set "zt51=NIL#"
+echo(set "zt51=!zt51:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt48!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt41!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt50!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt51!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=20"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\lift-program-c_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34078,7 +36057,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zt2=!zt1!"
 echo(set "zp3=!zt2!"
@@ -34091,24 +36070,50 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt48=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt41=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt35=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt32=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt25=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt19=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt52=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt48!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt52!#
+echo(set "zt53=P:!HN!"
+echo(set "zi54=!zt41:~2!"
+echo(if "!zt41:~0,2!"=="P:" ^(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\cdr%%%%v^) else set "zt54=NIL#"
+echo(set "zt54=!zt54:~0,-1!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt53!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt54!#
+echo(set "zt55=P:!HN!"
+echo(set "R=!zt55!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\lift-program-c_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+9
+echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
-echo(set "zt56=!R!"
-echo(set "zt57=!zt56!"
-echo(set "zi58=!zt57:~2!"
-echo(for %%%%v in ^(!zi58!^) do set /p zt58=^<%%HD%%\car%%%%v
-echo(set "zt58=!zt58:~0,-1!"
+echo(set "zt57=!R!"
+echo(set "zt58=!zt57!"
+echo(set "zi59=!zt58:~2!"
+echo(if "!zt58:~0,2!"=="P:" ^(for %%%%v in ^(!zi59!^) do set /p zt59=^<%%HD%%\car%%%%v^) else set "zt59=NIL#"
+echo(set "zt59=!zt59:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt2!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt58!#
-echo(set "zt59=P:!HN!"
-echo(set "zi60=!zt57:~2!"
-echo(for %%%%v in ^(!zi60!^) do set /p zt60=^<%%HD%%\cdr%%%%v
-echo(set "zt60=!zt60:~0,-1!"
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt59!#
+echo(set "zt60=P:!HN!"
+echo(set "zi61=!zt58:~2!"
+echo(if "!zt58:~0,2!"=="P:" ^(for %%%%v in ^(!zi61!^) do set /p zt61=^<%%HD%%\cdr%%%%v^) else set "zt61=NIL#"
+echo(set "zt61=!zt61:~0,-1!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt59!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt60!#
-echo(set "zt61=P:!HN!"
-echo(set "R=!zt61!" ^& set "ACTION=ret" ^& goto :eof
+echo(^>%%HD%%\car%%HN%% echo^(!zt60!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt61!#
+echo(set "zt62=P:!HN!"
+echo(set "R=!zt62!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\lift-program-c_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34116,7 +36121,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi5=!zt2:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(if "!zt5!"=="S:define" ^(set "PC=6" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
@@ -34143,13 +36148,13 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi7=!zt2:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!zt7:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!zt7:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zi9=!zt8:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v
+echo(if "!zt8:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\car%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set "zp10=!zt9!"
 echo(set "zp10=!zp10:~0,1!"
@@ -34178,16 +36183,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi12=!zt2:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set "zi13=!zt12:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!zt12:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set "zi14=!zt13:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v
+echo(if "!zt13:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set "zi15=!zt14:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v
+echo(if "!zt14:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(if "!zt15!"=="S:lambda" ^(set "PC=12" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=13" ^& set "ACTION=jump" ^& goto :eof
@@ -34253,56 +36258,56 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi16=!zt1:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set "zi17=!zt16:~2!"
-echo(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\car%%%%v
+echo(if "!zt16:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\car%%%%v^) else set "zt17=NIL#"
 echo(set "zt17=!zt17:~0,-1!"
 echo(set "zt18=!zt17!"
 echo(set "zi19=!zt1:~2!"
-echo(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v^) else set "zt19=NIL#"
 echo(set "zt19=!zt19:~0,-1!"
 echo(set "zi20=!zt19:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v
+echo(if "!zt19:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set "zi21=!zt20:~2!"
-echo(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v
+echo(if "!zt20:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v^) else set "zt21=NIL#"
 echo(set "zt21=!zt21:~0,-1!"
 echo(set "zi22=!zt21:~2!"
-echo(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v
+echo(if "!zt21:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v^) else set "zt22=NIL#"
 echo(set "zt22=!zt22:~0,-1!"
 echo(set "zi23=!zt22:~2!"
-echo(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v^) else set "zt23=NIL#"
 echo(set "zt23=!zt23:~0,-1!"
 echo(set "zt24=!zt23!"
 echo(set "zi25=!zt1:~2!"
-echo(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\cdr%%%%v^) else set "zt25=NIL#"
 echo(set "zt25=!zt25:~0,-1!"
 echo(set "zi26=!zt25:~2!"
-echo(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v
+echo(if "!zt25:~0,2!"=="P:" ^(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v^) else set "zt26=NIL#"
 echo(set "zt26=!zt26:~0,-1!"
 echo(set "zi27=!zt26:~2!"
-echo(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\car%%%%v
+echo(if "!zt26:~0,2!"=="P:" ^(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\car%%%%v^) else set "zt27=NIL#"
 echo(set "zt27=!zt27:~0,-1!"
 echo(set "zi28=!zt27:~2!"
-echo(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v
+echo(if "!zt27:~0,2!"=="P:" ^(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v^) else set "zt28=NIL#"
 echo(set "zt28=!zt28:~0,-1!"
 echo(set "zi29=!zt28:~2!"
-echo(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v
+echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v^) else set "zt29=NIL#"
 echo(set "zt29=!zt29:~0,-1!"
 echo(set "zi30=!zt29:~2!"
-echo(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v
+echo(if "!zt29:~0,2!"=="P:" ^(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v^) else set "zt30=NIL#"
 echo(set "zt30=!zt30:~0,-1!"
 echo(set "zt31=!zt30!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt31!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt18!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt31!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=lift"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt24!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34311,16 +36316,17 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
-echo(set "zi50=!p0:~2!"
-echo(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\cdr%%%%v
-echo(set "zt50=!zt50:~0,-1!"
+echo(set "zi51=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\cdr%%%%v^) else set "zt51=NIL#"
+echo(set "zt51=!zt51:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt50!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt51!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=lift-program"
-echo(set "RPC=20"
+echo(set "RPC=21"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\lift-program_pc17.cmd" (
@@ -34329,67 +36335,21 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt31=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt18=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt31=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt24=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt18=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt32=!R!"
-echo(set "zt33=!zt32!"
-echo(set "zi34=!zt33:~2!"
-echo(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v
-echo(set "zt34=!zt34:~0,-1!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt35=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt24!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt35!#
-echo(set "zt36=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:lambda#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt36!#
-echo(set "zt37=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt37!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt38=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt18!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt38!#
-echo(set "zt39=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:define#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt39!#
-echo(set "zt40=P:!HN!"
-echo(set "zi41=!zt33:~2!"
-echo(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v
-echo(set "zt41=!zt41:~0,-1!"
-echo(set "zi42=!zt41:~2!"
-echo(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\car%%%%v
-echo(set "zt42=!zt42:~0,-1!"
-echo(set "zi43=!p0:~2!"
-echo(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\cdr%%%%v
-echo(set "zt43=!zt43:~0,-1!"
-echo(set "zi44=!zt33:~2!"
-echo(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v
-echo(set "zt44=!zt44:~0,-1!"
-echo(set "zi45=!zt44:~2!"
-echo(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\cdr%%%%v
-echo(set "zt45=!zt45:~0,-1!"
-echo(set "zi46=!zt45:~2!"
-echo(for %%%%v in ^(!zi46!^) do set /p zt46=^<%%HD%%\car%%%%v
-echo(set "zt46=!zt46:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt42!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt33!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt31!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt18!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt43!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt46!"
-echo(set "CALLEE=lift-program"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt32!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
+echo(set "ARGC=3"
+echo(set "CALLEE=lift"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34398,24 +36358,69 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt42=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt40=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt33=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt31=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt18=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+6 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt47=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt40!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt33!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt31!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt24!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt31=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt24=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt18=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set "zt33=!R!"
+echo(set "zt34=!zt33!"
+echo(set "zi35=!zt34:~2!"
+echo(if "!zt34:~0,2!"=="P:" ^(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\car%%%%v^) else set "zt35=NIL#"
+echo(set "zt35=!zt35:~0,-1!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt35!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt36=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt24!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt36!#
+echo(set "zt37=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:lambda#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt37!#
+echo(set "zt38=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt38!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt39=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt18!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt39!#
+echo(set "zt40=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:define#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt40!#
+echo(set "zt41=P:!HN!"
+echo(set "zi42=!zt34:~2!"
+echo(if "!zt34:~0,2!"=="P:" ^(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\cdr%%%%v^) else set "zt42=NIL#"
+echo(set "zt42=!zt42:~0,-1!"
+echo(set "zi43=!zt42:~2!"
+echo(if "!zt42:~0,2!"=="P:" ^(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\car%%%%v^) else set "zt43=NIL#"
+echo(set "zt43=!zt43:~0,-1!"
+echo(set "zi44=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v^) else set "zt44=NIL#"
+echo(set "zt44=!zt44:~0,-1!"
+echo(set "zi45=!zt34:~2!"
+echo(if "!zt34:~0,2!"=="P:" ^(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\cdr%%%%v^) else set "zt45=NIL#"
+echo(set "zt45=!zt45:~0,-1!"
+echo(set "zi46=!zt45:~2!"
+echo(if "!zt45:~0,2!"=="P:" ^(for %%%%v in ^(!zi46!^) do set /p zt46=^<%%HD%%\cdr%%%%v^) else set "zt46=NIL#"
+echo(set "zt46=!zt46:~0,-1!"
+echo(set "zi47=!zt46:~2!"
+echo(if "!zt46:~0,2!"=="P:" ^(for %%%%v in ^(!zi47!^) do set /p zt47=^<%%HD%%\car%%%%v^) else set "zt47=NIL#"
+echo(set "zt47=!zt47:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt43!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt41!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt18!"
+echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt42!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt44!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt47!"
-echo(set "CALLEE=append"
+echo(set "ARGC=2"
+echo(set "CALLEE=lift-program"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34424,18 +36429,27 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt40=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt33=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt31=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt24=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt18=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt43=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt41=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt31=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt24=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt18=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+6 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set "zt48=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt40!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt48!#
-echo(set "zt49=P:!HN!"
-echo(set "R=!zt49!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt41!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt31!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt18!"
+echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt1!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt43!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt48!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=20"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\lift-program_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34443,7 +36457,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zt1=!zt0!"
 echo(set "zp2=!zt1!"
@@ -34456,14 +36470,32 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt41=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt31=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt24=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt18=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+5 ^& call set "zt1=%%%%F!_i!%%%%"
+echo(set "zt49=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt41!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt49!#
+echo(set "zt50=P:!HN!"
+echo(set "R=!zt50!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\lift-program_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+9
+echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+1 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt51=!R!"
+echo(set "zt52=!R!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt1!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt51!#
-echo(set "zt52=P:!HN!"
-echo(set "R=!zt52!" ^& set "ACTION=ret" ^& goto :eof
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt52!#
+echo(set "zt53=P:!HN!"
+echo(set "R=!zt53!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\lift-program_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34471,7 +36503,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi4=!zt1:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(if "!zt4!"=="S:define" ^(set "PC=6" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
@@ -34498,13 +36530,13 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi6=!zt1:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt6:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!zt7:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\car%%%%v
+echo(if "!zt7:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\car%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zp9=!zt8!"
 echo(set "zp9=!zp9:~0,1!"
@@ -34533,16 +36565,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+9
 echo(set "NP=2"
 echo(set "zi11=!zt1:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set "zi12=!zt11:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set "zi13=!zt12:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v
+echo(if "!zt12:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set "zi14=!zt13:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v
+echo(if "!zt13:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\car%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(if "!zt14!"=="S:lambda" ^(set "PC=12" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=13" ^& set "ACTION=jump" ^& goto :eof
@@ -34565,7 +36597,7 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:quote" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -34579,12 +36611,13 @@ echo(set "NP=3"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt16=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
 echo(set "zt19=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt19!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
-echo(set "CALLEE=lift"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34594,19 +36627,16 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt16=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
 echo(set "zt20=!R!"
-echo(set "zt21=!zt20!"
-echo(set "zi22=!zt21:~2!"
-echo(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\car%%%%v
-echo(set "zt22=!zt22:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt13!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt22!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt13!"
-echo(set /a _i=!NFP!+2 ^& set "F!_i!=NIL"
-echo(set "CALLEE=fv"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt20!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
+echo(set "CALLEE=lift"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34616,15 +36646,19 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
-echo(set "zt23=!R!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set "zt21=!R!"
+echo(set "zt22=!zt21!"
+echo(set "zi23=!zt22:~2!"
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v^) else set "zt23=NIL#"
+echo(set "zt23=!zt23:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt13!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt23!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=keep-bound"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34634,89 +36668,18 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt23=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt13=%%%%F!_i!%%%%"
 echo(set "zt24=!R!"
-echo(set "zt25=!zt24!"
-echo(set "zi26=!zt21:~2!"
-echo(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v
-echo(set "zt26=!zt26:~0,-1!"
-echo(set "zi27=!zt26:~2!"
-echo(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\cdr%%%%v
-echo(set "zt27=!zt27:~0,-1!"
-echo(set "zi28=!zt27:~2!"
-echo(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\car%%%%v
-echo(set "zt28=!zt28:~0,-1!"
-echo(set "zt29=T:!zt28:~2!"
-echo(set "zt30=T:__lam!zt29:~2!"
-echo(set "zt31=S:!zt30:~2!"
-echo(set "zt32=!zt31!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt32!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt33=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:quote#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt33!#
-echo(set "zt34=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt25!#
-echo(set "zt35=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:make-closure#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt35!#
-echo(set "zt36=P:!HN!"
-echo(set "zi37=!zt21:~2!"
-echo(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\cdr%%%%v
-echo(set "zt37=!zt37:~0,-1!"
-echo(set "zi38=!zt37:~2!"
-echo(for %%%%v in ^(!zi38!^) do set /p zt38=^<%%HD%%\car%%%%v
-echo(set "zt38=!zt38:~0,-1!"
-echo(set "zi39=!zt21:~2!"
-echo(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v
-echo(set "zt39=!zt39:~0,-1!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt39!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt40=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt25!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt40!#
-echo(set "zt41=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt13!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt41!#
-echo(set "zt42=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:clambda#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt42!#
-echo(set "zt43=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt43!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt44=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt32!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt44!#
-echo(set "zt45=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:define#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt45!#
-echo(set "zt46=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt46!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt47=P:!HN!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt36!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt32!"
-echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt25!"
-echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt38!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt47!"
-echo(set "CALLEE=append"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt23!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt24!"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=NIL"
+echo(set "ARGC=3"
+echo(set "CALLEE=fv"
 echo(set "RPC=14"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34726,35 +36689,18 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt36=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt32=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "zt25=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+3 ^& call set "zt21=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
-echo(set "zt48=!R!"
-echo(set "zi49=!zt21:~2!"
-echo(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\cdr%%%%v
-echo(set "zt49=!zt49:~0,-1!"
-echo(set "zi50=!zt49:~2!"
-echo(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\cdr%%%%v
-echo(set "zt50=!zt50:~0,-1!"
-echo(set "zi51=!zt50:~2!"
-echo(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\car%%%%v
-echo(set "zt51=!zt51:~0,-1!"
-echo(set /a zt52=!zt51:~2!+1
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(I:!zt52!#
-echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt53=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt48!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt53!#
-echo(set "zt54=P:!HN!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt36!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt54!#
-echo(set "zt55=P:!HN!"
-echo(set "R=!zt55!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set "zt25=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
+echo(set "CALLEE=keep-bound"
+echo(set "RPC=15"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\lift_pc15.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34762,8 +36708,137 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
-echo(set "zt56=!R!"
-echo(set "R=!zt56!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set "zt26=!R!"
+echo(set "zt27=!zt26!"
+echo(set "zi28=!zt22:~2!"
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v^) else set "zt28=NIL#"
+echo(set "zt28=!zt28:~0,-1!"
+echo(set "zi29=!zt28:~2!"
+echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v^) else set "zt29=NIL#"
+echo(set "zt29=!zt29:~0,-1!"
+echo(set "zi30=!zt29:~2!"
+echo(if "!zt29:~0,2!"=="P:" ^(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\car%%%%v^) else set "zt30=NIL#"
+echo(set "zt30=!zt30:~0,-1!"
+echo(set "zt31=T:!zt30:~2!"
+echo(set "zt32=T:__lam!zt31:~2!"
+echo(set "zt33=S:!zt32:~2!"
+echo(set "zt34=!zt33!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt35=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:quote#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt35!#
+echo(set "zt36=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt36!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt27!#
+echo(set "zt37=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:make-closure#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt37!#
+echo(set "zt38=P:!HN!"
+echo(set "zi39=!zt22:~2!"
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\cdr%%%%v^) else set "zt39=NIL#"
+echo(set "zt39=!zt39:~0,-1!"
+echo(set "zi40=!zt39:~2!"
+echo(if "!zt39:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\car%%%%v^) else set "zt40=NIL#"
+echo(set "zt40=!zt40:~0,-1!"
+echo(set "zi41=!zt22:~2!"
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\car%%%%v^) else set "zt41=NIL#"
+echo(set "zt41=!zt41:~0,-1!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt41!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt42=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt27!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt42!#
+echo(set "zt43=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt13!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt43!#
+echo(set "zt44=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:clambda#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt44!#
+echo(set "zt45=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt45!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt46=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt34!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt46!#
+echo(set "zt47=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:define#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt47!#
+echo(set "zt48=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt48!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt49=P:!HN!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt38!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt34!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt27!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt22!"
+echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt13!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt49!"
+echo(set "ARGC=2"
+echo(set "CALLEE=append"
+echo(set "RPC=16"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\lift_pc16.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+8
+echo(set "NP=3"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt38=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt34=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt27=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt22=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+4 ^& call set "zt13=%%%%F!_i!%%%%"
+echo(set "zt50=!R!"
+echo(set "zi51=!zt22:~2!"
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\cdr%%%%v^) else set "zt51=NIL#"
+echo(set "zt51=!zt51:~0,-1!"
+echo(set "zi52=!zt51:~2!"
+echo(if "!zt51:~0,2!"=="P:" ^(for %%%%v in ^(!zi52!^) do set /p zt52=^<%%HD%%\cdr%%%%v^) else set "zt52=NIL#"
+echo(set "zt52=!zt52:~0,-1!"
+echo(set "zi53=!zt52:~2!"
+echo(if "!zt52:~0,2!"=="P:" ^(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\car%%%%v^) else set "zt53=NIL#"
+echo(set "zt53=!zt53:~0,-1!"
+echo(set /a zt54=!zt53:~2!+1
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(I:!zt54!#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt55=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt50!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt55!#
+echo(set "zt56=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt38!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt56!#
+echo(set "zt57=P:!HN!"
+echo(set "R=!zt57!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\lift_pc17.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+8
+echo(set "NP=3"
+echo(set "zt58=!R!"
+echo(set "R=!zt58!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\lift_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34774,16 +36849,16 @@ echo(set "NP=3"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!p2!#
 echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
-echo(set "zt57=P:!HN!"
+echo(set "zt59=P:!HN!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(NIL#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt57!#
-echo(set "zt58=P:!HN!"
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt59!#
+echo(set "zt60=P:!HN!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!p0!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt58!#
-echo(set "zt59=P:!HN!"
-echo(set "R=!zt59!" ^& set "ACTION=ret" ^& goto :eof
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt60!#
+echo(set "zt61=P:!HN!"
+echo(set "R=!zt61!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\lift_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -34812,10 +36887,11 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=runopzzQ"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -34857,7 +36933,7 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(if "!zt10!"=="S:lambda" ^(set "PC=8" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=9" ^& set "ACTION=jump" ^& goto :eof
@@ -34869,33 +36945,33 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+8
 echo(set "NP=3"
 echo(set "zi11=!p0:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set "zi12=!zt11:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set "zt13=!zt12!"
 echo(set "zi14=!p0:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set "zi15=!zt14:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v
+echo(if "!zt14:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set "zi16=!zt15:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
+echo(if "!zt15:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set "zi17=!p0:~2!"
-echo(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v^) else set "zt17=NIL#"
 echo(set "zt17=!zt17:~0,-1!"
 echo(set "zi18=!zt17:~2!"
-echo(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\car%%%%v
+echo(if "!zt17:~0,2!"=="P:" ^(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\car%%%%v^) else set "zt18=NIL#"
 echo(set "zt18=!zt18:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt16!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt18!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
-echo(set "CALLEE=append"
+echo(set "ARGC=1"
+echo(set "CALLEE=fs-list"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -34909,8 +36985,9 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=lift-list"
-echo(set "RPC=15"
+echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\list-zzGcons_pc0.cmd" (
@@ -34931,14 +37008,15 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=list-zzGcons"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -34976,6 +37054,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p4!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lbinds"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -34991,19 +37070,19 @@ echo(set "NP=5"
 echo(set "zt0=!R!"
 echo(set "zt1=!zt0!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!zt1:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!zt1:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
@@ -35011,6 +37090,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -35048,10 +37128,10 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p1:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="!p0!" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -35062,10 +37142,10 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!zt2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!zt2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -35075,10 +37155,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi4=!p1:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\lquote_pc0.cmd" (
@@ -35174,6 +37255,7 @@ echo(set "NP=2"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=enc-mc"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -35215,6 +37297,7 @@ echo(set "zt12=T:!p0:~2!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "CALLEE=enc-mc"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -35225,7 +37308,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi17=!p0:~2!"
-echo(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\car%%%%v^) else set "zt17=NIL#"
 echo(set "zt17=!zt17:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt17!#
@@ -35236,7 +37319,7 @@ echo(^>%%HD%%\car%%HN%% echo^(S:quote#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt18!#
 echo(set "zt19=P:!HN!"
 echo(set "zi20=!p0:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt20!#
@@ -35263,6 +37346,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=NIL"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
@@ -35276,16 +37360,17 @@ echo(set /a _i=!FP!+4 ^& call set "p4=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+10
 echo(set "NP=5"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p4!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -35301,11 +37386,12 @@ echo(set "NP=5"
 echo(set "zt2=!R!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -35322,10 +37408,10 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt5=!R!"
 echo(set "zt6=!zt5!"
 echo(set "zi7=!zt3:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!zt3:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt6!"
@@ -35334,6 +37420,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cref"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -35360,6 +37447,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -35381,6 +37469,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -35400,6 +37489,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -35433,16 +37523,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+12
 echo(set "NP=4"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -35457,11 +37548,12 @@ echo(set "NP=4"
 echo(set "zt2=!R!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -35506,13 +37598,14 @@ echo(set "zt7=!zt6!"
 echo(set "zt8=T:zc!zt7:~2!"
 echo(set "zt9=!zt8!"
 echo(set "zi10=!zt3:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -35532,10 +37625,10 @@ echo(set "zt12=!zt11!"
 echo(set "zt13=T:zSL!zt7:~2!"
 echo(set "zt14=!zt13!"
 echo(set "zi15=!zt3:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set "zi16=!zt3:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt9!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
@@ -35546,6 +37639,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cref"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -35575,6 +37669,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -35601,6 +37696,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt20!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -35630,6 +37726,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt22!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt24!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -35660,6 +37757,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt26!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt27!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -35701,6 +37799,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt29!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt39!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -35731,6 +37830,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -35743,16 +37843,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+24
 echo(set "NP=4"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -35767,19 +37868,19 @@ echo(set "NP=4"
 echo(set "zt2=!R!"
 echo(set "zt3=!zt2!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!zt4:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!zt4:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt3:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!zt3:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p1!"
@@ -35788,6 +37889,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -35829,6 +37931,7 @@ echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt43!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
@@ -35867,6 +37970,7 @@ echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt44!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -35892,7 +37996,7 @@ echo(set /a _i=!FP!+!NP!+10 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt45=!R!"
 echo(set "zt46=!zt45!"
 echo(set "zi47=!zt11:~2!"
-echo(for %%%%v in ^(!zi47!^) do set /p zt47=^<%%HD%%\cdr%%%%v
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi47!^) do set /p zt47=^<%%HD%%\cdr%%%%v^) else set "zt47=NIL#"
 echo(set "zt47=!zt47:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt27!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt46!"
@@ -35910,6 +38014,7 @@ echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+13 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt47!"
+echo(set "ARGC=1"
 echo(set "CALLEE=aref"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
@@ -35954,6 +38059,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt46!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt51!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=14"
 echo(set "ACTION=call" ^& goto :eof
@@ -35996,6 +38102,7 @@ echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt53!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt54!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -36051,6 +38158,7 @@ echo(set /a _i=!FP!+!NP!+13 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt56!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt68!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
@@ -36097,6 +38205,7 @@ echo(set /a _i=!FP!+!NP!+14 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+15 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt71!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
@@ -36143,6 +38252,7 @@ echo(set /a _i=!FP!+!NP!+14 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt70!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt72!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -36172,7 +38282,7 @@ echo(set /a _i=!FP!+!NP!+14 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt73=!R!"
 echo(set "zt74=!zt73!"
 echo(set "zi75=!zt19:~2!"
-echo(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\cdr%%%%v
+echo(if "!zt19:~0,2!"=="P:" ^(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\cdr%%%%v^) else set "zt75=NIL#"
 echo(set "zt75=!zt75:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt29!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt74!"
@@ -36194,6 +38304,7 @@ echo(set /a _i=!FP!+!NP!+16 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+17 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt75!"
+echo(set "ARGC=1"
 echo(set "CALLEE=aref"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -36246,6 +38357,7 @@ echo(set /a _i=!FP!+!NP!+15 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt74!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt79!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
@@ -36268,6 +38380,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt9!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -36318,6 +38431,7 @@ echo(set /a _i=!FP!+!NP!+16 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt81!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt82!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=21"
 echo(set "ACTION=call" ^& goto :eof
@@ -36387,6 +38501,7 @@ echo(set /a _i=!FP!+!NP!+17 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt84!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt102!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
@@ -36443,6 +38558,7 @@ echo(set /a _i=!FP!+!NP!+18 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+19 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt107!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=23"
 echo(set "ACTION=call" ^& goto :eof
@@ -36497,6 +38613,7 @@ echo(set /a _i=!FP!+!NP!+18 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt104!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt108!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=24"
 echo(set "ACTION=call" ^& goto :eof
@@ -36549,6 +38666,7 @@ echo(set /a _i=!FP!+!NP!+17 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+18 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt109!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=25"
 echo(set "ACTION=call" ^& goto :eof
@@ -36604,6 +38722,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadddr"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -36619,13 +38738,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt11=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt12=!R!"
 echo(set "zi13=!zt11:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set "zi14=!zt11:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set "zi15=!zt3:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt13!"
@@ -36636,6 +38755,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -36662,6 +38782,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -36686,6 +38807,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt13!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt17!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -36702,13 +38824,14 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt3=%%%%F!_i!%%%%"
 echo(set "zt18=!R!"
 echo(set "zt19=!zt18!"
 echo(set "zi20=!zt19:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v
+echo(if "!zt19:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt19!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt20!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -36735,7 +38858,7 @@ echo(set "zt29=!zt28!"
 echo(set "zt30=T:zr!zt23:~2!"
 echo(set "zt31=!zt30!"
 echo(set "zi32=!zt19:~2!"
-echo(for %%%%v in ^(!zi32!^) do set /p zt32=^<%%HD%%\car%%%%v
+echo(if "!zt19:~0,2!"=="P:" ^(for %%%%v in ^(!zi32!^) do set /p zt32=^<%%HD%%\car%%%%v^) else set "zt32=NIL#"
 echo(set "zt32=!zt32:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt31!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt29!"
@@ -36747,6 +38870,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt32!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -36773,10 +38897,10 @@ echo(set "zt36=!zt35!"
 echo(set "zt37=T:zTK!zt23:~2!"
 echo(set "zt38=!zt37!"
 echo(set "zi39=!zt19:~2!"
-echo(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v
+echo(if "!zt19:~0,2!"=="P:" ^(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v^) else set "zt39=NIL#"
 echo(set "zt39=!zt39:~0,-1!"
 echo(set "zi40=!zt3:~2!"
-echo(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v^) else set "zt40=NIL#"
 echo(set "zt40=!zt40:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt25!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt39!"
@@ -36793,6 +38917,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cref"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -36811,6 +38936,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p4!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -36827,11 +38953,12 @@ echo(set "NP=6"
 echo(set "zt0=!R!"
 echo(set "zt1=!zt0!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -36882,10 +39009,10 @@ echo(set "zt4=T:!zt3:~2!"
 echo(set "zt5=T:zp!zt4:~2!"
 echo(set "zt6=!zt5!"
 echo(set "zi7=!zt1:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!zt1:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt7!"
@@ -36893,6 +39020,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -36918,6 +39046,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -36940,6 +39069,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -36964,6 +39094,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -36986,6 +39117,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt17!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -37008,6 +39140,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -37064,7 +39197,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:begin" ^(set "PC=4" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=5" ^& set "ACTION=jump" ^& goto :eof
@@ -37079,7 +39212,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\car%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(if "!zt8!"=="!p2!" ^(set "PC=13" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=14" ^& set "ACTION=jump" ^& goto :eof
@@ -37154,13 +39287,14 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\cdr%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=largs"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -37191,16 +39325,17 @@ echo(set "NP=6"
 echo(set "zt11=!R!"
 echo(set "zt12=!zt11!"
 echo(set "zi13=!zt12:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v
+echo(if "!zt12:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set "zi14=!zt12:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v
+echo(if "!zt12:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=setparams"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -37232,6 +39367,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt27!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
@@ -37271,7 +39407,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi31=!p0:~2!"
-echo(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v^) else set "zt31=NIL#"
 echo(set "zt31=!zt31:~0,-1!"
 echo(if "!zt31!"=="S:if" ^(set "PC=24" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=25" ^& set "ACTION=jump" ^& goto :eof
@@ -37346,16 +39482,17 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi33=!p0:~2!"
-echo(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\cdr%%%%v^) else set "zt33=NIL#"
 echo(set "zt33=!zt33:~0,-1!"
 echo(set "zi34=!zt33:~2!"
-echo(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v
+echo(if "!zt33:~0,2!"=="P:" ^(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v^) else set "zt34=NIL#"
 echo(set "zt34=!zt34:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt34!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=ctest"
 echo(set "RPC=29"
 echo(set "ACTION=call" ^& goto :eof
@@ -37386,11 +39523,12 @@ echo(set "NP=6"
 echo(set "zt35=!R!"
 echo(set "zt36=!zt35!"
 echo(set "zi37=!zt36:~2!"
-echo(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v
+echo(if "!zt36:~0,2!"=="P:" ^(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v^) else set "zt37=NIL#"
 echo(set "zt37=!zt37:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt37!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=30"
 echo(set "ACTION=call" ^& goto :eof
@@ -37420,12 +39558,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt36=%%%%F!_i!%%%%"
 echo(set "zt38=!R!"
 echo(set "zt39=!zt38!"
 echo(set "zi40=!zt36:~2!"
-echo(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\car%%%%v
+echo(if "!zt36:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\car%%%%v^) else set "zt40=NIL#"
 echo(set "zt40=!zt40:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt40!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=31"
 echo(set "ACTION=call" ^& goto :eof
@@ -37445,13 +39584,14 @@ echo(set "zt41=!R!"
 echo(set /a zt42=!zt41:~2!+1
 echo(set "zt43=I:!zt42!"
 echo(set "zi44=!zt36:~2!"
-echo(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\car%%%%v
+echo(if "!zt36:~0,2!"=="P:" ^(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\car%%%%v^) else set "zt44=NIL#"
 echo(set "zt44=!zt44:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt43!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt44!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=32"
 echo(set "ACTION=call" ^& goto :eof
@@ -37474,6 +39614,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt45!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=33"
 echo(set "ACTION=call" ^& goto :eof
@@ -37492,7 +39633,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt39=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+2 ^& call set "zt36=%%%%F!_i!%%%%"
 echo(set "zt46=!R!"
 echo(set "zi47=!zt36:~2!"
-echo(for %%%%v in ^(!zi47!^) do set /p zt47=^<%%HD%%\cdr%%%%v
+echo(if "!zt36:~0,2!"=="P:" ^(for %%%%v in ^(!zi47!^) do set /p zt47=^<%%HD%%\cdr%%%%v^) else set "zt47=NIL#"
 echo(set "zt47=!zt47:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt46!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt43!"
@@ -37501,6 +39642,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt47!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt39!"
+echo(set "ARGC=2"
 echo(set "CALLEE=ifjump"
 echo(set "RPC=34"
 echo(set "ACTION=call" ^& goto :eof
@@ -37525,6 +39667,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt46!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt48!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=35"
 echo(set "ACTION=call" ^& goto :eof
@@ -37548,6 +39691,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt43!"
+echo(set "ARGC=1"
 echo(set "CALLEE=jumpto"
 echo(set "RPC=36"
 echo(set "ACTION=call" ^& goto :eof
@@ -37572,6 +39716,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt49!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt50!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=37"
 echo(set "ACTION=call" ^& goto :eof
@@ -37591,13 +39736,13 @@ echo(set /a _i=!FP!+!NP!+2 ^& call set "zt36=%%%%F!_i!%%%%"
 echo(set "zt51=!R!"
 echo(set "zt52=!zt51!"
 echo(set "zi53=!p0:~2!"
-echo(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\cdr%%%%v^) else set "zt53=NIL#"
 echo(set "zt53=!zt53:~0,-1!"
 echo(set "zi54=!zt53:~2!"
-echo(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\cdr%%%%v
+echo(if "!zt53:~0,2!"=="P:" ^(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\cdr%%%%v^) else set "zt54=NIL#"
 echo(set "zt54=!zt54:~0,-1!"
 echo(set "zi55=!zt54:~2!"
-echo(for %%%%v in ^(!zi55!^) do set /p zt55=^<%%HD%%\car%%%%v
+echo(if "!zt54:~0,2!"=="P:" ^(for %%%%v in ^(!zi55!^) do set /p zt55=^<%%HD%%\car%%%%v^) else set "zt55=NIL#"
 echo(set "zt55=!zt55:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p2!"
@@ -37610,6 +39755,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt52!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt39!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=38"
 echo(set "ACTION=call" ^& goto :eof
@@ -37643,6 +39789,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt56!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p5!"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltail"
 echo(set "RPC=39"
 echo(set "ACTION=call" ^& goto :eof
@@ -37669,6 +39816,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadddr"
 echo(set "RPC=40"
 echo(set "ACTION=call" ^& goto :eof
@@ -37712,6 +39860,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt36!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt58!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt43!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=41"
 echo(set "ACTION=call" ^& goto :eof
@@ -37741,6 +39890,7 @@ echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!zt60!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
+echo(set "ARGC=6"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\ltail_pc42.cmd" (
@@ -37753,7 +39903,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi63=!p0:~2!"
-echo(for %%%%v in ^(!zi63!^) do set /p zt63=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi63!^) do set /p zt63=^<%%HD%%\car%%%%v^) else set "zt63=NIL#"
 echo(set "zt63=!zt63:~0,-1!"
 echo(if "!zt63!"=="S:cond" ^(set "PC=45" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=46" ^& set "ACTION=jump" ^& goto :eof
@@ -37828,10 +39978,11 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi65=!p0:~2!"
-echo(for %%%%v in ^(!zi65!^) do set /p zt65=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi65!^) do set /p zt65=^<%%HD%%\cdr%%%%v^) else set "zt65=NIL#"
 echo(set "zt65=!zt65:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt65!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cond-zzGif"
 echo(set "RPC=50"
 echo(set "ACTION=call" ^& goto :eof
@@ -37878,6 +40029,7 @@ echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
+echo(set "ARGC=6"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\ltail_pc51.cmd" (
@@ -37890,7 +40042,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi69=!p0:~2!"
-echo(for %%%%v in ^(!zi69!^) do set /p zt69=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi69!^) do set /p zt69=^<%%HD%%\car%%%%v^) else set "zt69=NIL#"
 echo(set "zt69=!zt69:~0,-1!"
 echo(if "!zt69!"=="S:let" ^(set "PC=54" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=55" ^& set "ACTION=jump" ^& goto :eof
@@ -37965,16 +40117,17 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi71=!p0:~2!"
-echo(for %%%%v in ^(!zi71!^) do set /p zt71=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi71!^) do set /p zt71=^<%%HD%%\cdr%%%%v^) else set "zt71=NIL#"
 echo(set "zt71=!zt71:~0,-1!"
 echo(set "zi72=!zt71:~2!"
-echo(for %%%%v in ^(!zi72!^) do set /p zt72=^<%%HD%%\car%%%%v
+echo(if "!zt71:~0,2!"=="P:" ^(for %%%%v in ^(!zi72!^) do set /p zt72=^<%%HD%%\car%%%%v^) else set "zt72=NIL#"
 echo(set "zt72=!zt72:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt72!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lbinds"
 echo(set "RPC=59"
 echo(set "ACTION=call" ^& goto :eof
@@ -37993,6 +40146,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=60"
 echo(set "ACTION=call" ^& goto :eof
@@ -38009,28 +40163,28 @@ echo(set "NP=6"
 echo(set "zt73=!R!"
 echo(set "zt74=!zt73!"
 echo(set "zi75=!p0:~2!"
-echo(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\cdr%%%%v^) else set "zt75=NIL#"
 echo(set "zt75=!zt75:~0,-1!"
 echo(set "zi76=!zt75:~2!"
-echo(for %%%%v in ^(!zi76!^) do set /p zt76=^<%%HD%%\cdr%%%%v
+echo(if "!zt75:~0,2!"=="P:" ^(for %%%%v in ^(!zi76!^) do set /p zt76=^<%%HD%%\cdr%%%%v^) else set "zt76=NIL#"
 echo(set "zt76=!zt76:~0,-1!"
 echo(set "zi77=!zt76:~2!"
-echo(for %%%%v in ^(!zi77!^) do set /p zt77=^<%%HD%%\car%%%%v
+echo(if "!zt76:~0,2!"=="P:" ^(for %%%%v in ^(!zi77!^) do set /p zt77=^<%%HD%%\car%%%%v^) else set "zt77=NIL#"
 echo(set "zt77=!zt77:~0,-1!"
 echo(set "zi78=!zt74:~2!"
-echo(for %%%%v in ^(!zi78!^) do set /p zt78=^<%%HD%%\cdr%%%%v
+echo(if "!zt74:~0,2!"=="P:" ^(for %%%%v in ^(!zi78!^) do set /p zt78=^<%%HD%%\cdr%%%%v^) else set "zt78=NIL#"
 echo(set "zt78=!zt78:~0,-1!"
 echo(set "zi79=!zt78:~2!"
-echo(for %%%%v in ^(!zi79!^) do set /p zt79=^<%%HD%%\car%%%%v
+echo(if "!zt78:~0,2!"=="P:" ^(for %%%%v in ^(!zi79!^) do set /p zt79=^<%%HD%%\car%%%%v^) else set "zt79=NIL#"
 echo(set "zt79=!zt79:~0,-1!"
 echo(set "zi80=!zt74:~2!"
-echo(for %%%%v in ^(!zi80!^) do set /p zt80=^<%%HD%%\car%%%%v
+echo(if "!zt74:~0,2!"=="P:" ^(for %%%%v in ^(!zi80!^) do set /p zt80=^<%%HD%%\car%%%%v^) else set "zt80=NIL#"
 echo(set "zt80=!zt80:~0,-1!"
 echo(set "zi81=!zt74:~2!"
-echo(for %%%%v in ^(!zi81!^) do set /p zt81=^<%%HD%%\cdr%%%%v
+echo(if "!zt74:~0,2!"=="P:" ^(for %%%%v in ^(!zi81!^) do set /p zt81=^<%%HD%%\cdr%%%%v^) else set "zt81=NIL#"
 echo(set "zt81=!zt81:~0,-1!"
 echo(set "zi82=!zt81:~2!"
-echo(for %%%%v in ^(!zi82!^) do set /p zt82=^<%%HD%%\cdr%%%%v
+echo(if "!zt81:~0,2!"=="P:" ^(for %%%%v in ^(!zi82!^) do set /p zt82=^<%%HD%%\cdr%%%%v^) else set "zt82=NIL#"
 echo(set "zt82=!zt82:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt77!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt79!"
@@ -38038,6 +40192,7 @@ echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!zt80!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!zt82!"
+echo(set "ARGC=6"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\ltail_pc6.cmd" (
@@ -38064,17 +40219,18 @@ echo(set "NP=6"
 echo(set "zt83=!R!"
 echo(set "zt84=!zt83!"
 echo(set "zi85=!zt84:~2!"
-echo(for %%%%v in ^(!zi85!^) do set /p zt85=^<%%HD%%\car%%%%v
+echo(if "!zt84:~0,2!"=="P:" ^(for %%%%v in ^(!zi85!^) do set /p zt85=^<%%HD%%\car%%%%v^) else set "zt85=NIL#"
 echo(set "zt85=!zt85:~0,-1!"
 echo(set "zt86=T:!BANG8!"
 echo(set "zi87=!zt84:~2!"
-echo(for %%%%v in ^(!zi87!^) do set /p zt87=^<%%HD%%\cdr%%%%v
+echo(if "!zt84:~0,2!"=="P:" ^(for %%%%v in ^(!zi87!^) do set /p zt87=^<%%HD%%\cdr%%%%v^) else set "zt87=NIL#"
 echo(set "zt87=!zt87:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt86!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt85!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt84!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt87!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=61"
 echo(set "ACTION=call" ^& goto :eof
@@ -38108,6 +40264,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt84!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt85!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt100!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=62"
 echo(set "ACTION=call" ^& goto :eof
@@ -38135,7 +40292,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+15
 echo(set "NP=6"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
@@ -38144,6 +40301,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p5!"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltbegin"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -38184,7 +40342,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=6"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -38199,7 +40357,7 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=6"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
@@ -38208,6 +40366,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p5!"
+echo(set "ARGC=6"
 echo(set "CALLEE=ltail"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -38222,13 +40381,14 @@ echo(set /a _i=!FP!+5 ^& call set "p5=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=6"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p4!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p5!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -38257,10 +40417,10 @@ echo(set "NP=6"
 echo(set "zt4=!R!"
 echo(set "zt5=!zt4!"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt5:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
@@ -38268,6 +40428,7 @@ echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!FP!+4 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!FP!+5 ^& set "F!_i!=!p5!"
+echo(set "ARGC=6"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\lv-names_pc0.cmd" (
@@ -38284,17 +40445,18 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!zt1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!zt1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=lv-names"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -38357,6 +40519,7 @@ echo(set "NP=4"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=lookup"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -38369,7 +40532,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi179=!p0:~2!"
-echo(for %%%%v in ^(!zi179!^) do set /p zt179=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi179!^) do set /p zt179=^<%%HD%%\car%%%%v^) else set "zt179=NIL#"
 echo(set "zt179=!zt179:~0,-1!"
 echo(if "!zt179!"=="S:run" ^(set "PC=105" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=106" ^& set "ACTION=jump" ^& goto :eof
@@ -38388,6 +40551,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt172!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt173!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=102"
 echo(set "ACTION=call" ^& goto :eof
@@ -38406,6 +40570,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt172!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt174!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=103"
 echo(set "ACTION=call" ^& goto :eof
@@ -38422,6 +40587,7 @@ echo(set "zt175=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt172!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt175!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=104"
 echo(set "ACTION=call" ^& goto :eof
@@ -38454,6 +40620,7 @@ echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=107"
 echo(set "ACTION=call" ^& goto :eof
@@ -38466,7 +40633,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi196=!p0:~2!"
-echo(for %%%%v in ^(!zi196!^) do set /p zt196=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi196!^) do set /p zt196=^<%%HD%%\car%%%%v^) else set "zt196=NIL#"
 echo(set "zt196=!zt196:~0,-1!"
 echo(if "!zt196!"=="S:run-capture" ^(set "PC=116" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=117" ^& set "ACTION=jump" ^& goto :eof
@@ -38481,12 +40648,13 @@ echo(set "NP=4"
 echo(set "zt180=!R!"
 echo(set "zt181=!zt180!"
 echo(set "zi182=!p0:~2!"
-echo(for %%%%v in ^(!zi182!^) do set /p zt182=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi182!^) do set /p zt182=^<%%HD%%\cdr%%%%v^) else set "zt182=NIL#"
 echo(set "zt182=!zt182:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt182!"
+echo(set "ARGC=1"
 echo(set "CALLEE=join-toks"
 echo(set "RPC=108"
 echo(set "ACTION=call" ^& goto :eof
@@ -38505,6 +40673,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt183!"
+echo(set "ARGC=1"
 echo(set "CALLEE=enc-mc"
 echo(set "RPC=109"
 echo(set "ACTION=call" ^& goto :eof
@@ -38524,6 +40693,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt185!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=110"
 echo(set "ACTION=call" ^& goto :eof
@@ -38536,10 +40706,11 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi34=!p0:~2!"
-echo(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\car%%%%v^) else set "zt34=NIL#"
 echo(set "zt34=!zt34:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt34!"
+echo(set "ARGC=1"
 echo(set "CALLEE=arithzzQ"
 echo(set "RPC=24"
 echo(set "ACTION=call" ^& goto :eof
@@ -38558,6 +40729,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt186!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=111"
 echo(set "ACTION=call" ^& goto :eof
@@ -38577,6 +40749,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt188!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:call run_cmd.cmd"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=112"
 echo(set "ACTION=call" ^& goto :eof
@@ -38597,6 +40770,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt188!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt190!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=113"
 echo(set "ACTION=call" ^& goto :eof
@@ -38617,6 +40791,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt189!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt191!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=114"
 echo(set "ACTION=call" ^& goto :eof
@@ -38635,6 +40810,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt188!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt181!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt192!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=115"
 echo(set "ACTION=call" ^& goto :eof
@@ -38668,6 +40844,7 @@ echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=118"
 echo(set "ACTION=call" ^& goto :eof
@@ -38680,10 +40857,11 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi213=!p0:~2!"
-echo(for %%%%v in ^(!zi213!^) do set /p zt213=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi213!^) do set /p zt213=^<%%HD%%\car%%%%v^) else set "zt213=NIL#"
 echo(set "zt213=!zt213:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt213!"
+echo(set "ARGC=1"
 echo(set "CALLEE=builtinzzQ"
 echo(set "RPC=127"
 echo(set "ACTION=call" ^& goto :eof
@@ -38698,12 +40876,13 @@ echo(set "NP=4"
 echo(set "zt197=!R!"
 echo(set "zt198=!zt197!"
 echo(set "zi199=!p0:~2!"
-echo(for %%%%v in ^(!zi199!^) do set /p zt199=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi199!^) do set /p zt199=^<%%HD%%\cdr%%%%v^) else set "zt199=NIL#"
 echo(set "zt199=!zt199:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt199!"
+echo(set "ARGC=1"
 echo(set "CALLEE=join-toks"
 echo(set "RPC=119"
 echo(set "ACTION=call" ^& goto :eof
@@ -38722,6 +40901,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt200!"
+echo(set "ARGC=1"
 echo(set "CALLEE=enc-mc"
 echo(set "RPC=120"
 echo(set "ACTION=call" ^& goto :eof
@@ -38753,6 +40933,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt202!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=121"
 echo(set "ACTION=call" ^& goto :eof
@@ -38771,6 +40952,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt203!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=122"
 echo(set "ACTION=call" ^& goto :eof
@@ -38790,6 +40972,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt205!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:call run_capture.cmd"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=123"
 echo(set "ACTION=call" ^& goto :eof
@@ -38810,6 +40993,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt205!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt207!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=124"
 echo(set "ACTION=call" ^& goto :eof
@@ -38830,6 +41014,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt206!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt208!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=125"
 echo(set "ACTION=call" ^& goto :eof
@@ -38848,6 +41033,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt205!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt198!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt209!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=126"
 echo(set "ACTION=call" ^& goto :eof
@@ -38895,6 +41081,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lbuiltin"
 echo(set "RPC=130"
 echo(set "ACTION=call" ^& goto :eof
@@ -38907,10 +41094,11 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi216=!p0:~2!"
-echo(for %%%%v in ^(!zi216!^) do set /p zt216=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi216!^) do set /p zt216=^<%%HD%%\car%%%%v^) else set "zt216=NIL#"
 echo(set "zt216=!zt216:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt216!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tpredzzQ"
 echo(set "RPC=131"
 echo(set "ACTION=call" ^& goto :eof
@@ -38925,6 +41113,7 @@ echo(set "NP=4"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=prim-wrap"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -38964,6 +41153,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=S:nil"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p3!"
+echo(set "ARGC=6"
 echo(set "CALLEE=lif-val"
 echo(set "RPC=134"
 echo(set "ACTION=call" ^& goto :eof
@@ -38976,7 +41166,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi219=!p0:~2!"
-echo(for %%%%v in ^(!zi219!^) do set /p zt219=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi219!^) do set /p zt219=^<%%HD%%\car%%%%v^) else set "zt219=NIL#"
 echo(set "zt219=!zt219:~0,-1!"
 echo(if "!zt219!"=="S:make-closure" ^(set "PC=135" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=136" ^& set "ACTION=jump" ^& goto :eof
@@ -38999,20 +41189,21 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi220=!p0:~2!"
-echo(for %%%%v in ^(!zi220!^) do set /p zt220=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi220!^) do set /p zt220=^<%%HD%%\cdr%%%%v^) else set "zt220=NIL#"
 echo(set "zt220=!zt220:~0,-1!"
 echo(set "zi221=!zt220:~2!"
-echo(for %%%%v in ^(!zi221!^) do set /p zt221=^<%%HD%%\car%%%%v
+echo(if "!zt220:~0,2!"=="P:" ^(for %%%%v in ^(!zi221!^) do set /p zt221=^<%%HD%%\car%%%%v^) else set "zt221=NIL#"
 echo(set "zt221=!zt221:~0,-1!"
 echo(set "zi222=!p0:~2!"
-echo(for %%%%v in ^(!zi222!^) do set /p zt222=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi222!^) do set /p zt222=^<%%HD%%\cdr%%%%v^) else set "zt222=NIL#"
 echo(set "zt222=!zt222:~0,-1!"
 echo(set "zi223=!zt222:~2!"
-echo(for %%%%v in ^(!zi223!^) do set /p zt223=^<%%HD%%\cdr%%%%v
+echo(if "!zt222:~0,2!"=="P:" ^(for %%%%v in ^(!zi223!^) do set /p zt223=^<%%HD%%\cdr%%%%v^) else set "zt223=NIL#"
 echo(set "zt223=!zt223:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt221!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt223!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mkclo-caps"
 echo(set "RPC=137"
 echo(set "ACTION=call" ^& goto :eof
@@ -39025,7 +41216,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi244=!p0:~2!"
-echo(for %%%%v in ^(!zi244!^) do set /p zt244=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi244!^) do set /p zt244=^<%%HD%%\car%%%%v^) else set "zt244=NIL#"
 echo(set "zt244=!zt244:~0,-1!"
 echo(if "!zt244!"=="S:apply" ^(set "PC=143" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=144" ^& set "ACTION=jump" ^& goto :eof
@@ -39056,6 +41247,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt227!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=138"
 echo(set "ACTION=call" ^& goto :eof
@@ -39070,11 +41262,12 @@ echo(set "NP=4"
 echo(set "zt228=!R!"
 echo(set "zt229=!zt228!"
 echo(set "zi230=!zt229:~2!"
-echo(for %%%%v in ^(!zi230!^) do set /p zt230=^<%%HD%%\car%%%%v
+echo(if "!zt229:~0,2!"=="P:" ^(for %%%%v in ^(!zi230!^) do set /p zt230=^<%%HD%%\car%%%%v^) else set "zt230=NIL#"
 echo(set "zt230=!zt230:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt229!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt230!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=139"
 echo(set "ACTION=call" ^& goto :eof
@@ -39090,13 +41283,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt229=%%%%F!_i!%%%%"
 echo(set "zt231=!R!"
 echo(set "zt232=!zt231!"
 echo(set "zi233=!zt229:~2!"
-echo(for %%%%v in ^(!zi233!^) do set /p zt233=^<%%HD%%\car%%%%v
+echo(if "!zt229:~0,2!"=="P:" ^(for %%%%v in ^(!zi233!^) do set /p zt233=^<%%HD%%\car%%%%v^) else set "zt233=NIL#"
 echo(set "zt233=!zt233:~0,-1!"
 echo(set "zi234=!zt229:~2!"
-echo(for %%%%v in ^(!zi234!^) do set /p zt234=^<%%HD%%\cdr%%%%v
+echo(if "!zt229:~0,2!"=="P:" ^(for %%%%v in ^(!zi234!^) do set /p zt234=^<%%HD%%\cdr%%%%v^) else set "zt234=NIL#"
 echo(set "zt234=!zt234:~0,-1!"
 echo(set "zi235=!zt234:~2!"
-echo(for %%%%v in ^(!zi235!^) do set /p zt235=^<%%HD%%\cdr%%%%v
+echo(if "!zt234:~0,2!"=="P:" ^(for %%%%v in ^(!zi235!^) do set /p zt235=^<%%HD%%\cdr%%%%v^) else set "zt235=NIL#"
 echo(set "zt235=!zt235:~0,-1!"
 echo(set "zt236=T:!zt235:~2!:~2!BANG!"
 echo(set "zt237=T:=K:!BANG!!zt236:~2!"
@@ -39106,6 +41299,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt232!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt229!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt238!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=140"
 echo(set "ACTION=call" ^& goto :eof
@@ -39143,6 +41337,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt229!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt233!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt239!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=141"
 echo(set "ACTION=call" ^& goto :eof
@@ -39161,6 +41356,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt232!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt229!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt240!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=142"
 echo(set "ACTION=call" ^& goto :eof
@@ -39193,16 +41389,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi245=!p0:~2!"
-echo(for %%%%v in ^(!zi245!^) do set /p zt245=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi245!^) do set /p zt245=^<%%HD%%\cdr%%%%v^) else set "zt245=NIL#"
 echo(set "zt245=!zt245:~0,-1!"
 echo(set "zi246=!zt245:~2!"
-echo(for %%%%v in ^(!zi246!^) do set /p zt246=^<%%HD%%\car%%%%v
+echo(if "!zt245:~0,2!"=="P:" ^(for %%%%v in ^(!zi246!^) do set /p zt246=^<%%HD%%\car%%%%v^) else set "zt246=NIL#"
 echo(set "zt246=!zt246:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt246!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=145"
 echo(set "ACTION=call" ^& goto :eof
@@ -39215,7 +41412,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi319=!p0:~2!"
-echo(for %%%%v in ^(!zi319!^) do set /p zt319=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi319!^) do set /p zt319=^<%%HD%%\car%%%%v^) else set "zt319=NIL#"
 echo(set "zt319=!zt319:~0,-1!"
 echo(set "zp320=!zt319!"
 echo(set "zp320=!zp320:~0,1!"
@@ -39232,12 +41429,13 @@ echo(set "NP=4"
 echo(set "zt247=!R!"
 echo(set "zt248=!zt247!"
 echo(set "zi249=!zt248:~2!"
-echo(for %%%%v in ^(!zi249!^) do set /p zt249=^<%%HD%%\cdr%%%%v
+echo(if "!zt248:~0,2!"=="P:" ^(for %%%%v in ^(!zi249!^) do set /p zt249=^<%%HD%%\cdr%%%%v^) else set "zt249=NIL#"
 echo(set "zt249=!zt249:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt249!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=146"
 echo(set "ACTION=call" ^& goto :eof
@@ -39253,16 +41451,16 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt248=%%%%F!_i!%%%%"
 echo(set "zt250=!R!"
 echo(set "zt251=!zt250!"
 echo(set "zi252=!p0:~2!"
-echo(for %%%%v in ^(!zi252!^) do set /p zt252=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi252!^) do set /p zt252=^<%%HD%%\cdr%%%%v^) else set "zt252=NIL#"
 echo(set "zt252=!zt252:~0,-1!"
 echo(set "zi253=!zt252:~2!"
-echo(for %%%%v in ^(!zi253!^) do set /p zt253=^<%%HD%%\cdr%%%%v
+echo(if "!zt252:~0,2!"=="P:" ^(for %%%%v in ^(!zi253!^) do set /p zt253=^<%%HD%%\cdr%%%%v^) else set "zt253=NIL#"
 echo(set "zt253=!zt253:~0,-1!"
 echo(set "zi254=!zt253:~2!"
-echo(for %%%%v in ^(!zi254!^) do set /p zt254=^<%%HD%%\car%%%%v
+echo(if "!zt253:~0,2!"=="P:" ^(for %%%%v in ^(!zi254!^) do set /p zt254=^<%%HD%%\car%%%%v^) else set "zt254=NIL#"
 echo(set "zt254=!zt254:~0,-1!"
 echo(set "zi255=!zt248:~2!"
-echo(for %%%%v in ^(!zi255!^) do set /p zt255=^<%%HD%%\car%%%%v
+echo(if "!zt248:~0,2!"=="P:" ^(for %%%%v in ^(!zi255!^) do set /p zt255=^<%%HD%%\car%%%%v^) else set "zt255=NIL#"
 echo(set "zt255=!zt255:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt248!"
@@ -39271,6 +41469,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt254!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt255!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt251!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=147"
 echo(set "ACTION=call" ^& goto :eof
@@ -39287,7 +41486,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt248=%%%%F!_i!%%%%"
 echo(set "zt256=!R!"
 echo(set "zt257=!zt256!"
 echo(set "zi258=!zt257:~2!"
-echo(for %%%%v in ^(!zi258!^) do set /p zt258=^<%%HD%%\cdr%%%%v
+echo(if "!zt257:~0,2!"=="P:" ^(for %%%%v in ^(!zi258!^) do set /p zt258=^<%%HD%%\cdr%%%%v^) else set "zt258=NIL#"
 echo(set "zt258=!zt258:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt257!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt251!"
@@ -39295,6 +41494,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt258!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt251!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=148"
 echo(set "ACTION=call" ^& goto :eof
@@ -39312,7 +41512,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& call set "zt248=%%%%F!_i!%%%%"
 echo(set "zt259=!R!"
 echo(set "zt260=!zt259!"
 echo(set "zi261=!zt257:~2!"
-echo(for %%%%v in ^(!zi261!^) do set /p zt261=^<%%HD%%\car%%%%v
+echo(if "!zt257:~0,2!"=="P:" ^(for %%%%v in ^(!zi261!^) do set /p zt261=^<%%HD%%\car%%%%v^) else set "zt261=NIL#"
 echo(set "zt261=!zt261:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt260!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt257!"
@@ -39320,6 +41520,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt261!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=149"
 echo(set "ACTION=call" ^& goto :eof
@@ -39338,7 +41539,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& call set "zt248=%%%%F!_i!%%%%"
 echo(set "zt262=!R!"
 echo(set "zt263=!zt262!"
 echo(set "zi264=!zt257:~2!"
-echo(for %%%%v in ^(!zi264!^) do set /p zt264=^<%%HD%%\car%%%%v
+echo(if "!zt257:~0,2!"=="P:" ^(for %%%%v in ^(!zi264!^) do set /p zt264=^<%%HD%%\car%%%%v^) else set "zt264=NIL#"
 echo(set "zt264=!zt264:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt263!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt260!"
@@ -39347,6 +41548,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt264!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=150"
 echo(set "ACTION=call" ^& goto :eof
@@ -39385,6 +41587,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt265!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt260!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=spill"
 echo(set "RPC=151"
 echo(set "ACTION=call" ^& goto :eof
@@ -39410,6 +41613,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt266!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:set /a NFP=!BANG!FT!BANG!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=152"
 echo(set "ACTION=call" ^& goto :eof
@@ -39430,7 +41634,7 @@ echo(set "zt267=!R!"
 echo(set "zt268=!zt267!"
 echo(set "zt269=T:!BANG8!"
 echo(set "zi270=!zt248:~2!"
-echo(for %%%%v in ^(!zi270!^) do set /p zt270=^<%%HD%%\cdr%%%%v
+echo(if "!zt248:~0,2!"=="P:" ^(for %%%%v in ^(!zi270!^) do set /p zt270=^<%%HD%%\cdr%%%%v^) else set "zt270=NIL#"
 echo(set "zt270=!zt270:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt269!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt268!"
@@ -39442,6 +41646,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt270!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=153"
 echo(set "ACTION=call" ^& goto :eof
@@ -39476,6 +41681,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt268!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt276!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=154"
 echo(set "ACTION=call" ^& goto :eof
@@ -39497,7 +41703,7 @@ echo(set "zt277=!R!"
 echo(set "zt278=!zt277!"
 echo(set "zt279=T:!BANG8!"
 echo(set "zi280=!zt257:~2!"
-echo(for %%%%v in ^(!zi280!^) do set /p zt280=^<%%HD%%\cdr%%%%v
+echo(if "!zt257:~0,2!"=="P:" ^(for %%%%v in ^(!zi280!^) do set /p zt280=^<%%HD%%\cdr%%%%v^) else set "zt280=NIL#"
 echo(set "zt280=!zt280:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt279!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt278!"
@@ -39510,6 +41716,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt280!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=155"
 echo(set "ACTION=call" ^& goto :eof
@@ -39546,6 +41753,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt278!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt286!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=156"
 echo(set "ACTION=call" ^& goto :eof
@@ -39584,6 +41792,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt288!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt295!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=157"
 echo(set "ACTION=call" ^& goto :eof
@@ -39623,6 +41832,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt297!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt303!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=158"
 echo(set "ACTION=call" ^& goto :eof
@@ -39658,6 +41868,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt305!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt263!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=159"
 echo(set "ACTION=call" ^& goto :eof
@@ -39694,6 +41905,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt307!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=160"
 echo(set "ACTION=call" ^& goto :eof
@@ -39709,6 +41921,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=prim-wrap"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -39749,6 +41962,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt307!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt260!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=unspill"
 echo(set "RPC=161"
 echo(set "ACTION=call" ^& goto :eof
@@ -39789,6 +42003,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt311!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=162"
 echo(set "ACTION=call" ^& goto :eof
@@ -39829,6 +42044,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt310!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt312!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=163"
 echo(set "ACTION=call" ^& goto :eof
@@ -39868,6 +42084,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt260!"
+echo(set "ARGC=1"
 echo(set "CALLEE=lenl"
 echo(set "RPC=164"
 echo(set "ACTION=call" ^& goto :eof
@@ -39908,6 +42125,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt313!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt314!"
+echo(set "ARGC=2"
 echo(set "CALLEE=bsm"
 echo(set "RPC=165"
 echo(set "ACTION=call" ^& goto :eof
@@ -39946,6 +42164,7 @@ echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt251!"
 echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt248!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt315!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=166"
 echo(set "ACTION=call" ^& goto :eof
@@ -39988,11 +42207,12 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi322=!p0:~2!"
-echo(for %%%%v in ^(!zi322!^) do set /p zt322=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi322!^) do set /p zt322=^<%%HD%%\car%%%%v^) else set "zt322=NIL#"
 echo(set "zt322=!zt322:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt322!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=lookup"
 echo(set "RPC=170"
 echo(set "ACTION=call" ^& goto :eof
@@ -40028,6 +42248,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=gfns-of"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -40081,13 +42302,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi325=!p0:~2!"
-echo(for %%%%v in ^(!zi325!^) do set /p zt325=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi325!^) do set /p zt325=^<%%HD%%\cdr%%%%v^) else set "zt325=NIL#"
 echo(set "zt325=!zt325:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt325!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=largs"
 echo(set "RPC=176"
 echo(set "ACTION=call" ^& goto :eof
@@ -40100,13 +42322,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi394=!p0:~2!"
-echo(for %%%%v in ^(!zi394!^) do set /p zt394=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi394!^) do set /p zt394=^<%%HD%%\car%%%%v^) else set "zt394=NIL#"
 echo(set "zt394=!zt394:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt394!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=199"
 echo(set "ACTION=call" ^& goto :eof
@@ -40121,11 +42344,12 @@ echo(set "NP=4"
 echo(set "zt326=!R!"
 echo(set "zt327=!zt326!"
 echo(set "zi328=!zt327:~2!"
-echo(for %%%%v in ^(!zi328!^) do set /p zt328=^<%%HD%%\car%%%%v
+echo(if "!zt327:~0,2!"=="P:" ^(for %%%%v in ^(!zi328!^) do set /p zt328=^<%%HD%%\car%%%%v^) else set "zt328=NIL#"
 echo(set "zt328=!zt328:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt328!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=177"
 echo(set "ACTION=call" ^& goto :eof
@@ -40141,7 +42365,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt327=%%%%F!_i!%%%%"
 echo(set "zt329=!R!"
 echo(set "zt330=!zt329!"
 echo(set "zi331=!p0:~2!"
-echo(for %%%%v in ^(!zi331!^) do set /p zt331=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi331!^) do set /p zt331=^<%%HD%%\car%%%%v^) else set "zt331=NIL#"
 echo(set "zt331=!zt331:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt331!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt330!"
@@ -40149,6 +42373,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:$GVARS"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=lookup"
 echo(set "RPC=178"
 echo(set "ACTION=call" ^& goto :eof
@@ -40169,6 +42394,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt331!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt332!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=179"
 echo(set "ACTION=call" ^& goto :eof
@@ -40216,7 +42442,7 @@ echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zt335=T:!BANG8!"
 echo(set "zi336=!p0:~2!"
-echo(for %%%%v in ^(!zi336!^) do set /p zt336=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi336!^) do set /p zt336=^<%%HD%%\car%%%%v^) else set "zt336=NIL#"
 echo(set "zt336=!zt336:~0,-1!"
 echo(set "zt337=T:!zt336:~2!"
 echo(set "zt338=T:!BANG8!"
@@ -40237,7 +42463,7 @@ echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zt344=T:!BANG8!"
 echo(set "zi345=!p0:~2!"
-echo(for %%%%v in ^(!zi345!^) do set /p zt345=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi345!^) do set /p zt345=^<%%HD%%\car%%%%v^) else set "zt345=NIL#"
 echo(set "zt345=!zt345:~0,-1!"
 echo(set "zt346=T:!zt345:~2!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt344!"
@@ -40245,6 +42471,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt330!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt346!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mangle"
 echo(set "RPC=183"
 echo(set "ACTION=call" ^& goto :eof
@@ -40258,13 +42485,14 @@ echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zt353=!zt334!"
 echo(set "zi354=!zt327:~2!"
-echo(for %%%%v in ^(!zi354!^) do set /p zt354=^<%%HD%%\car%%%%v
+echo(if "!zt327:~0,2!"=="P:" ^(for %%%%v in ^(!zi354!^) do set /p zt354=^<%%HD%%\car%%%%v^) else set "zt354=NIL#"
 echo(set "zt354=!zt354:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt353!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt330!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt354!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=184"
 echo(set "ACTION=call" ^& goto :eof
@@ -40306,6 +42534,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt355!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=spill"
 echo(set "RPC=185"
 echo(set "ACTION=call" ^& goto :eof
@@ -40327,6 +42556,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt356!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:set /a NFP=!BANG!FT!BANG!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=186"
 echo(set "ACTION=call" ^& goto :eof
@@ -40344,7 +42574,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& call set "zt327=%%%%F!_i!%%%%"
 echo(set "zt357=!R!"
 echo(set "zt358=!zt357!"
 echo(set "zi359=!zt327:~2!"
-echo(for %%%%v in ^(!zi359!^) do set /p zt359=^<%%HD%%\cdr%%%%v
+echo(if "!zt327:~0,2!"=="P:" ^(for %%%%v in ^(!zi359!^) do set /p zt359=^<%%HD%%\cdr%%%%v^) else set "zt359=NIL#"
 echo(set "zt359=!zt359:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt358!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt353!"
@@ -40354,6 +42584,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt358!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt359!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=stage"
 echo(set "RPC=187"
 echo(set "ACTION=call" ^& goto :eof
@@ -40379,6 +42610,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt361!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt353!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=188"
 echo(set "ACTION=call" ^& goto :eof
@@ -40413,6 +42645,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt363!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt370!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=189"
 echo(set "ACTION=call" ^& goto :eof
@@ -40448,6 +42681,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt372!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt378!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=190"
 echo(set "ACTION=call" ^& goto :eof
@@ -40466,6 +42700,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt15!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt21!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=20"
 echo(set "ACTION=call" ^& goto :eof
@@ -40497,6 +42732,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt380!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt330!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=191"
 echo(set "ACTION=call" ^& goto :eof
@@ -40529,6 +42765,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt330!"
 echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt382!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=192"
 echo(set "ACTION=call" ^& goto :eof
@@ -40565,6 +42802,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt382!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=unspill"
 echo(set "RPC=193"
 echo(set "ACTION=call" ^& goto :eof
@@ -40601,6 +42839,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt330!"
 echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt386!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=194"
 echo(set "ACTION=call" ^& goto :eof
@@ -40637,6 +42876,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt385!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt387!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=195"
 echo(set "ACTION=call" ^& goto :eof
@@ -40672,6 +42912,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt330!"
 echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=lenl"
 echo(set "RPC=196"
 echo(set "ACTION=call" ^& goto :eof
@@ -40708,6 +42949,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt388!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt389!"
+echo(set "ARGC=2"
 echo(set "CALLEE=bsm"
 echo(set "RPC=197"
 echo(set "ACTION=call" ^& goto :eof
@@ -40742,6 +42984,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt330!"
 echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt327!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt390!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=198"
 echo(set "ACTION=call" ^& goto :eof
@@ -40784,20 +43027,21 @@ echo(set "NP=4"
 echo(set "zt395=!R!"
 echo(set "zt396=!zt395!"
 echo(set "zi397=!zt396:~2!"
-echo(for %%%%v in ^(!zi397!^) do set /p zt397=^<%%HD%%\cdr%%%%v
+echo(if "!zt396:~0,2!"=="P:" ^(for %%%%v in ^(!zi397!^) do set /p zt397=^<%%HD%%\cdr%%%%v^) else set "zt397=NIL#"
 echo(set "zt397=!zt397:~0,-1!"
 echo(set "zi398=!zt397:~2!"
-echo(for %%%%v in ^(!zi398!^) do set /p zt398=^<%%HD%%\cdr%%%%v
+echo(if "!zt397:~0,2!"=="P:" ^(for %%%%v in ^(!zi398!^) do set /p zt398=^<%%HD%%\cdr%%%%v^) else set "zt398=NIL#"
 echo(set "zt398=!zt398:~0,-1!"
 echo(set "zt399=!zt398!"
 echo(set "zi400=!zt396:~2!"
-echo(for %%%%v in ^(!zi400!^) do set /p zt400=^<%%HD%%\cdr%%%%v
+echo(if "!zt396:~0,2!"=="P:" ^(for %%%%v in ^(!zi400!^) do set /p zt400=^<%%HD%%\cdr%%%%v^) else set "zt400=NIL#"
 echo(set "zt400=!zt400:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt400!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=200"
 echo(set "ACTION=call" ^& goto :eof
@@ -40836,10 +43080,10 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt396=%%%%F!_i!%%%%"
 echo(set "zt401=!R!"
 echo(set "zt402=!zt401!"
 echo(set "zi403=!p0:~2!"
-echo(for %%%%v in ^(!zi403!^) do set /p zt403=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi403!^) do set /p zt403=^<%%HD%%\cdr%%%%v^) else set "zt403=NIL#"
 echo(set "zt403=!zt403:~0,-1!"
 echo(set "zi404=!zt396:~2!"
-echo(for %%%%v in ^(!zi404!^) do set /p zt404=^<%%HD%%\car%%%%v
+echo(if "!zt396:~0,2!"=="P:" ^(for %%%%v in ^(!zi404!^) do set /p zt404=^<%%HD%%\car%%%%v^) else set "zt404=NIL#"
 echo(set "zt404=!zt404:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt402!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt399!"
@@ -40849,6 +43093,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt403!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt404!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt402!"
+echo(set "ARGC=4"
 echo(set "CALLEE=largs"
 echo(set "RPC=201"
 echo(set "ACTION=call" ^& goto :eof
@@ -40866,7 +43111,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& call set "zt396=%%%%F!_i!%%%%"
 echo(set "zt405=!R!"
 echo(set "zt406=!zt405!"
 echo(set "zi407=!zt406:~2!"
-echo(for %%%%v in ^(!zi407!^) do set /p zt407=^<%%HD%%\car%%%%v
+echo(if "!zt406:~0,2!"=="P:" ^(for %%%%v in ^(!zi407!^) do set /p zt407=^<%%HD%%\car%%%%v^) else set "zt407=NIL#"
 echo(set "zt407=!zt407:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt406!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt402!"
@@ -40874,6 +43119,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt407!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=202"
 echo(set "ACTION=call" ^& goto :eof
@@ -40892,7 +43138,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& call set "zt396=%%%%F!_i!%%%%"
 echo(set "zt408=!R!"
 echo(set "zt409=!zt408!"
 echo(set "zi410=!zt406:~2!"
-echo(for %%%%v in ^(!zi410!^) do set /p zt410=^<%%HD%%\car%%%%v
+echo(if "!zt406:~0,2!"=="P:" ^(for %%%%v in ^(!zi410!^) do set /p zt410=^<%%HD%%\car%%%%v^) else set "zt410=NIL#"
 echo(set "zt410=!zt410:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt409!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt406!"
@@ -40901,6 +43147,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt410!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bnpc+"
 echo(set "RPC=203"
 echo(set "ACTION=call" ^& goto :eof
@@ -40927,6 +43174,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt411!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt402!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=spill"
 echo(set "RPC=204"
 echo(set "ACTION=call" ^& goto :eof
@@ -40952,6 +43200,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt412!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:set /a NFP=!BANG!FT!BANG!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=205"
 echo(set "ACTION=call" ^& goto :eof
@@ -40971,7 +43220,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& call set "zt396=%%%%F!_i!%%%%"
 echo(set "zt413=!R!"
 echo(set "zt414=!zt413!"
 echo(set "zi415=!zt406:~2!"
-echo(for %%%%v in ^(!zi415!^) do set /p zt415=^<%%HD%%\cdr%%%%v
+echo(if "!zt406:~0,2!"=="P:" ^(for %%%%v in ^(!zi415!^) do set /p zt415=^<%%HD%%\cdr%%%%v^) else set "zt415=NIL#"
 echo(set "zt415=!zt415:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt414!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt409!"
@@ -40983,6 +43232,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt414!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt415!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=stage"
 echo(set "RPC=206"
 echo(set "ACTION=call" ^& goto :eof
@@ -41019,6 +43269,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt417!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt424!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=207"
 echo(set "ACTION=call" ^& goto :eof
@@ -41057,6 +43308,7 @@ echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt426!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt433!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=208"
 echo(set "ACTION=call" ^& goto :eof
@@ -41096,6 +43348,7 @@ echo(set /a _i=!FP!+!NP!+8 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt435!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt441!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=209"
 echo(set "ACTION=call" ^& goto :eof
@@ -41131,6 +43384,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt443!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt409!"
+echo(set "ARGC=2"
 echo(set "CALLEE=switch"
 echo(set "RPC=210"
 echo(set "ACTION=call" ^& goto :eof
@@ -41147,6 +43401,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt15!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt23!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mangle"
 echo(set "RPC=23"
 echo(set "ACTION=call" ^& goto :eof
@@ -41183,6 +43438,7 @@ echo(set /a _i=!FP!+!NP!+9 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt445!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=211"
 echo(set "ACTION=call" ^& goto :eof
@@ -41223,6 +43479,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt445!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt402!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:0"
+echo(set "ARGC=3"
 echo(set "CALLEE=unspill"
 echo(set "RPC=212"
 echo(set "ACTION=call" ^& goto :eof
@@ -41263,6 +43520,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt449!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=213"
 echo(set "ACTION=call" ^& goto :eof
@@ -41303,6 +43561,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt448!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt450!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=214"
 echo(set "ACTION=call" ^& goto :eof
@@ -41342,6 +43601,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+12 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt402!"
+echo(set "ARGC=1"
 echo(set "CALLEE=lenl"
 echo(set "RPC=215"
 echo(set "ACTION=call" ^& goto :eof
@@ -41382,6 +43642,7 @@ echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt451!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt452!"
+echo(set "ARGC=2"
 echo(set "CALLEE=bsm"
 echo(set "RPC=216"
 echo(set "ACTION=call" ^& goto :eof
@@ -41420,6 +43681,7 @@ echo(set /a _i=!FP!+!NP!+10 ^& set "F!_i!=!zt399!"
 echo(set /a _i=!FP!+!NP!+11 ^& set "F!_i!=!zt396!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt453!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=217"
 echo(set "ACTION=call" ^& goto :eof
@@ -41513,16 +43775,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi36=!p0:~2!"
-echo(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v^) else set "zt36=NIL#"
 echo(set "zt36=!zt36:~0,-1!"
 echo(set "zi37=!zt36:~2!"
-echo(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v
+echo(if "!zt36:~0,2!"=="P:" ^(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v^) else set "zt37=NIL#"
 echo(set "zt37=!zt37:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt37!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=27"
 echo(set "ACTION=call" ^& goto :eof
@@ -41535,7 +43798,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi67=!p0:~2!"
-echo(for %%%%v in ^(!zi67!^) do set /p zt67=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi67!^) do set /p zt67=^<%%HD%%\car%%%%v^) else set "zt67=NIL#"
 echo(set "zt67=!zt67:~0,-1!"
 echo(if "!zt67!"=="S:cons" ^(set "PC=36" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=37" ^& set "ACTION=jump" ^& goto :eof
@@ -41550,19 +43813,19 @@ echo(set "NP=4"
 echo(set "zt38=!R!"
 echo(set "zt39=!zt38!"
 echo(set "zi40=!p0:~2!"
-echo(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v^) else set "zt40=NIL#"
 echo(set "zt40=!zt40:~0,-1!"
 echo(set "zi41=!zt40:~2!"
-echo(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v
+echo(if "!zt40:~0,2!"=="P:" ^(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v^) else set "zt41=NIL#"
 echo(set "zt41=!zt41:~0,-1!"
 echo(set "zi42=!zt41:~2!"
-echo(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\car%%%%v
+echo(if "!zt41:~0,2!"=="P:" ^(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\car%%%%v^) else set "zt42=NIL#"
 echo(set "zt42=!zt42:~0,-1!"
 echo(set "zi43=!zt39:~2!"
-echo(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\car%%%%v
+echo(if "!zt39:~0,2!"=="P:" ^(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\car%%%%v^) else set "zt43=NIL#"
 echo(set "zt43=!zt43:~0,-1!"
 echo(set "zi44=!zt39:~2!"
-echo(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v
+echo(if "!zt39:~0,2!"=="P:" ^(for %%%%v in ^(!zi44!^) do set /p zt44=^<%%HD%%\cdr%%%%v^) else set "zt44=NIL#"
 echo(set "zt44=!zt44:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt43!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p1!"
@@ -41571,6 +43834,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt44!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=28"
 echo(set "ACTION=call" ^& goto :eof
@@ -41593,6 +43857,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt42!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt43!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt45!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=29"
 echo(set "ACTION=call" ^& goto :eof
@@ -41608,12 +43873,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt39=%%%%F!_i!%%%%"
 echo(set "zt46=!R!"
 echo(set "zt47=!zt46!"
 echo(set "zi48=!zt47:~2!"
-echo(for %%%%v in ^(!zi48!^) do set /p zt48=^<%%HD%%\car%%%%v
+echo(if "!zt47:~0,2!"=="P:" ^(for %%%%v in ^(!zi48!^) do set /p zt48=^<%%HD%%\car%%%%v^) else set "zt48=NIL#"
 echo(set "zt48=!zt48:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt47!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt48!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=30"
 echo(set "ACTION=call" ^& goto :eof
@@ -41647,10 +43913,10 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt39=%%%%F!_i!%%%%"
 echo(set "zt49=!R!"
 echo(set "zt50=!zt49!"
 echo(set "zi51=!zt47:~2!"
-echo(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\car%%%%v
+echo(if "!zt47:~0,2!"=="P:" ^(for %%%%v in ^(!zi51!^) do set /p zt51=^<%%HD%%\car%%%%v^) else set "zt51=NIL#"
 echo(set "zt51=!zt51:~0,-1!"
 echo(set "zi52=!zt39:~2!"
-echo(for %%%%v in ^(!zi52!^) do set /p zt52=^<%%HD%%\cdr%%%%v
+echo(if "!zt39:~0,2!"=="P:" ^(for %%%%v in ^(!zi52!^) do set /p zt52=^<%%HD%%\cdr%%%%v^) else set "zt52=NIL#"
 echo(set "zt52=!zt52:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt50!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt51!"
@@ -41659,6 +43925,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt47!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt52!"
+echo(set "ARGC=1"
 echo(set "CALLEE=aref"
 echo(set "RPC=31"
 echo(set "ACTION=call" ^& goto :eof
@@ -41677,7 +43944,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& call set "zt47=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+4 ^& call set "zt39=%%%%F!_i!%%%%"
 echo(set "zt53=!R!"
 echo(set "zi54=!p0:~2!"
-echo(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\car%%%%v^) else set "zt54=NIL#"
 echo(set "zt54=!zt54:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt53!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt50!"
@@ -41687,6 +43954,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt47!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt54!"
+echo(set "ARGC=1"
 echo(set "CALLEE=op-zzGbatch"
 echo(set "RPC=32"
 echo(set "ACTION=call" ^& goto :eof
@@ -41706,7 +43974,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& call set "zt47=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+5 ^& call set "zt39=%%%%F!_i!%%%%"
 echo(set "zt55=!R!"
 echo(set "zi56=!zt47:~2!"
-echo(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\cdr%%%%v
+echo(if "!zt47:~0,2!"=="P:" ^(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\cdr%%%%v^) else set "zt56=NIL#"
 echo(set "zt56=!zt56:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt55!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt53!"
@@ -41717,6 +43985,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt47!"
 echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt56!"
+echo(set "ARGC=1"
 echo(set "CALLEE=aref"
 echo(set "RPC=33"
 echo(set "ACTION=call" ^& goto :eof
@@ -41747,6 +44016,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt51!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt62!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=34"
 echo(set "ACTION=call" ^& goto :eof
@@ -41767,6 +44037,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt47!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt39!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt63!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=35"
 echo(set "ACTION=call" ^& goto :eof
@@ -41800,13 +44071,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi68=!p0:~2!"
-echo(for %%%%v in ^(!zi68!^) do set /p zt68=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi68!^) do set /p zt68=^<%%HD%%\cdr%%%%v^) else set "zt68=NIL#"
 echo(set "zt68=!zt68:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt68!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=largs"
 echo(set "RPC=38"
 echo(set "ACTION=call" ^& goto :eof
@@ -41819,7 +44091,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi100=!p0:~2!"
-echo(for %%%%v in ^(!zi100!^) do set /p zt100=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi100!^) do set /p zt100=^<%%HD%%\car%%%%v^) else set "zt100=NIL#"
 echo(set "zt100=!zt100:~0,-1!"
 echo(if "!zt100!"=="S:string-append" ^(set "PC=48" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=49" ^& set "ACTION=jump" ^& goto :eof
@@ -41834,11 +44106,12 @@ echo(set "NP=4"
 echo(set "zt69=!R!"
 echo(set "zt70=!zt69!"
 echo(set "zi71=!zt70:~2!"
-echo(for %%%%v in ^(!zi71!^) do set /p zt71=^<%%HD%%\car%%%%v
+echo(if "!zt70:~0,2!"=="P:" ^(for %%%%v in ^(!zi71!^) do set /p zt71=^<%%HD%%\car%%%%v^) else set "zt71=NIL#"
 echo(set "zt71=!zt71:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt71!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=39"
 echo(set "ACTION=call" ^& goto :eof
@@ -41854,24 +44127,24 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt70=%%%%F!_i!%%%%"
 echo(set "zt72=!R!"
 echo(set "zt73=!zt72!"
 echo(set "zi74=!zt70:~2!"
-echo(for %%%%v in ^(!zi74!^) do set /p zt74=^<%%HD%%\cdr%%%%v
+echo(if "!zt70:~0,2!"=="P:" ^(for %%%%v in ^(!zi74!^) do set /p zt74=^<%%HD%%\cdr%%%%v^) else set "zt74=NIL#"
 echo(set "zt74=!zt74:~0,-1!"
 echo(set "zi75=!zt74:~2!"
-echo(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\car%%%%v
+echo(if "!zt74:~0,2!"=="P:" ^(for %%%%v in ^(!zi75!^) do set /p zt75=^<%%HD%%\car%%%%v^) else set "zt75=NIL#"
 echo(set "zt75=!zt75:~0,-1!"
 echo(set "zt76=!zt75!"
 echo(set "zi77=!zt70:~2!"
-echo(for %%%%v in ^(!zi77!^) do set /p zt77=^<%%HD%%\cdr%%%%v
+echo(if "!zt70:~0,2!"=="P:" ^(for %%%%v in ^(!zi77!^) do set /p zt77=^<%%HD%%\cdr%%%%v^) else set "zt77=NIL#"
 echo(set "zt77=!zt77:~0,-1!"
 echo(set "zi78=!zt77:~2!"
-echo(for %%%%v in ^(!zi78!^) do set /p zt78=^<%%HD%%\cdr%%%%v
+echo(if "!zt77:~0,2!"=="P:" ^(for %%%%v in ^(!zi78!^) do set /p zt78=^<%%HD%%\cdr%%%%v^) else set "zt78=NIL#"
 echo(set "zt78=!zt78:~0,-1!"
 echo(set "zi79=!zt78:~2!"
-echo(for %%%%v in ^(!zi79!^) do set /p zt79=^<%%HD%%\car%%%%v
+echo(if "!zt78:~0,2!"=="P:" ^(for %%%%v in ^(!zi79!^) do set /p zt79=^<%%HD%%\car%%%%v^) else set "zt79=NIL#"
 echo(set "zt79=!zt79:~0,-1!"
 echo(set "zt80=!zt79!"
 echo(set "zi81=!zt70:~2!"
-echo(for %%%%v in ^(!zi81!^) do set /p zt81=^<%%HD%%\car%%%%v
+echo(if "!zt70:~0,2!"=="P:" ^(for %%%%v in ^(!zi81!^) do set /p zt81=^<%%HD%%\car%%%%v^) else set "zt81=NIL#"
 echo(set "zt81=!zt81:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt80!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt76!"
@@ -41880,6 +44153,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt81!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:set /a HN+=1"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=40"
 echo(set "ACTION=call" ^& goto :eof
@@ -41915,6 +44189,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt73!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt76!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=41"
 echo(set "ACTION=call" ^& goto :eof
@@ -41943,6 +44218,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt83!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt86!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=42"
 echo(set "ACTION=call" ^& goto :eof
@@ -41970,6 +44246,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt73!"
 echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt80!"
+echo(set "ARGC=1"
 echo(set "CALLEE=vref"
 echo(set "RPC=43"
 echo(set "ACTION=call" ^& goto :eof
@@ -42000,6 +44277,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt88!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt91!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=44"
 echo(set "ACTION=call" ^& goto :eof
@@ -42030,6 +44308,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt73!"
 echo(set /a _i=!FP!+!NP!+7 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt94!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=45"
 echo(set "ACTION=call" ^& goto :eof
@@ -42060,6 +44339,7 @@ echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt93!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt95!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=46"
 echo(set "ACTION=call" ^& goto :eof
@@ -42088,6 +44368,7 @@ echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt73!"
 echo(set /a _i=!FP!+!NP!+6 ^& set "F!_i!=!zt70!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt96!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=47"
 echo(set "ACTION=call" ^& goto :eof
@@ -42125,16 +44406,17 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi101=!p0:~2!"
-echo(for %%%%v in ^(!zi101!^) do set /p zt101=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi101!^) do set /p zt101=^<%%HD%%\cdr%%%%v^) else set "zt101=NIL#"
 echo(set "zt101=!zt101:~0,-1!"
 echo(set "zi102=!zt101:~2!"
-echo(for %%%%v in ^(!zi102!^) do set /p zt102=^<%%HD%%\car%%%%v
+echo(if "!zt101:~0,2!"=="P:" ^(for %%%%v in ^(!zi102!^) do set /p zt102=^<%%HD%%\car%%%%v^) else set "zt102=NIL#"
 echo(set "zt102=!zt102:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt102!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=50"
 echo(set "ACTION=call" ^& goto :eof
@@ -42147,7 +44429,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi129=!p0:~2!"
-echo(for %%%%v in ^(!zi129!^) do set /p zt129=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi129!^) do set /p zt129=^<%%HD%%\car%%%%v^) else set "zt129=NIL#"
 echo(set "zt129=!zt129:~0,-1!"
 echo(if "!zt129!"=="S:car" ^(set "PC=59" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=60" ^& set "ACTION=jump" ^& goto :eof
@@ -42179,19 +44461,19 @@ echo(set "NP=4"
 echo(set "zt103=!R!"
 echo(set "zt104=!zt103!"
 echo(set "zi105=!p0:~2!"
-echo(for %%%%v in ^(!zi105!^) do set /p zt105=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi105!^) do set /p zt105=^<%%HD%%\cdr%%%%v^) else set "zt105=NIL#"
 echo(set "zt105=!zt105:~0,-1!"
 echo(set "zi106=!zt105:~2!"
-echo(for %%%%v in ^(!zi106!^) do set /p zt106=^<%%HD%%\cdr%%%%v
+echo(if "!zt105:~0,2!"=="P:" ^(for %%%%v in ^(!zi106!^) do set /p zt106=^<%%HD%%\cdr%%%%v^) else set "zt106=NIL#"
 echo(set "zt106=!zt106:~0,-1!"
 echo(set "zi107=!zt106:~2!"
-echo(for %%%%v in ^(!zi107!^) do set /p zt107=^<%%HD%%\car%%%%v
+echo(if "!zt106:~0,2!"=="P:" ^(for %%%%v in ^(!zi107!^) do set /p zt107=^<%%HD%%\car%%%%v^) else set "zt107=NIL#"
 echo(set "zt107=!zt107:~0,-1!"
 echo(set "zi108=!zt104:~2!"
-echo(for %%%%v in ^(!zi108!^) do set /p zt108=^<%%HD%%\car%%%%v
+echo(if "!zt104:~0,2!"=="P:" ^(for %%%%v in ^(!zi108!^) do set /p zt108=^<%%HD%%\car%%%%v^) else set "zt108=NIL#"
 echo(set "zt108=!zt108:~0,-1!"
 echo(set "zi109=!zt104:~2!"
-echo(for %%%%v in ^(!zi109!^) do set /p zt109=^<%%HD%%\cdr%%%%v
+echo(if "!zt104:~0,2!"=="P:" ^(for %%%%v in ^(!zi109!^) do set /p zt109=^<%%HD%%\cdr%%%%v^) else set "zt109=NIL#"
 echo(set "zt109=!zt109:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt108!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p1!"
@@ -42200,6 +44482,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt109!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=addlive"
 echo(set "RPC=51"
 echo(set "ACTION=call" ^& goto :eof
@@ -42222,6 +44505,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt107!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt108!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt110!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lval"
 echo(set "RPC=52"
 echo(set "ACTION=call" ^& goto :eof
@@ -42237,12 +44521,13 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt104=%%%%F!_i!%%%%"
 echo(set "zt111=!R!"
 echo(set "zt112=!zt111!"
 echo(set "zi113=!zt112:~2!"
-echo(for %%%%v in ^(!zi113!^) do set /p zt113=^<%%HD%%\car%%%%v
+echo(if "!zt112:~0,2!"=="P:" ^(for %%%%v in ^(!zi113!^) do set /p zt113=^<%%HD%%\car%%%%v^) else set "zt113=NIL#"
 echo(set "zt113=!zt113:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt112!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt113!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=53"
 echo(set "ACTION=call" ^& goto :eof
@@ -42259,10 +44544,10 @@ echo(set /a _i=!FP!+!NP!+1 ^& call set "zt104=%%%%F!_i!%%%%"
 echo(set "zt114=!R!"
 echo(set "zt115=!zt114!"
 echo(set "zi116=!zt112:~2!"
-echo(for %%%%v in ^(!zi116!^) do set /p zt116=^<%%HD%%\car%%%%v
+echo(if "!zt112:~0,2!"=="P:" ^(for %%%%v in ^(!zi116!^) do set /p zt116=^<%%HD%%\car%%%%v^) else set "zt116=NIL#"
 echo(set "zt116=!zt116:~0,-1!"
 echo(set "zi117=!zt104:~2!"
-echo(for %%%%v in ^(!zi117!^) do set /p zt117=^<%%HD%%\cdr%%%%v
+echo(if "!zt104:~0,2!"=="P:" ^(for %%%%v in ^(!zi117!^) do set /p zt117=^<%%HD%%\cdr%%%%v^) else set "zt117=NIL#"
 echo(set "zt117=!zt117:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt115!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt116!"
@@ -42271,6 +44556,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt112!"
 echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt117!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cref"
 echo(set "RPC=54"
 echo(set "ACTION=call" ^& goto :eof
@@ -42289,7 +44575,7 @@ echo(set /a _i=!FP!+!NP!+3 ^& call set "zt112=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+!NP!+4 ^& call set "zt104=%%%%F!_i!%%%%"
 echo(set "zt118=!R!"
 echo(set "zi119=!zt112:~2!"
-echo(for %%%%v in ^(!zi119!^) do set /p zt119=^<%%HD%%\cdr%%%%v
+echo(if "!zt112:~0,2!"=="P:" ^(for %%%%v in ^(!zi119!^) do set /p zt119=^<%%HD%%\cdr%%%%v^) else set "zt119=NIL#"
 echo(set "zt119=!zt119:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt118!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt115!"
@@ -42299,6 +44585,7 @@ echo(set /a _i=!FP!+!NP!+4 ^& set "F!_i!=!zt112!"
 echo(set /a _i=!FP!+!NP!+5 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt119!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cref"
 echo(set "RPC=55"
 echo(set "ACTION=call" ^& goto :eof
@@ -42326,6 +44613,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt112!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt123!"
+echo(set "ARGC=1"
 echo(set "CALLEE=qset"
 echo(set "RPC=56"
 echo(set "ACTION=call" ^& goto :eof
@@ -42348,6 +44636,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt116!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt124!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=57"
 echo(set "ACTION=call" ^& goto :eof
@@ -42368,6 +44657,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt112!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt104!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt125!"
+echo(set "ARGC=1"
 echo(set "CALLEE=bk+"
 echo(set "RPC=58"
 echo(set "ACTION=call" ^& goto :eof
@@ -42406,6 +44696,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:car"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=lcell"
 echo(set "RPC=61"
 echo(set "ACTION=call" ^& goto :eof
@@ -42430,7 +44721,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi131=!p0:~2!"
-echo(for %%%%v in ^(!zi131!^) do set /p zt131=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi131!^) do set /p zt131=^<%%HD%%\car%%%%v^) else set "zt131=NIL#"
 echo(set "zt131=!zt131:~0,-1!"
 echo(if "!zt131!"=="S:cdr" ^(set "PC=62" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=63" ^& set "ACTION=jump" ^& goto :eof
@@ -42458,6 +44749,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:cdr"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=lcell"
 echo(set "RPC=64"
 echo(set "ACTION=call" ^& goto :eof
@@ -42470,7 +44762,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi133=!p0:~2!"
-echo(for %%%%v in ^(!zi133!^) do set /p zt133=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi133!^) do set /p zt133=^<%%HD%%\car%%%%v^) else set "zt133=NIL#"
 echo(set "zt133=!zt133:~0,-1!"
 echo(if "!zt133!"=="S:if" ^(set "PC=65" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=66" ^& set "ACTION=jump" ^& goto :eof
@@ -42493,24 +44785,25 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi134=!p0:~2!"
-echo(for %%%%v in ^(!zi134!^) do set /p zt134=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi134!^) do set /p zt134=^<%%HD%%\cdr%%%%v^) else set "zt134=NIL#"
 echo(set "zt134=!zt134:~0,-1!"
 echo(set "zi135=!zt134:~2!"
-echo(for %%%%v in ^(!zi135!^) do set /p zt135=^<%%HD%%\car%%%%v
+echo(if "!zt134:~0,2!"=="P:" ^(for %%%%v in ^(!zi135!^) do set /p zt135=^<%%HD%%\car%%%%v^) else set "zt135=NIL#"
 echo(set "zt135=!zt135:~0,-1!"
 echo(set "zi136=!p0:~2!"
-echo(for %%%%v in ^(!zi136!^) do set /p zt136=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi136!^) do set /p zt136=^<%%HD%%\cdr%%%%v^) else set "zt136=NIL#"
 echo(set "zt136=!zt136:~0,-1!"
 echo(set "zi137=!zt136:~2!"
-echo(for %%%%v in ^(!zi137!^) do set /p zt137=^<%%HD%%\cdr%%%%v
+echo(if "!zt136:~0,2!"=="P:" ^(for %%%%v in ^(!zi137!^) do set /p zt137=^<%%HD%%\cdr%%%%v^) else set "zt137=NIL#"
 echo(set "zt137=!zt137:~0,-1!"
 echo(set "zi138=!zt137:~2!"
-echo(for %%%%v in ^(!zi138!^) do set /p zt138=^<%%HD%%\car%%%%v
+echo(if "!zt137:~0,2!"=="P:" ^(for %%%%v in ^(!zi138!^) do set /p zt138=^<%%HD%%\car%%%%v^) else set "zt138=NIL#"
 echo(set "zt138=!zt138:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt138!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt135!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadddr"
 echo(set "RPC=67"
 echo(set "ACTION=call" ^& goto :eof
@@ -42523,7 +44816,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi141=!p0:~2!"
-echo(for %%%%v in ^(!zi141!^) do set /p zt141=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi141!^) do set /p zt141=^<%%HD%%\car%%%%v^) else set "zt141=NIL#"
 echo(set "zt141=!zt141:~0,-1!"
 echo(if "!zt141!"=="S:cond" ^(set "PC=69" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=70" ^& set "ACTION=jump" ^& goto :eof
@@ -42545,6 +44838,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt139!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!p3!"
+echo(set "ARGC=6"
 echo(set "CALLEE=lif-val"
 echo(set "RPC=68"
 echo(set "ACTION=call" ^& goto :eof
@@ -42567,10 +44861,11 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi142=!p0:~2!"
-echo(for %%%%v in ^(!zi142!^) do set /p zt142=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi142!^) do set /p zt142=^<%%HD%%\cdr%%%%v^) else set "zt142=NIL#"
 echo(set "zt142=!zt142:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt142!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cond-zzGif"
 echo(set "RPC=71"
 echo(set "ACTION=call" ^& goto :eof
@@ -42585,6 +44880,7 @@ echo(set "NP=4"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=enc-mc"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -42597,7 +44893,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi144=!p0:~2!"
-echo(for %%%%v in ^(!zi144!^) do set /p zt144=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi144!^) do set /p zt144=^<%%HD%%\car%%%%v^) else set "zt144=NIL#"
 echo(set "zt144=!zt144:~0,-1!"
 echo(if "!zt144!"=="S:let" ^(set "PC=72" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=73" ^& set "ACTION=jump" ^& goto :eof
@@ -42614,6 +44910,7 @@ echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt143!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\lval_pc72.cmd" (
@@ -42624,19 +44921,19 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi145=!p0:~2!"
-echo(for %%%%v in ^(!zi145!^) do set /p zt145=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi145!^) do set /p zt145=^<%%HD%%\cdr%%%%v^) else set "zt145=NIL#"
 echo(set "zt145=!zt145:~0,-1!"
 echo(set "zi146=!zt145:~2!"
-echo(for %%%%v in ^(!zi146!^) do set /p zt146=^<%%HD%%\car%%%%v
+echo(if "!zt145:~0,2!"=="P:" ^(for %%%%v in ^(!zi146!^) do set /p zt146=^<%%HD%%\car%%%%v^) else set "zt146=NIL#"
 echo(set "zt146=!zt146:~0,-1!"
 echo(set "zi147=!p0:~2!"
-echo(for %%%%v in ^(!zi147!^) do set /p zt147=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi147!^) do set /p zt147=^<%%HD%%\cdr%%%%v^) else set "zt147=NIL#"
 echo(set "zt147=!zt147:~0,-1!"
 echo(set "zi148=!zt147:~2!"
-echo(for %%%%v in ^(!zi148!^) do set /p zt148=^<%%HD%%\cdr%%%%v
+echo(if "!zt147:~0,2!"=="P:" ^(for %%%%v in ^(!zi148!^) do set /p zt148=^<%%HD%%\cdr%%%%v^) else set "zt148=NIL#"
 echo(set "zt148=!zt148:~0,-1!"
 echo(set "zi149=!zt148:~2!"
-echo(for %%%%v in ^(!zi149!^) do set /p zt149=^<%%HD%%\car%%%%v
+echo(if "!zt148:~0,2!"=="P:" ^(for %%%%v in ^(!zi149!^) do set /p zt149=^<%%HD%%\car%%%%v^) else set "zt149=NIL#"
 echo(set "zt149=!zt149:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt146!"
@@ -42644,6 +44941,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt149!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=llet"
 echo(set "RPC=74"
 echo(set "ACTION=call" ^& goto :eof
@@ -42656,7 +44954,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi151=!p0:~2!"
-echo(for %%%%v in ^(!zi151!^) do set /p zt151=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi151!^) do set /p zt151=^<%%HD%%\car%%%%v^) else set "zt151=NIL#"
 echo(set "zt151=!zt151:~0,-1!"
 echo(if "!zt151!"=="S:begin" ^(set "PC=75" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=76" ^& set "ACTION=jump" ^& goto :eof
@@ -42679,13 +44977,14 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi152=!p0:~2!"
-echo(for %%%%v in ^(!zi152!^) do set /p zt152=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi152!^) do set /p zt152=^<%%HD%%\cdr%%%%v^) else set "zt152=NIL#"
 echo(set "zt152=!zt152:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt152!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lbegin"
 echo(set "RPC=77"
 echo(set "ACTION=call" ^& goto :eof
@@ -42698,7 +44997,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi154=!p0:~2!"
-echo(for %%%%v in ^(!zi154!^) do set /p zt154=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi154!^) do set /p zt154=^<%%HD%%\car%%%%v^) else set "zt154=NIL#"
 echo(set "zt154=!zt154:~0,-1!"
 echo(if "!zt154!"=="S:quote" ^(set "PC=78" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=79" ^& set "ACTION=jump" ^& goto :eof
@@ -42721,14 +45020,15 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi155=!p0:~2!"
-echo(for %%%%v in ^(!zi155!^) do set /p zt155=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi155!^) do set /p zt155=^<%%HD%%\cdr%%%%v^) else set "zt155=NIL#"
 echo(set "zt155=!zt155:~0,-1!"
 echo(set "zi156=!zt155:~2!"
-echo(for %%%%v in ^(!zi156!^) do set /p zt156=^<%%HD%%\car%%%%v
+echo(if "!zt155:~0,2!"=="P:" ^(for %%%%v in ^(!zi156!^) do set /p zt156=^<%%HD%%\car%%%%v^) else set "zt156=NIL#"
 echo(set "zt156=!zt156:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt156!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
+echo(set "ARGC=2"
 echo(set "CALLEE=lquote"
 echo(set "RPC=80"
 echo(set "ACTION=call" ^& goto :eof
@@ -42741,7 +45041,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi158=!p0:~2!"
-echo(for %%%%v in ^(!zi158!^) do set /p zt158=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi158!^) do set /p zt158=^<%%HD%%\car%%%%v^) else set "zt158=NIL#"
 echo(set "zt158=!zt158:~0,-1!"
 echo(if "!zt158!"=="S:string-length" ^(set "PC=81" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=82" ^& set "ACTION=jump" ^& goto :eof
@@ -42780,6 +45080,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lstrlen"
 echo(set "RPC=83"
 echo(set "ACTION=call" ^& goto :eof
@@ -42792,7 +45093,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi160=!p0:~2!"
-echo(for %%%%v in ^(!zi160!^) do set /p zt160=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi160!^) do set /p zt160=^<%%HD%%\car%%%%v^) else set "zt160=NIL#"
 echo(set "zt160=!zt160:~0,-1!"
 echo(if "!zt160!"=="S:substring" ^(set "PC=84" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=85" ^& set "ACTION=jump" ^& goto :eof
@@ -42819,6 +45120,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
+echo(set "ARGC=4"
 echo(set "CALLEE=lsubstr"
 echo(set "RPC=86"
 echo(set "ACTION=call" ^& goto :eof
@@ -42831,7 +45133,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi162=!p0:~2!"
-echo(for %%%%v in ^(!zi162!^) do set /p zt162=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi162!^) do set /p zt162=^<%%HD%%\car%%%%v^) else set "zt162=NIL#"
 echo(set "zt162=!zt162:~0,-1!"
 echo(if "!zt162!"=="S:symbol-!GT!string" ^(set "PC=87" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=88" ^& set "ACTION=jump" ^& goto :eof
@@ -42859,6 +45161,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:T:"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=lretag"
 echo(set "RPC=89"
 echo(set "ACTION=call" ^& goto :eof
@@ -42871,7 +45174,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi164=!p0:~2!"
-echo(for %%%%v in ^(!zi164!^) do set /p zt164=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi164!^) do set /p zt164=^<%%HD%%\car%%%%v^) else set "zt164=NIL#"
 echo(set "zt164=!zt164:~0,-1!"
 echo(if "!zt164!"=="S:number-!GT!string" ^(set "PC=90" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=91" ^& set "ACTION=jump" ^& goto :eof
@@ -42919,6 +45222,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:T:"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=lretag"
 echo(set "RPC=92"
 echo(set "ACTION=call" ^& goto :eof
@@ -42931,7 +45235,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi166=!p0:~2!"
-echo(for %%%%v in ^(!zi166!^) do set /p zt166=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi166!^) do set /p zt166=^<%%HD%%\car%%%%v^) else set "zt166=NIL#"
 echo(set "zt166=!zt166:~0,-1!"
 echo(if "!zt166!"=="S:string-!GT!symbol" ^(set "PC=93" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=94" ^& set "ACTION=jump" ^& goto :eof
@@ -42959,6 +45263,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:S:"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=lretag"
 echo(set "RPC=95"
 echo(set "ACTION=call" ^& goto :eof
@@ -42971,7 +45276,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi168=!p0:~2!"
-echo(for %%%%v in ^(!zi168!^) do set /p zt168=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi168!^) do set /p zt168=^<%%HD%%\car%%%%v^) else set "zt168=NIL#"
 echo(set "zt168=!zt168:~0,-1!"
 echo(if "!zt168!"=="S:string-!GT!number" ^(set "PC=96" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=97" ^& set "ACTION=jump" ^& goto :eof
@@ -42999,6 +45304,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:I:"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p2!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p3!"
+echo(set "ARGC=5"
 echo(set "CALLEE=lretag"
 echo(set "RPC=98"
 echo(set "ACTION=call" ^& goto :eof
@@ -43011,7 +45317,7 @@ echo(set /a _i=!FP!+3 ^& call set "p3=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set "zi170=!p0:~2!"
-echo(for %%%%v in ^(!zi170!^) do set /p zt170=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi170!^) do set /p zt170=^<%%HD%%\car%%%%v^) else set "zt170=NIL#"
 echo(set "zt170=!zt170:~0,-1!"
 echo(if "!zt170!"=="S:dq" ^(set "PC=99" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=100" ^& set "ACTION=jump" ^& goto :eof
@@ -43035,6 +45341,7 @@ echo(set /a FT=!FP!+17
 echo(set "NP=4"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=tmpn"
 echo(set "RPC=101"
 echo(set "ACTION=call" ^& goto :eof
@@ -43121,6 +45428,7 @@ echo(^(define pmap-fr ^(make-compiled "pmap-fr"^)^)
 echo(^(define ploads ^(make-compiled "ploads"^)^)
 echo(^(define blkget ^(make-compiled "blkget"^)^)
 echo(^(define caseblocks ^(make-compiled "caseblocks"^)^)
+echo(^(define va-collect-cmd ^(make-compiled "va-collect-cmd"^)^)
 echo(^(define compile-fn ^(make-compiled "compile-fn"^)^)
 echo(^(define compile-clambda ^(make-compiled "compile-clambda"^)^)
 echo(^(define tst ^(make-compiled "tst"^)^)
@@ -43173,6 +45481,8 @@ echo(^(define set-add ^(make-compiled "set-add"^)^)
 echo(^(define lv-names ^(make-compiled "lv-names"^)^)
 echo(^(define fv-binds ^(make-compiled "fv-binds"^)^)
 echo(^(define fv-list ^(make-compiled "fv-list"^)^)
+echo(^(define fs-list ^(make-compiled "fs-list"^)^)
+echo(^(define varargs? ^(make-compiled "varargszzQ"^)^)
 echo(^(define fv ^(make-compiled "fv"^)^)
 echo(^(define keep-bound ^(make-compiled "keep-bound"^)^)
 echo(^(define lift-list ^(make-compiled "lift-list"^)^)
@@ -43787,6 +46097,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!p0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mangle-at"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -43808,6 +46119,7 @@ echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=I:!zt0!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!p2!"
 echo(set /a _i=!FP!+3 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=4"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mangle_pc0.cmd" (
@@ -43823,6 +46135,7 @@ echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:0"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:!zt0!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=T:"
+echo(set "ARGC=4"
 echo(set "CALLEE=mangle-go"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -43855,11 +46168,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=inline-expr"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -43871,12 +46185,13 @@ echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=map-inline-expr"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -43915,11 +46230,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=inline-form"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -43931,12 +46247,13 @@ echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=map-inline-form"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -43972,10 +46289,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mexpand"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -43986,11 +46304,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=map-mexpand"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -44025,10 +46344,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -44039,11 +46359,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=1"
 echo(set "CALLEE=map-show"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -44200,7 +46521,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p1:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!p0!"=="!zt0!" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -44218,10 +46539,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi1=!p1:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand-program_pc0.cmd" (
@@ -44230,6 +46552,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=map-mexpand"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -44255,7 +46578,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(if "!zt1!"=="S:quote" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -44266,6 +46589,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt12=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc11.cmd" (
@@ -44273,10 +46597,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi14=!p0:~2!"
-echo(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
 echo(set "zt14=!zt14:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
+echo(set "ARGC=1"
 echo(set "CALLEE=and-zzGif"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
@@ -44286,7 +46611,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi16=!p0:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(if "!zt16!"=="S:or" ^(set "PC=14" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=15" ^& set "ACTION=jump" ^& goto :eof
@@ -44297,6 +46622,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt15=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt15!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc14.cmd" (
@@ -44304,10 +46630,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi17=!p0:~2!"
-echo(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v^) else set "zt17=NIL#"
 echo(set "zt17=!zt17:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt17!"
+echo(set "ARGC=1"
 echo(set "CALLEE=or-zzGif"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
@@ -44317,7 +46644,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi19=!p0:~2!"
-echo(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\car%%%%v^) else set "zt19=NIL#"
 echo(set "zt19=!zt19:~0,-1!"
 echo(if "!zt19!"=="S:when" ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=18" ^& set "ACTION=jump" ^& goto :eof
@@ -44328,6 +46655,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt18=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt18!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc17.cmd" (
@@ -44335,20 +46663,21 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi20=!p0:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set "zi21=!zt20:~2!"
-echo(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v
+echo(if "!zt20:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v^) else set "zt21=NIL#"
 echo(set "zt21=!zt21:~0,-1!"
 echo(set "zi22=!p0:~2!"
-echo(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v^) else set "zt22=NIL#"
 echo(set "zt22=!zt22:~0,-1!"
 echo(set "zi23=!zt22:~2!"
-echo(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\cdr%%%%v
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\cdr%%%%v^) else set "zt23=NIL#"
 echo(set "zt23=!zt23:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt23!"
+echo(set "ARGC=2"
 echo(set "CALLEE=when-zzGif"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -44358,7 +46687,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi25=!p0:~2!"
-echo(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\car%%%%v^) else set "zt25=NIL#"
 echo(set "zt25=!zt25:~0,-1!"
 echo(if "!zt25!"=="S:unless" ^(set "PC=20" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=21" ^& set "ACTION=jump" ^& goto :eof
@@ -44369,6 +46698,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt24=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt24!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc2.cmd" (
@@ -44382,20 +46712,21 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi26=!p0:~2!"
-echo(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v^) else set "zt26=NIL#"
 echo(set "zt26=!zt26:~0,-1!"
 echo(set "zi27=!zt26:~2!"
-echo(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\car%%%%v
+echo(if "!zt26:~0,2!"=="P:" ^(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\car%%%%v^) else set "zt27=NIL#"
 echo(set "zt27=!zt27:~0,-1!"
 echo(set "zi28=!p0:~2!"
-echo(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v^) else set "zt28=NIL#"
 echo(set "zt28=!zt28:~0,-1!"
 echo(set "zi29=!zt28:~2!"
-echo(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v
+echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v^) else set "zt29=NIL#"
 echo(set "zt29=!zt29:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt27!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt29!"
+echo(set "ARGC=2"
 echo(set "CALLEE=unless-zzGif"
 echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
@@ -44405,7 +46736,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi31=!p0:~2!"
-echo(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v^) else set "zt31=NIL#"
 echo(set "zt31=!zt31:~0,-1!"
 echo(if "!zt31!"=="S:case" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
@@ -44416,6 +46747,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt30=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt30!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc23.cmd" (
@@ -44423,20 +46755,21 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi32=!p0:~2!"
-echo(for %%%%v in ^(!zi32!^) do set /p zt32=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi32!^) do set /p zt32=^<%%HD%%\cdr%%%%v^) else set "zt32=NIL#"
 echo(set "zt32=!zt32:~0,-1!"
 echo(set "zi33=!zt32:~2!"
-echo(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\car%%%%v
+echo(if "!zt32:~0,2!"=="P:" ^(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\car%%%%v^) else set "zt33=NIL#"
 echo(set "zt33=!zt33:~0,-1!"
 echo(set "zi34=!p0:~2!"
-echo(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\cdr%%%%v^) else set "zt34=NIL#"
 echo(set "zt34=!zt34:~0,-1!"
 echo(set "zi35=!zt34:~2!"
-echo(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\cdr%%%%v
+echo(if "!zt34:~0,2!"=="P:" ^(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\cdr%%%%v^) else set "zt35=NIL#"
 echo(set "zt35=!zt35:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt33!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt35!"
+echo(set "ARGC=2"
 echo(set "CALLEE=case-zzGcond"
 echo(set "RPC=25"
 echo(set "ACTION=call" ^& goto :eof
@@ -44446,7 +46779,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi37=!p0:~2!"
-echo(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v^) else set "zt37=NIL#"
 echo(set "zt37=!zt37:~0,-1!"
 echo(if "!zt37!"=="S:let*" ^(set "PC=26" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=27" ^& set "ACTION=jump" ^& goto :eof
@@ -44457,6 +46790,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt36=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt36!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc26.cmd" (
@@ -44464,20 +46798,21 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi38=!p0:~2!"
-echo(for %%%%v in ^(!zi38!^) do set /p zt38=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi38!^) do set /p zt38=^<%%HD%%\cdr%%%%v^) else set "zt38=NIL#"
 echo(set "zt38=!zt38:~0,-1!"
 echo(set "zi39=!zt38:~2!"
-echo(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v
+echo(if "!zt38:~0,2!"=="P:" ^(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v^) else set "zt39=NIL#"
 echo(set "zt39=!zt39:~0,-1!"
 echo(set "zi40=!p0:~2!"
-echo(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v^) else set "zt40=NIL#"
 echo(set "zt40=!zt40:~0,-1!"
 echo(set "zi41=!zt40:~2!"
-echo(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v
+echo(if "!zt40:~0,2!"=="P:" ^(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v^) else set "zt41=NIL#"
 echo(set "zt41=!zt41:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt39!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt41!"
+echo(set "ARGC=2"
 echo(set "CALLEE=letzzS-zzGlets"
 echo(set "RPC=28"
 echo(set "ACTION=call" ^& goto :eof
@@ -44488,6 +46823,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=nary-formzzQ"
 echo(set "RPC=29"
 echo(set "ACTION=call" ^& goto :eof
@@ -44498,6 +46834,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt42=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt42!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc29.cmd" (
@@ -44520,6 +46857,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=nary-rw"
 echo(set "RPC=32"
 echo(set "ACTION=call" ^& goto :eof
@@ -44529,7 +46867,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi45=!p0:~2!"
-echo(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\car%%%%v^) else set "zt45=NIL#"
 echo(set "zt45=!zt45:~0,-1!"
 echo(if "!zt45!"=="S:str" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
@@ -44540,6 +46878,7 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt44=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt44!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc33.cmd" (
@@ -44547,10 +46886,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi46=!p0:~2!"
-echo(for %%%%v in ^(!zi46!^) do set /p zt46=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi46!^) do set /p zt46=^<%%HD%%\cdr%%%%v^) else set "zt46=NIL#"
 echo(set "zt46=!zt46:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt46!"
+echo(set "ARGC=1"
 echo(set "CALLEE=map-mexpand"
 echo(set "RPC=35"
 echo(set "ACTION=call" ^& goto :eof
@@ -44560,7 +46900,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi49=!p0:~2!"
-echo(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\car%%%%v^) else set "zt49=NIL#"
 echo(set "zt49=!zt49:~0,-1!"
 echo(if "!zt49!"=="S:list" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=38" ^& set "ACTION=jump" ^& goto :eof
@@ -44572,6 +46912,7 @@ echo(set "NP=1"
 echo(set "zt47=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt47!"
+echo(set "ARGC=1"
 echo(set "CALLEE=str-zzGapp"
 echo(set "RPC=36"
 echo(set "ACTION=call" ^& goto :eof
@@ -44588,10 +46929,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi50=!p0:~2!"
-echo(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\cdr%%%%v^) else set "zt50=NIL#"
 echo(set "zt50=!zt50:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt50!"
+echo(set "ARGC=1"
 echo(set "CALLEE=map-mexpand"
 echo(set "RPC=39"
 echo(set "ACTION=call" ^& goto :eof
@@ -44601,10 +46943,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi53=!p0:~2!"
-echo(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\car%%%%v^) else set "zt53=NIL#"
 echo(set "zt53=!zt53:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt53!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mexpand"
 echo(set "RPC=41"
 echo(set "ACTION=call" ^& goto :eof
@@ -44616,6 +46959,7 @@ echo(set "NP=1"
 echo(set "zt51=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt51!"
+echo(set "ARGC=1"
 echo(set "CALLEE=list-zzGcons"
 echo(set "RPC=40"
 echo(set "ACTION=call" ^& goto :eof
@@ -44625,7 +46969,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:lambda" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
@@ -44644,11 +46988,12 @@ echo(set "NP=1"
 echo(set "zt54=!R!"
 echo(set "zt55=!zt54!"
 echo(set "zi56=!p0:~2!"
-echo(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\cdr%%%%v^) else set "zt56=NIL#"
 echo(set "zt56=!zt56:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt55!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt56!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mexpand"
 echo(set "RPC=42"
 echo(set "ACTION=call" ^& goto :eof
@@ -44661,7 +47006,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& call set "zt55=%%%%F!_i!%%%%"
 echo(set "zt57=!R!"
 echo(set "zt58=!zt57!"
 echo(set "zi59=!p0:~2!"
-echo(for %%%%v in ^(!zi59!^) do set /p zt59=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi59!^) do set /p zt59=^<%%HD%%\car%%%%v^) else set "zt59=NIL#"
 echo(set "zt59=!zt59:~0,-1!"
 echo(if "!zt55!"=="!zt59!" ^(set "PC=43" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=44" ^& set "ACTION=jump" ^& goto :eof
@@ -44671,7 +47016,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi61=!p0:~2!"
-echo(for %%%%v in ^(!zi61!^) do set /p zt61=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi61!^) do set /p zt61=^<%%HD%%\cdr%%%%v^) else set "zt61=NIL#"
 echo(set "zt61=!zt61:~0,-1!"
 echo(if "!zt58!"=="!zt61!" ^(set "PC=46" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=47" ^& set "ACTION=jump" ^& goto :eof
@@ -44722,20 +47067,21 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zi4=!zt3:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v
+echo(if "!zt3:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\car%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=1"
 echo(set "CALLEE=map-mexpand"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -44755,7 +47101,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(if "!zt10!"=="S:cond" ^(set "PC=8" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=9" ^& set "ACTION=jump" ^& goto :eof
@@ -44781,10 +47127,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi11=!p0:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cond-zzGif"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -44794,7 +47141,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi13=!p0:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(if "!zt13!"=="S:and" ^(set "PC=11" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=12" ^& set "ACTION=jump" ^& goto :eof
@@ -44819,6 +47166,7 @@ echo(set "NP=1"
 echo(set "zt8=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=1"
 echo(set "CALLEE=not"
 echo(set "RPC=11"
 echo(set "ACTION=call" ^& goto :eof
@@ -44836,10 +47184,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=14"
 echo(set "ACTION=call" ^& goto :eof
@@ -44849,9 +47198,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi24=!p0:~2!"
-echo(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\cdr%%%%v^) else set "zt24=NIL#"
 echo(set "zt24=!zt24:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt24!"
+echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mk-tbl_pc14.cmd" (
@@ -44860,11 +47210,12 @@ echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zt11=!R!"
 echo(set "zi12=!p0:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -44878,6 +47229,7 @@ echo(set "zt13=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
@@ -44889,12 +47241,13 @@ echo(set "NP=1"
 echo(set /a _i=!FP!+!NP!+0 ^& call set "zt11=%%%%F!_i!%%%%"
 echo(set "zt14=!R!"
 echo(set "zi15=!p0:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\car%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt11!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt15!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=17"
 echo(set "ACTION=call" ^& goto :eof
@@ -44910,6 +47263,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt14!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt11!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt16!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -44934,11 +47288,12 @@ echo(^>%%HD%%\car%%HN%% echo^(!zt11!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt19!#
 echo(set "zt20=P:!HN!"
 echo(set "zi21=!p0:~2!"
-echo(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\cdr%%%%v^) else set "zt21=NIL#"
 echo(set "zt21=!zt21:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt20!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mk-tbl"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
@@ -44960,10 +47315,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=def-lambdazzQ"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -44981,10 +47337,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cadr"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -45009,11 +47366,12 @@ echo(set /a FT=!FP!+3
 echo(set "NP=1"
 echo(set "zt4=!R!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -45027,6 +47385,7 @@ echo(set "zt6=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=1"
 echo(set "CALLEE=caddr"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -45040,6 +47399,7 @@ echo(set "zt7=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=2"
 echo(set "CALLEE=refszzQ"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
@@ -45097,14 +47457,15 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mkclo-caps"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -45134,10 +47495,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=arith-opzzQ"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -45183,10 +47545,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi10=!p0:~2!"
-echo(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=1"
 echo(set "CALLEE=cmp-opzzQ"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -45204,10 +47567,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi12=!p0:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt12!"
+echo(set "ARGC=1"
 echo(set "CALLEE=extra-argszzQ"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -45230,10 +47594,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=extra-argszzQ"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -45271,10 +47636,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=arith-opzzQ"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -45292,10 +47658,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=1"
 echo(set "CALLEE=unary-argszzQ"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -45305,10 +47672,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=arith-opzzQ"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -45348,10 +47716,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi15=!p0:~2!"
-echo(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi15!^) do set /p zt15=^<%%HD%%\cdr%%%%v^) else set "zt15=NIL#"
 echo(set "zt15=!zt15:~0,-1!"
 echo(set "zi16=!zt15:~2!"
-echo(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v
+echo(if "!zt15:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
 echo(set "zt16=!zt16:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt16!#
@@ -45372,10 +47740,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi20=!p0:~2!"
-echo(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\car%%%%v^) else set "zt20=NIL#"
 echo(set "zt20=!zt20:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt20!"
+echo(set "ARGC=1"
 echo(set "CALLEE=arith-opzzQ"
 echo(set "RPC=15"
 echo(set "ACTION=call" ^& goto :eof
@@ -45393,10 +47762,10 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi22=!p0:~2!"
-echo(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v^) else set "zt22=NIL#"
 echo(set "zt22=!zt22:~0,-1!"
 echo(set "zi23=!zt22:~2!"
-echo(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v
+echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\car%%%%v^) else set "zt23=NIL#"
 echo(set "zt23=!zt23:~0,-1!"
 echo(set "R=!zt23!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -45405,14 +47774,15 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi24=!p0:~2!"
-echo(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\car%%%%v^) else set "zt24=NIL#"
 echo(set "zt24=!zt24:~0,-1!"
 echo(set "zi25=!p0:~2!"
-echo(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\cdr%%%%v^) else set "zt25=NIL#"
 echo(set "zt25=!zt25:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt24!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt25!"
+echo(set "ARGC=2"
 echo(set "CALLEE=chain-zzGand"
 echo(set "RPC=18"
 echo(set "ACTION=call" ^& goto :eof
@@ -45429,10 +47799,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=extra-argszzQ"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -45464,24 +47835,25 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "zi7=!zt6:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!zt6:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "zi9=!zt8:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!zt8:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt9!"
+echo(set "ARGC=3"
 echo(set "CALLEE=nary-zzGbin"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -45491,7 +47863,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi11=!p0:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(if "!zt11!"=="S:-" ^(set "PC=9" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
@@ -45508,10 +47880,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi13=!p0:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
 echo(set "CALLEE=unary-argszzQ"
 echo(set "RPC=12"
 echo(set "ACTION=call" ^& goto :eof
@@ -45540,7 +47913,7 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=3"
 echo(set "zi0=!p2:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p2:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt0!#
@@ -45555,11 +47928,12 @@ echo(^>%%HD%%\car%%HN%% echo^(!p0!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt2!#
 echo(set "zt3=P:!HN!"
 echo(set "zi4=!p2:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p2:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\not_pc0.cmd" (
@@ -45644,7 +48018,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -45654,7 +48028,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -45663,7 +48037,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt2!#
@@ -45678,11 +48052,12 @@ echo(^>%%HD%%\car%%HN%% echo^(!zt4!#
 echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
 echo(set "zt5=P:!HN!"
 echo(set "zi6=!p0:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=1"
 echo(set "CALLEE=or-zzGif"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -45757,12 +48132,13 @@ echo(set "zt2=T:p0=!BANG2!!BANG2!F!BANG!FP!BANG!!BANG2!!BANG2!!zt1:~2!"
 echo(set "zt3=T:!zt0:~2!!zt2:~2!"
 echo(set "zt4=T:call set !zt3:~2!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\cdr%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:1"
+echo(set "ARGC=2"
 echo(set "CALLEE=ploads"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -45784,13 +48160,14 @@ echo(set "zt16=T: !AMP! call set !zt15:~2!"
 echo(set "zt17=T:!zt8:~2!!zt16:~2!"
 echo(set "zt18=T:set /a _i=!BANG!FP!BANG!+!zt17:~2!"
 echo(set "zi19=!p0:~2!"
-echo(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v^) else set "zt19=NIL#"
 echo(set "zt19=!zt19:~0,-1!"
 echo(set /a zt20=!p1:~2!+1
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt18!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:!zt20!"
+echo(set "ARGC=2"
 echo(set "CALLEE=ploads"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -45842,7 +48219,7 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+3
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zt1=T:!p1:~2!"
 echo(set "zt2=T:p!zt1:~2!"
@@ -45851,13 +48228,14 @@ echo(^>%%HD%%\car%%HN%% echo^(!zt0!#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt2!#
 echo(set "zt3=P:!HN!"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set /a zt5=!p1:~2!+1
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=I:!zt5!"
+echo(set "ARGC=2"
 echo(set "CALLEE=pmap-fr"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -48127,11 +50505,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi1=!p1:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=refszzQ"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -48165,10 +50544,11 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi3=!p1:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\resid-bind_pc0.cmd" (
@@ -48179,6 +50559,7 @@ echo(set "zt0=T:!p0:~2!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=mangle"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -48232,10 +50613,10 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt1!#
@@ -48243,6 +50624,7 @@ echo(^>%%HD%%\cdr%%HN%% echo^(!p1!#
 echo(set "zt2=P:!HN!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\reverse_pc0.cmd" (
@@ -48263,10 +50645,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=reverse"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -48277,7 +50660,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zt1=!R!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set /a HN+=1
 echo(^>%%HD%%\car%%HN%% echo^(!zt2!#
@@ -48286,6 +50669,7 @@ echo(set "zt3=P:!HN!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -49272,7 +51656,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="S:val" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -49282,7 +51666,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -49291,7 +51675,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(if "!zt2!"=="S:raw" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -49301,7 +51685,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -49348,6 +51732,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p2!"
+echo(set "ARGC=2"
 echo(set "CALLEE=blkget"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -49367,6 +51752,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=2"
 echo(set "CALLEE=append"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -49393,6 +51779,7 @@ echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=I:!zt6!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!p3!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!p4!"
+echo(set "ARGC=5"
 echo(set "CALLEE=seg-files"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -49421,6 +51808,7 @@ echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "CALLEE=memzzQ"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -49932,7 +52320,15 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zt0=T:!p2:~2!"
+echo(set "zt1=T:ARGC=!zt0:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p0!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=3"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\setparams_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -49940,18 +52336,19 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set "zt0=T:!p2:~2!"
-echo(set "zt1=T:!BANG8!"
-echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
-echo(set "zt2=!zt2:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
+echo(set "zt4=T:!p2:~2!"
+echo(set "zt5=T:!BANG8!"
+echo(set "zi6=!p1:~2!"
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
+echo(set "zt6=!zt6:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!p0!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=1"
 echo(set "CALLEE=fval"
-echo(set "RPC=3"
+echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\setparams_pc3.cmd" (
@@ -49960,20 +52357,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt0=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "p0=%%%%F!_i!%%%%"
-echo(set "zt3=!R!"
-echo(set "zt4=T:!BANG8!"
-echo(set "zt5=T:!zt3:~2!!zt4:~2!"
-echo(set "zt6=T:F!BANG!_i!BANG!=!zt5:~2!"
-echo(set "zt7=T:!zt1:~2!!zt6:~2!"
-echo(set "zt8=T: !AMP! set !zt7:~2!"
-echo(set "zt9=T:!zt0:~2!!zt8:~2!"
-echo(set "zt10=T:set /a _i=!BANG!FP!BANG!+!zt9:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set "zt2=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -49984,14 +52373,49 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set "zt11=!R!"
-echo(set "zi12=!p1:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
-echo(set "zt12=!zt12:~0,-1!"
-echo(set /a zt13=!p2:~2!+1
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt12!"
-echo(set /a _i=!FP!+2 ^& set "F!_i!=I:!zt13!"
+echo(set "zt3=!R!"
+echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\setparams_pc5.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+6
+echo(set "NP=3"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set "zt7=!R!"
+echo(set "zt8=T:!BANG8!"
+echo(set "zt9=T:!zt7:~2!!zt8:~2!"
+echo(set "zt10=T:F!BANG!_i!BANG!=!zt9:~2!"
+echo(set "zt11=T:!zt5:~2!!zt10:~2!"
+echo(set "zt12=T: !AMP! set !zt11:~2!"
+echo(set "zt13=T:!zt4:~2!!zt12:~2!"
+echo(set "zt14=T:set /a _i=!BANG!FP!BANG!+!zt13:~2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt14!"
+echo(set "ARGC=2"
+echo(set "CALLEE=emit"
+echo(set "RPC=6"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\setparams_pc6.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+6
+echo(set "NP=3"
+echo(set "zt15=!R!"
+echo(set "zi16=!p1:~2!"
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v^) else set "zt16=NIL#"
+echo(set "zt16=!zt16:~0,-1!"
+echo(set /a zt17=!p2:~2!+1
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt15!"
+echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+2 ^& set "F!_i!=I:!zt17!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\show-list_pc0.cmd" (
@@ -49999,7 +52423,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -50009,10 +52433,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -50022,7 +52447,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set "zp4=!zt3!"
 echo(set "zp4=!zp4:~0,1!"
@@ -50041,10 +52466,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt5!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -50054,10 +52480,11 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi11=!p0:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\car%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -50068,11 +52495,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt6=!R!"
 echo(set "zi7=!p0:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\cdr%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt6!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt7!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show-list"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -50093,11 +52521,12 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt12=!R!"
 echo(set "zi13=!p0:~2!"
-echo(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
 echo(set "zt13=!zt13:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt13!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -50182,6 +52611,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=show-list"
 echo(set "RPC=9"
 echo(set "ACTION=call" ^& goto :eof
@@ -50221,7 +52651,7 @@ echo(set "NP=3"
 echo(set "zt0=T:!p2:~2!"
 echo(set "zt1=T:!BANG8!"
 echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zt3=T:!BANG8!"
 echo(set "zt4=T:!BANG!!zt3:~2!"
@@ -50234,6 +52664,7 @@ echo(set "zt10=T:set /a _i=!BANG!FP!BANG!+!BANG!NP!BANG!+!zt9:~2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt10!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -50246,12 +52677,13 @@ echo(set /a FT=!FP!+3
 echo(set "NP=3"
 echo(set "zt11=!R!"
 echo(set "zi12=!p1:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v^) else set "zt12=NIL#"
 echo(set "zt12=!zt12:~0,-1!"
 echo(set /a zt13=!p2:~2!+1
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt12!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=I:!zt13!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\split.cmd" (
@@ -50734,7 +53166,15 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zt0=T:!p2:~2!"
+echo(set "zt1=T:ARGC=!zt0:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p0!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=3"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\stage_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -50742,18 +53182,19 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set "zt0=T:!p2:~2!"
-echo(set "zt1=T:!BANG8!"
-echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
-echo(set "zt2=!zt2:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
-echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
+echo(set "zt4=T:!p2:~2!"
+echo(set "zt5=T:!BANG8!"
+echo(set "zi6=!p1:~2!"
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
+echo(set "zt6=!zt6:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt5!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt4!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!p0!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt6!"
+echo(set "ARGC=1"
 echo(set "CALLEE=fval"
-echo(set "RPC=3"
+echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\stage_pc3.cmd" (
@@ -50762,20 +53203,12 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+1 ^& call set "zt0=%%%%F!_i!%%%%"
-echo(set /a _i=!FP!+!NP!+2 ^& call set "p0=%%%%F!_i!%%%%"
-echo(set "zt3=!R!"
-echo(set "zt4=T:!BANG8!"
-echo(set "zt5=T:!zt3:~2!!zt4:~2!"
-echo(set "zt6=T:F!BANG!_i!BANG!=!zt5:~2!"
-echo(set "zt7=T:!zt1:~2!!zt6:~2!"
-echo(set "zt8=T: !AMP! set !zt7:~2!"
-echo(set "zt9=T:!zt0:~2!!zt8:~2!"
-echo(set "zt10=T:set /a _i=!BANG!NFP!BANG!+!zt9:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set "zt2=!R!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt10!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt2!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -50786,14 +53219,49 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+6
 echo(set "NP=3"
-echo(set "zt11=!R!"
-echo(set "zi12=!p1:~2!"
-echo(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\cdr%%%%v
-echo(set "zt12=!zt12:~0,-1!"
-echo(set /a zt13=!p2:~2!+1
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt11!"
-echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt12!"
-echo(set /a _i=!FP!+2 ^& set "F!_i!=I:!zt13!"
+echo(set "zt3=!R!"
+echo(set "R=!zt3!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\stage_pc5.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+6
+echo(set "NP=3"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt5=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt4=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set "zt7=!R!"
+echo(set "zt8=T:!BANG8!"
+echo(set "zt9=T:!zt7:~2!!zt8:~2!"
+echo(set "zt10=T:F!BANG!_i!BANG!=!zt9:~2!"
+echo(set "zt11=T:!zt5:~2!!zt10:~2!"
+echo(set "zt12=T: !AMP! set !zt11:~2!"
+echo(set "zt13=T:!zt4:~2!!zt12:~2!"
+echo(set "zt14=T:set /a _i=!BANG!NFP!BANG!+!zt13:~2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt14!"
+echo(set "ARGC=2"
+echo(set "CALLEE=emit"
+echo(set "RPC=6"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\stage_pc6.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+6
+echo(set "NP=3"
+echo(set "zt15=!R!"
+echo(set "zi16=!p1:~2!"
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\cdr%%%%v^) else set "zt16=NIL#"
+echo(set "zt16=!zt16:~0,-1!"
+echo(set /a zt17=!p2:~2!+1
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt15!"
+echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt16!"
+echo(set /a _i=!FP!+2 ^& set "F!_i!=I:!zt17!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\str-zzGapp_pc0.cmd" (
@@ -50814,7 +53282,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -50824,7 +53292,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -50833,14 +53301,15 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=1"
 echo(set "CALLEE=str-zzGapp"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -50900,12 +53369,13 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+4
 echo(set "NP=3"
 echo(set "zi1=!p2:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!p2:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt1!"
+echo(set "ARGC=3"
 echo(set "CALLEE=subst"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -50926,13 +53396,14 @@ echo(set /a FT=!FP!+4
 echo(set "NP=3"
 echo(set "zt2=!R!"
 echo(set "zi3=!p2:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v
+echo(if "!p2:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!zt3!"
+echo(set "ARGC=3"
 echo(set "CALLEE=subst"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -50975,16 +53446,16 @@ echo(set /a _i=!FP!+2 ^& call set "p2=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+5
 echo(set "NP=3"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!p1:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zi2=!p0:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zi3=!p1:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt0!"
@@ -50992,6 +53463,7 @@ echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt3!"
 echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p2!"
+echo(set "ARGC=3"
 echo(set "CALLEE=subst"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -51008,6 +53480,7 @@ echo(set "zt4=!R!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=!zt4!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\switch_pc0.cmd" (
@@ -51017,6 +53490,7 @@ echo(set /a FT=!FP!+6
 echo(set "NP=2"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-pc"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -51030,6 +53504,7 @@ echo(set "zt0=!R!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-cur"
 echo(set "RPC=2"
 echo(set "ACTION=call" ^& goto :eof
@@ -51045,6 +53520,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt0!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=NIL"
+echo(set "ARGC=2"
 echo(set "CALLEE=rev"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -51063,6 +53539,7 @@ echo(set "zt3=P:!HN!"
 echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt3!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-blk"
 echo(set "RPC=4"
 echo(set "ACTION=call" ^& goto :eof
@@ -51082,6 +53559,7 @@ echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-npc"
 echo(set "RPC=5"
 echo(set "ACTION=call" ^& goto :eof
@@ -51099,6 +53577,7 @@ echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=6"
 echo(set "ACTION=call" ^& goto :eof
@@ -51118,6 +53597,7 @@ echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt5!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-smax"
 echo(set "RPC=7"
 echo(set "ACTION=call" ^& goto :eof
@@ -51139,6 +53619,7 @@ echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p1!"
 echo(set /a _i=!NFP!+3 ^& set "F!_i!=!zt6!"
 echo(set /a _i=!NFP!+4 ^& set "F!_i!=!zt7!"
 echo(set /a _i=!NFP!+5 ^& set "F!_i!=!zt8!"
+echo(set "ARGC=6"
 echo(set "CALLEE=mkb"
 echo(set "RPC=8"
 echo(set "ACTION=call" ^& goto :eof
@@ -51157,6 +53638,7 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
 echo(set "CALLEE=b-k"
 echo(set "RPC=1"
 echo(set "ACTION=call" ^& goto :eof
@@ -51351,7 +53833,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zt1=!zt0!"
 echo(if "!zt1!"=="NIL" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
@@ -51875,7 +54357,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\cdr%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="NIL" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -51953,7 +54435,7 @@ echo(set "NP=3"
 echo(set "zt0=T:!p2:~2!"
 echo(set "zt1=T:!BANG8!"
 echo(set "zi2=!p1:~2!"
-echo(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\car%%%%v^) else set "zt2=NIL#"
 echo(set "zt2=!zt2:~0,-1!"
 echo(set "zt3=T:!BANG8!"
 echo(set "zt4=T:=!BANG2!!BANG2!F!BANG!_i!BANG!!BANG2!!BANG2!!zt3:~2!"
@@ -51965,6 +54447,7 @@ echo(set "zt9=T:set /a _i=!BANG!FP!BANG!+!BANG!NP!BANG!+!zt8:~2!"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt9!"
+echo(set "ARGC=2"
 echo(set "CALLEE=emit"
 echo(set "RPC=3"
 echo(set "ACTION=call" ^& goto :eof
@@ -51977,20 +54460,185 @@ echo(set /a FT=!FP!+3
 echo(set "NP=3"
 echo(set "zt10=!R!"
 echo(set "zi11=!p1:~2!"
-echo(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v
+echo(if "!p1:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
 echo(set /a zt12=!p2:~2!+1
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt10!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!zt11!"
 echo(set /a _i=!FP!+2 ^& set "F!_i!=I:!zt12!"
+echo(set "ARGC=3"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
+)
+>"%PSDIR%\va-collect-cmd_pc0.cmd" (
+echo(set /a FT=!FP!+4
+echo(set "NP=0"
+echo(set "zt0=T:!BANG8!"
+echo(set "zt1=T:!BANG8!"
+echo(set "zt2=T:!BANG8!"
+echo(set "zt3=T:!BANG8!"
+echo(set "zt4=T:!zt3:~2! goto _vrdy"
+echo(set "zt5=T:0!zt4:~2!"
+echo(set "zt6=T:!zt2:~2!!zt5:~2!"
+echo(set "zt7=T:==!zt6:~2!"
+echo(set "zt8=T:!zt1:~2!!zt7:~2!"
+echo(set "zt9=T:!BANG!PC!BANG!!zt8:~2!"
+echo(set "zt10=T:!zt0:~2!!zt9:~2!"
+echo(set "zt11=T:if not !zt10:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt11!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:vL=NIL"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=1"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\va-collect-cmd_pc1.cmd" (
+echo(set /a FT=!FP!+4
+echo(set "NP=0"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt11=%%%%F!_i!%%%%"
+echo(set "zt12=!R!"
+echo(set "zt13=T:!BANG8!"
+echo(set "zt14=T:!BANG8!"
+echo(set "zt15=T:vV=!BANG2!!BANG2!F!BANG!_i!BANG!!BANG2!!BANG2!!zt14:~2!"
+echo(set "zt16=T:!zt13:~2!!zt15:~2!"
+echo(set "zt17=T:call set !zt16:~2!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt17!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt11!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:vL=P:!BANG2!HN!BANG2!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=2"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\va-collect-cmd_pc2.cmd" (
+echo(set /a FT=!FP!+4
+echo(set "NP=0"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt17=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt11=%%%%F!_i!%%%%"
+echo(set "zt18=!R!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt18!"
+echo(set /a _i=!FP!+!NP!+1 ^& set "F!_i!=!zt17!"
+echo(set /a _i=!FP!+!NP!+2 ^& set "F!_i!=!zt12!"
+echo(set /a _i=!FP!+!NP!+3 ^& set "F!_i!=!zt11!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=T:F!BANG!FP!BANG!=!BANG!vL!BANG!"
+echo(set "ARGC=1"
+echo(set "CALLEE=qset"
+echo(set "RPC=3"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\va-collect-cmd_pc3.cmd" (
+echo(set /a FT=!FP!+4
+echo(set "NP=0"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt18=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+1 ^& call set "zt17=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+2 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set /a _i=!FP!+!NP!+3 ^& call set "zt11=%%%%F!_i!%%%%"
+echo(set "zt19=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T::_vrdy#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt20=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt19!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt20!#
+echo(set "zt21=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T::_vfin#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt21!#
+echo(set "zt22=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:goto _vcl#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt22!#
+echo(set "zt23=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt18!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt23!#
+echo(set "zt24=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:!GT!!BANG2!HD!BANG2!\cdr!BANG2!HN!BANG2! echo^(!BANG!vL!BANG!##
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt24!#
+echo(set "zt25=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:!GT!!BANG2!HD!BANG2!\car!BANG2!HN!BANG2! echo^(!BANG!vV!BANG!##
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt25!#
+echo(set "zt26=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:set /a HN+=1#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt26!#
+echo(set "zt27=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt17!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt27!#
+echo(set "zt28=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:set /a _i=!BANG!FP!BANG!+!BANG!vI!BANG!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt28!#
+echo(set "zt29=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:set /a vI-=1#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt29!#
+echo(set "zt30=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:if !BANG!vI!BANG! LEQ 0 goto _vfin#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt30!#
+echo(set "zt31=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T::_vcl#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt31!#
+echo(set "zt32=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(T:set /a vI=ARGC#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt32!#
+echo(set "zt33=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt12!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt33!#
+echo(set "zt34=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt11!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt34!#
+echo(set "zt35=P:!HN!"
+echo(set "R=!zt35!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\varargszzQ_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zp0=!p0!"
+echo(set "zp0=!zp0:~0,1!"
+echo(if !zp0!==S ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\varargszzQ_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=S:t"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\varargszzQ_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=NIL"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\varargszzQ_pc3.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\vref_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(if "!zt0!"=="S:lit" ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
@@ -52000,7 +54648,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi1=!p0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\cdr%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zt2=T:I:!zt1:~2!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
@@ -52010,7 +54658,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi3=!p0:~2!"
-echo(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\car%%%%v^) else set "zt3=NIL#"
 echo(set "zt3=!zt3:~0,-1!"
 echo(if "!zt3!"=="S:raw" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
@@ -52020,7 +54668,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi4=!p0:~2!"
-echo(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi4!^) do set /p zt4=^<%%HD%%\cdr%%%%v^) else set "zt4=NIL#"
 echo(set "zt4=!zt4:~0,-1!"
 echo(set "zt5=T:!zt4:~2!!BANG!"
 echo(set "zt6=T:I:!BANG!!zt5:~2!"
@@ -52031,7 +54679,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi7=!p0:~2!"
-echo(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi7!^) do set /p zt7=^<%%HD%%\car%%%%v^) else set "zt7=NIL#"
 echo(set "zt7=!zt7:~0,-1!"
 echo(if "!zt7!"=="S:cst" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
@@ -52041,7 +54689,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set "R=!zt8!" ^& set "ACTION=ret" ^& goto :eof
 )
@@ -52050,7 +54698,7 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zi9=!p0:~2!"
-echo(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi9!^) do set /p zt9=^<%%HD%%\cdr%%%%v^) else set "zt9=NIL#"
 echo(set "zt9=!zt9:~0,-1!"
 echo(set "zt10=T:!zt9:~2!!BANG!"
 echo(set "zt11=T:!BANG!!zt10:~2!"
@@ -52569,31 +55217,32 @@ echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "zi0=!p0:~2!"
-echo(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi0!^) do set /p zt0=^<%%HD%%\car%%%%v^) else set "zt0=NIL#"
 echo(set "zt0=!zt0:~0,-1!"
 echo(set "zi1=!zt0:~2!"
-echo(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v
+echo(if "!zt0:~0,2!"=="P:" ^(for %%%%v in ^(!zi1!^) do set /p zt1=^<%%HD%%\car%%%%v^) else set "zt1=NIL#"
 echo(set "zt1=!zt1:~0,-1!"
 echo(set "zt2=T:!zt1:~2!.cmd"
 echo(set "zt3=T:/!zt2:~2!"
 echo(set "zt4=T:!p1:~2!!zt3:~2!"
 echo(set "zi5=!p0:~2!"
-echo(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi5!^) do set /p zt5=^<%%HD%%\car%%%%v^) else set "zt5=NIL#"
 echo(set "zt5=!zt5:~0,-1!"
 echo(set "zi6=!zt5:~2!"
-echo(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v
+echo(if "!zt5:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\cdr%%%%v^) else set "zt6=NIL#"
 echo(set "zt6=!zt6:~0,-1!"
 echo(set "A1=!zt4!"
 echo(set "A2=!zt6!"
 echo(call write-lines.cmd
 echo(set "zt7=!R!"
 echo(set "zi8=!p0:~2!"
-echo(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
 echo(set "zt8=!zt8:~0,-1!"
 echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt8!"
 echo(set /a _i=!FP!+1 ^& set "F!_i!=!p1!"
+echo(set "ARGC=2"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
->"%PSDIR%\.ok" echo 5a40cf0c805c
+>"%PSDIR%\.ok" echo c973e7654967
 endlocal
 exit /b 0

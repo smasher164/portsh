@@ -70,7 +70,8 @@ prog.lisp > app.cmd` — see "The bootstrap kernel".)
   (list (str "hello, " me)))             ; compute strings, line-oriented file I/O
 ```
 
-Special forms: `define`, `lambda`, `if`, `quote`, `let`, `let*`, `cond`,
+Special forms: `define`, `lambda` (fixed-arity or variadic — `(lambda args
+body)` binds all arguments as a list), `if`, `quote`, `let`, `let*`, `cond`,
 `and`, `or`, `when`, `unless`, `case`, `begin`, `list`, `str`. Primitives:
 `cons`/`car`/`cdr`, `eq?`/`null?`/`pair?`/`atom?`/`number?`/`not`, `apply`,
 arithmetic `+ - *` (n-ary, left fold; `(- x)` negates) and comparisons

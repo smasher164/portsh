@@ -16,11 +16,15 @@
 (define lv-names (lambda (binds) (if (pair? binds) (cons (car (car binds)) (lv-names (cdr binds))) nil)))
 (define fv-binds (lambda (binds bound acc) (if (pair? binds) (fv-binds (cdr binds) bound (fv (car (cdr (car binds))) bound acc)) acc)))
 (define fv-list (lambda (fs bound acc) (if (pair? fs) (fv-list (cdr fs) bound (fv (car fs) bound acc)) acc)))
+;; formals may be a SYMBOL (variadic rest-parameter: (lambda args body)) -- normalise to a
+;; one-element list wherever a param LIST is expected; varargs? gates the codegen.
+(define fs-list (lambda (fs) (if (symbol? fs) (cons fs nil) fs)))
+(define varargs? (lambda (fs) (symbol? fs)))
 (define fv (lambda (f bound acc)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) acc
       (if (runop? (car f)) acc
-        (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
+        (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (fs-list (car (cdr f))) bound) acc)
           (if (eq? (car f) (quote let))
             (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
             (fv-list f bound acc)))))
@@ -41,8 +45,8 @@
     (if (eq? (car f) (quote quote)) (list f nil ctr)
      (if (runop? (car f)) (list f nil ctr)
       (if (eq? (car f) (quote lambda))
-        (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (car (cdr f)) bound) ctr)))
-          (let ((cap (keep-bound (fv (car rb) lf nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
+        (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (fs-list (car (cdr f))) bound) ctr)))
+          (let ((cap (keep-bound (fv (car rb) (fs-list lf) nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
             (list (cons (quote make-closure) (cons (list (quote quote) name) cap))
                   (append (car (cdr rb)) (list (list (quote define) name (list (quote clambda) lf cap (car rb)))))
                   (+ (car (cdr (cdr rb))) 1))))
@@ -140,12 +144,12 @@
 ;; "$ELIDE" sentinel) is NOT: one sh-esc survives the line parse but the eval then expands it.
 ;; So materialise a cst into STGV by direct assignment (single level -> single sh-esc is right),
 ;; then store STGV as a loc (the safe path). loc/lit stage directly.
-(define stage (lambda (b refs i) (if (null? refs) b (stage
+(define stage (lambda (b refs i) (if (null? refs) (emit b (str "ARGC=" (number->string i))) (stage
   (if (eq? (car (car refs)) (quote cst))
     (emit (emit b (str "STGV=" (dq) (cdr (car refs)) (dq))) (str "eval " (dq) "F$((NFP+" (number->string i) "))=" (eqt) "\$STGV" (eqt) (dq)))
     (emit b (str "eval " (dq) "F$((NFP+" (number->string i) "))=" (eqt) (fval (car refs)) (eqt) (dq))))
   (cdr refs) (+ i 1)))))
-(define setparams (lambda (b refs i) (if (null? refs) b (setparams
+(define setparams (lambda (b refs i) (if (null? refs) (emit b (str "ARGC=" (number->string i))) (setparams
   (if (eq? (car (car refs)) (quote cst))
     (emit (emit b (str "STGV=" (dq) (cdr (car refs)) (dq))) (str "eval " (dq) "F$((FP+" (number->string i) "))=" (eqt) "\$STGV" (eqt) (dq)))
     (emit b (str "eval " (dq) "F$((FP+" (number->string i) "))=" (eqt) (fval (car refs)) (eqt) (dq))))
@@ -418,6 +422,15 @@
 (define blkget (lambda (al pc) (if (null? al) nil (if (eq? (car (car al)) pc) (cdr (car al)) (blkget (cdr al) pc)))))
 (define caseblocks (lambda (al i n) (if (= i n) nil (append (cons (str (number->string i) ")") (append (blkget al i) (list ";;"))) (caseblocks al (+ i 1) n)))))
 
+;; variadic preamble: cons F[FP..FP+ARGC) into the rest list, ONLY on a fresh entry (PC==0) --
+;; on a resume the slot already holds the list and ARGC is stale from the nested call. The list
+;; lands in F[FP] so the ordinary p0 load (ploads) and gc frame-scan see it like any param.
+(define va-collect-sh (lambda ()
+  (list (str "if [ " (dq) "$PC" (dq) " = 0 ]; then")
+        "_vi=$ARGC; _vl=NIL"
+        (str "while [ " (dq) "$_vi" (dq) " -gt 0 ]; do _vi=$((_vi-1)); eval " (dq) "_vv=" (eqt) "\$F$((FP+_vi))" (eqt) (dq) "; hp_cons " (dq) "$_vv" (dq) " " (dq) "$_vl" (dq) "; _vl=$R; done")
+        (str "eval " (dq) "F$FP=" (eqt) "\$_vl" (eqt) (dq))
+        "fi")))
 (define mkclo-caps (lambda (caps) (if (null? caps) (quote nil) (list (quote cons) (car caps) (mkclo-caps (cdr caps))))))
 ;; cap-loads: walk the closure record (cdr is the captured list) into p<np>.. local vars.
 (define cap-loads-go (lambda (cap i)
@@ -428,7 +441,7 @@
   (if (null? cap) nil (cons (str "hp_cdr " (dq) "P:${CLO}" (dq)) (cons (str "_cl=" (dq) "${R}" (dq)) (cap-loads-go cap np))))))
 ;; a lifted closure sub: formals from frame slots, captured vars from the record (via CLO).
 (define compile-clambda (lambda (name lf cap body gfns gvars)
-  (let ((np (lenl lf)) (pm (cons (cons (quote __gfns) gfns) (cons (cons (quote __gvars) gvars) (pmap-fr (append lf cap) 0)))) (mn (sh-mangle (symbol->string name))))
+  (let ((np (lenl (fs-list lf))) (pm (cons (cons (quote __gfns) gfns) (cons (cons (quote __gvars) gvars) (pmap-fr (append (fs-list lf) cap) 0)))) (mn (sh-mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         ;; The capture-load preamble (hp_cdr/hp_car off the record) runs on EVERY entry, before
@@ -437,7 +450,7 @@
         ;; never touch R; only capturing closures that make a non-tail call need this).
         (append (cons (str "SIZE_" mn "=" (number->string fsz))
                   (cons (str mn "() {")
-                    (append (ploads lf 0)
+                    (append (if (varargs? lf) (append (va-collect-sh) (ploads (fs-list lf) 0)) (ploads lf 0))
                       (cons "_clrs=$R"
                         (append (cap-loads cap np)
                           (cons "R=$_clrs"
@@ -451,17 +464,17 @@
     (let ((d (car forms)))
       (if (if (pair? d) (if (eq? (car d) (quote define)) (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil) nil) nil)
         (let ((nm (car (cdr d))) (lf (car (cdr (car (cdr (cdr d)))))) (bd (car (cdr (cdr (car (cdr (cdr d))))))))
-          (let ((r (lift bd lf ctr)))
+          (let ((r (lift bd (fs-list lf) ctr)))
             (cons (list (quote define) nm (list (quote lambda) lf (car r)))
                   (append (car (cdr r)) (lift-program (cdr forms) (car (cdr (cdr r))))))))
         (cons d (lift-program (cdr forms) ctr)))))))
 (define compile-fn-bb (lambda (name params body gfns gvars)
-  (let ((np (lenl params)) (pm (cons (cons (quote __gfns) gfns) (cons (cons (quote __gvars) gvars) (pmap-fr params 0)))) (mn (sh-mangle (symbol->string name))))
+  (let ((np (lenl (fs-list params))) (pm (cons (cons (quote __gfns) gfns) (cons (cons (quote __gvars) gvars) (pmap-fr (fs-list params) 0)))) (mn (sh-mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         (append (cons (str "SIZE_" mn "=" (number->string fsz))
                   (cons (str mn "() {")
-                    (append (ploads params 0)
+                    (append (if (varargs? params) (append (va-collect-sh) (ploads (fs-list params) 0)) (ploads params 0))
                       (cons (str "FTOP=$((FP + SIZE_" mn "))")
                         (cons (str "NP=" (number->string np)) (cons "case $PC in" (caseblocks blk 0 (b-npc bf))))))))
                 (list "esac; }")))))))
@@ -511,7 +524,7 @@
     (let ((d (car forms)))
       (if (if (pair? d) (if (eq? (car d) (quote define)) (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil) nil) nil)
         (let ((nm (car (cdr d))) (lf (car (cdr (car (cdr (cdr d)))))) (bd (car (cdr (cdr (car (cdr (cdr d))))))))
-          (let ((r (lift bd lf ctr)))
+          (let ((r (lift bd (fs-list lf) ctr)))
             (let ((rest (lift-program-c (cdr forms) (car (cdr (cdr r))))))
               (cons (cons (list (quote define) nm (list (quote lambda) lf (car r)))
                           (append (car (cdr r)) (car rest)))

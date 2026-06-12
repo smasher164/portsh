@@ -278,11 +278,21 @@ set "MN=!R!"
 rem REDEFINITION: any cached compiled artifact for this name is now STALE -- never flip it again this
 rem session (OSRSKIP) and un-memoize a prior flip. Semantics stay exact; the fn just stays interpreted.
 if defined ILAM_!MN!_body (set "OSRSKIP_!MN!=1" & set "COMPILED_!MN!=")
+if "!PS:~0,2!"=="S:" goto in_reg_lam_va
 set "ILL=!PS!"
 call :ilen
 set "ILAM_!MN!_np=!R!"
 set "ILAM_!MN!_ncap=0"
 set "ILAM_!MN!_vars=!PS!"
+set "ILAM_!MN!_body=!BODY!"
+goto in_reg
+:in_reg_lam_va
+rem variadic (lambda args body): one rest slot; itk_fresh collects F[FP..ARGC) into it
+call :hp_cons "!PS!" "NIL"
+set "ILAM_!MN!_np=1"
+set "ILAM_!MN!_va=1"
+set "ILAM_!MN!_ncap=0"
+set "ILAM_!MN!_vars=!R!"
 set "ILAM_!MN!_body=!BODY!"
 goto in_reg
 :in_reg_clam
@@ -298,6 +308,10 @@ set "CAPS=!R!"
 call :hp_cdr "!C2!"
 call :hp_car "!R!"
 set "BODY=!R!"
+rem variadic clambda: convert the symbol formals to a 1-list (rest slot) + mark va; the rest of
+rem the registration (rev/append/ilen) then works unchanged with np=1.
+set "VAFL="
+if "!PS:~0,2!"=="S:" (set "VAFL=1" & call :hp_cons "!PS!" "NIL" & set "PS=!R!")
 rem vars = append(PS, CAPS): reverse PS, cons onto CAPS
 set "RV=NIL"
 set "PL=!PS!"
@@ -327,6 +341,7 @@ if defined ILAM_!MN!_body (set "OSRSKIP_!MN!=1" & set "COMPILED_!MN!=")
 set "ILL=!PS!"
 call :ilen
 set "ILAM_!MN!_np=!R!"
+if defined VAFL set "ILAM_!MN!_va=1"
 set "ILL=!CAPS!"
 call :ilen
 set "ILAM_!MN!_ncap=!R!"

@@ -26,7 +26,7 @@ set /a RSP+=1
 set "FP=!NFP!" & set "PC=0" & set "CLO="
 set "_ai=0" & set "_ac=!APLIST!"
 :eld_ap_loop
-if "!_ac!"=="NIL" goto eld_dispatch
+if "!_ac!"=="NIL" (set "ARGC=!_ai!" & goto eld_dispatch)
 call :hp_car "!_ac!"
 set /a _i=!FP!+!_ai!
 set "F!_i!=!R!"

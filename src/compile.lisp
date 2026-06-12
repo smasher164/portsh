@@ -129,8 +129,8 @@
 (define fval (lambda (r) (vref r)))
 (define spill (lambda (b live j) (if (null? live) b (spill (emit b (str "set /a _i=!FP!+!NP!+" (number->string j) " & set " (dq) "F!_i!=!" (car live) "!" (dq))) (cdr live) (+ j 1)))))
 (define unspill (lambda (b live j) (if (null? live) b (unspill (emit b (str "set /a _i=!FP!+!NP!+" (number->string j) " & call set " (dq) (car live) "=%%F!_i!%%" (dq))) (cdr live) (+ j 1)))))
-(define stage (lambda (b refs i) (if (null? refs) b (stage (emit b (str "set /a _i=!NFP!+" (number->string i) " & set " (dq) "F!_i!=" (fval (car refs)) (dq))) (cdr refs) (+ i 1)))))
-(define setparams (lambda (b refs i) (if (null? refs) b (setparams (emit b (str "set /a _i=!FP!+" (number->string i) " & set " (dq) "F!_i!=" (fval (car refs)) (dq))) (cdr refs) (+ i 1)))))
+(define stage (lambda (b refs i) (if (null? refs) (emit b (qset (str "ARGC=" (number->string i)))) (stage (emit b (str "set /a _i=!NFP!+" (number->string i) " & set " (dq) "F!_i!=" (fval (car refs)) (dq))) (cdr refs) (+ i 1)))))
+(define setparams (lambda (b refs i) (if (null? refs) (emit b (qset (str "ARGC=" (number->string i)))) (setparams (emit b (str "set /a _i=!FP!+" (number->string i) " & set " (dq) "F!_i!=" (fval (car refs)) (dq))) (cdr refs) (+ i 1)))))
 (define rvar (lambda (r) (if (eq? (car r) (quote val)) (cdr r) (if (eq? (car r) (quote raw)) (cdr r) nil))))
 (define addlive (lambda (r live) (let ((v (rvar r))) (if (null? v) live (cons v live)))))
 (define largs (lambda (es pmap b live)
@@ -147,7 +147,7 @@
   (let ((rx (lval (car (cdr f)) pmap b live)))
     (let ((zi (str "zi" (number->string (b-k (car rx))))) (tmp (tmpn (car rx))))
       (let ((b1 (emit (car rx) (qset (str zi "=!" (cdr (cdr rx)) ":~2!")))))
-        (let ((b2 (emit b1 (str "for %%v in (!" zi "!) do set /p " tmp "=<%HD%\" field "%%v"))))
+        (let ((b2 (emit b1 (str "if " (dq) "!" (cdr (cdr rx)) ":~0,2!" (dq) "==" (dq) "P:" (dq) " (for %%v in (!" zi "!) do set /p " tmp "=<%HD%\" field "%%v) else set " (dq) tmp "=NIL#" (dq)))))
           (cons (bk+ (emit b2 (qset (str tmp "=!" tmp ":~0,-1!")))) (cons (quote val) tmp))))))))
 (define ltagtest (lambda (e ch pmap b live neg)
   (let ((rx (lval e pmap b live)))
@@ -376,21 +376,42 @@
   (cons (str "set /a _i=!FP!+" (number->string i) " & call set " (dq) "p" (number->string i) "=%%F!_i!%%" (dq)) (ploads (cdr fs) (+ i 1)))))))
 (define blkget (lambda (al pc) (if (null? al) nil (if (eq? (car (car al)) pc) (cdr (car al)) (blkget (cdr al) pc)))))
 (define caseblocks (lambda (al i n) (if (= i n) nil (append (cons (str ":_pc" (number->string i)) (blkget al i)) (caseblocks al (+ i 1) n)))))
+;; variadic preamble (cmd): cons F[FP..FP+ARGC) into the rest list, ONLY on a fresh entry
+;; (PC==0) -- on a resume the slot already holds the list and ARGC is stale. Labels are
+;; file-local (one fn per per-PC file), so the backward goto scans a tiny file. Cons is the
+;; standard inline pre-increment with the guard byte.
+(define va-collect-cmd (lambda ()
+  (list (str "if not " (dq) "!PC!" (dq) "==" (dq) "0" (dq) " goto _vrdy")
+        (qset "vL=NIL")
+        "set /a vI=ARGC"
+        ":_vcl"
+        "if !vI! LEQ 0 goto _vfin"
+        "set /a vI-=1"
+        "set /a _i=!FP!+!vI!"
+        (str "call set " (dq) "vV=%%F!_i!%%" (dq))
+        "set /a HN+=1"
+        (str ">%HD%\car%HN% echo(!vV!#")
+        (str ">%HD%\cdr%HN% echo(!vL!#")
+        (qset "vL=P:%HN%")
+        "goto _vcl"
+        ":_vfin"
+        (qset "F!FP!=!vL!")
+        ":_vrdy")))
 (define compile-fn (lambda (nm lbl fs body k0 elide gfns gvars)
-  (let ((np (lenl fs)) (pm (cons (cons "$GFNS" gfns) (cons (cons "$GVARS" gvars) (pmap-fr fs 0)))))
+  (let ((np (lenl (fs-list fs))) (pm (cons (cons "$GFNS" gfns) (cons (cons "$GVARS" gvars) (pmap-fr (fs-list fs) 0)))))
     (let ((bf (ltail body pm nm np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
-        (let ((preamble (append (ploads fs 0) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil)))))
+        (let ((preamble (append (if (varargs? fs) (append (va-collect-cmd) (ploads (fs-list fs) 0)) (ploads fs 0)) (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil)))))
           (cons (seg-files preamble blk 0 (b-npc bf) lbl) k0)))))))
 ;; a lifted closure sub: formals from frame slots (ploads), captured vars from the record (cap-loads via CLO).
 (define compile-clambda (lambda (name lf cap body gfns gvars)
-  (let ((np (lenl lf)) (pm (cons (cons "$GFNS" gfns) (cons (cons "$GVARS" gvars) (pmap-fr (append lf cap) 0)))) (lbl (mangle (symbol->string name))))
+  (let ((np (lenl (fs-list lf))) (pm (cons (cons "$GFNS" gfns) (cons (cons "$GVARS" gvars) (pmap-fr (append (fs-list lf) cap) 0)))) (lbl (mangle (symbol->string name))))
     (let ((bf (ltail body pm name np (mkb nil nil 0 1 0 0) nil)))
       (let ((blk (cons (cons (b-pc bf) (rev (b-cur bf) nil)) (b-blk bf))) (fsz (+ np (b-smax bf))))
         ;; The cap-loads preamble (rdfield.cmd off the record) runs on EVERY entry, before the PC
         ;; dispatch -- including a resume after a non-tail call, where R holds that call's result.
         ;; rdfield.cmd sets R, so save/restore R around the preamble (mirror of compile-sh.lisp's _clrs).
-        (let ((preamble (append (ploads lf 0) (cons (qset "_clrs=!R!") (append (cap-loads cap np) (cons (qset "R=!_clrs!") (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil))))))))
+        (let ((preamble (append (if (varargs? lf) (append (va-collect-cmd) (ploads (fs-list lf) 0)) (ploads lf 0)) (cons (qset "_clrs=!R!") (append (cap-loads cap np) (cons (qset "R=!_clrs!") (cons (str "set /a FT=!FP!+" (number->string fsz)) (cons (qset (str "NP=" (number->string np))) nil))))))))
           (seg-files preamble blk 0 (b-npc bf) lbl)))))))
 (define tst (lambda (x) (let ((y (cdr x))) (cond ((null? y) (quote done)) ((pair? y) (write-lines "out" y)) (t (string-length y))))))
 
@@ -686,11 +707,15 @@
 (define lv-names (lambda (binds) (if (pair? binds) (cons (car (car binds)) (lv-names (cdr binds))) nil)))
 (define fv-binds (lambda (binds bound acc) (if (pair? binds) (fv-binds (cdr binds) bound (fv (car (cdr (car binds))) bound acc)) acc)))
 (define fv-list (lambda (fs bound acc) (if (pair? fs) (fv-list (cdr fs) bound (fv (car fs) bound acc)) acc)))
+;; formals may be a SYMBOL (variadic rest-parameter: (lambda args body)) -- normalise to a
+;; one-element list wherever a param LIST is expected; varargs? gates the codegen.
+(define fs-list (lambda (fs) (if (symbol? fs) (cons fs nil) fs)))
+(define varargs? (lambda (fs) (symbol? fs)))
 (define fv (lambda (f bound acc)
   (if (pair? f)
     (if (eq? (car f) (quote quote)) acc
       (if (runop? (car f)) acc
-        (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (car (cdr f)) bound) acc)
+        (if (eq? (car f) (quote lambda)) (fv (car (cdr (cdr f))) (append (fs-list (car (cdr f))) bound) acc)
           (if (eq? (car f) (quote let))
             (fv (car (cdr (cdr f))) (append (lv-names (car (cdr f))) bound) (fv-binds (car (cdr f)) bound acc))
             (fv-list f bound acc)))))
@@ -711,8 +736,8 @@
     (if (eq? (car f) (quote quote)) (list f nil ctr)
      (if (runop? (car f)) (list f nil ctr)
       (if (eq? (car f) (quote lambda))
-        (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (car (cdr f)) bound) ctr)))
-          (let ((cap (keep-bound (fv (car rb) lf nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
+        (let ((lf (car (cdr f))) (rb (lift (car (cdr (cdr f))) (append (fs-list (car (cdr f))) bound) ctr)))
+          (let ((cap (keep-bound (fv (car rb) (fs-list lf) nil) bound)) (name (string->symbol (str "__lam" (number->string (car (cdr (cdr rb))))))))
             (list (cons (quote make-closure) (cons (list (quote quote) name) cap))
                   (append (car (cdr rb)) (list (list (quote define) name (list (quote clambda) lf cap (car rb)))))
                   (+ (car (cdr (cdr rb))) 1))))
@@ -723,7 +748,7 @@
     (let ((d (car forms)))
       (if (if (pair? d) (if (eq? (car d) (quote define)) (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil) nil) nil)
         (let ((nm (car (cdr d))) (lf (car (cdr (car (cdr (cdr d)))))) (bd (car (cdr (cdr (car (cdr (cdr d))))))))
-          (let ((r (lift bd lf ctr)))
+          (let ((r (lift bd (fs-list lf) ctr)))
             (cons (list (quote define) nm (list (quote lambda) lf (car r)))
                   (append (car (cdr r)) (lift-program (cdr forms) (car (cdr (cdr r))))))))
         (cons d (lift-program (cdr forms) ctr)))))))
@@ -735,7 +760,7 @@
     (let ((d (car forms)))
       (if (if (pair? d) (if (eq? (car d) (quote define)) (if (pair? (car (cdr (cdr d)))) (eq? (car (car (cdr (cdr d)))) (quote lambda)) nil) nil) nil)
         (let ((nm (car (cdr d))) (lf (car (cdr (car (cdr (cdr d)))))) (bd (car (cdr (cdr (car (cdr (cdr d))))))))
-          (let ((r (lift bd lf ctr)))
+          (let ((r (lift bd (fs-list lf) ctr)))
             (let ((rest (lift-program-c (cdr forms) (car (cdr (cdr r))))))
               (cons (cons (list (quote define) nm (list (quote lambda) lf (car r)))
                           (append (car (cdr r)) (car rest)))
