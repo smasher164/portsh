@@ -75,8 +75,9 @@ Special forms: `define`, `lambda`, `if`, `quote`, `let`, `let*`, `cond`,
 `cons`/`car`/`cdr`, `eq?`/`null?`/`pair?`/`atom?`/`number?`/`not`, `apply`,
 arithmetic `+ - *` (n-ary, left fold; `(- x)` negates) and comparisons
 `< <= =` (chained, each operand evaluated once: `(< 1 3 2)` is nil),
-`type-of`, `eval`, `read`, `print`; `run`/`run-capture`, `argv`, `getenv`, and
-`file-exists?` for the host; `string-append`/`string-length`/`substring`/`split` plus the
+`type-of`, `eval`, `read`, `print`, `exit`; `run`/`run-capture`, `argv`,
+`getenv`/`setenv`, `file-exists?`, `make-dir`/`delete-file`/`copy-file` for the
+host (file paths use forward slashes everywhere — normalized per host); `string-append`/`string-length`/`substring`/`split` plus the
 `symbol`/`number`/`string` converters; `read-lines`/`write-lines`/
 `append-lines`. The stdlib (`map`, `filter`, `foldl`, …) is ordinary Lisp on
 top.

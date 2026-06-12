@@ -13,16 +13,23 @@ workaround in the other direction (spreading a list into a fixed-arity call).
 Supporting rest-args needs a dynamic argument count in the calling convention;
 `apply`'s spread machinery is the natural starting point.
 
-## argv and getenv carry host caveats
+## The host layer carries host caveats
 
 `(argv)` returns the arguments after the program path (a packed app sees all of
-its arguments); `(getenv "NAME")` returns a string or nil. The caveats are the
-hosts': cmd cannot store an empty environment variable, so **empty == unset ==
-nil on both hosts**; environment names are case-insensitive on cmd and
+its arguments); `(getenv "NAME")`/`(setenv "NAME" "v")` read and write the
+process environment (inherited by `run` children); `(exit n)` sets the script's
+exit code; `make-dir`/`delete-file`/`copy-file` are the portable file ops
+(mkdir -p / rm -f / overwrite semantics, t/nil results, forward-slash paths
+normalized per host). The caveats are the hosts': cmd cannot store an empty
+environment variable, so **empty == unset == nil on both hosts** and setting a
+variable to `""` unsets it; environment names are case-insensitive on cmd and
 case-sensitive on sh (use exact-case names); names are restricted to
-`A-Za-z0-9_`; and argument/value text containing cmd metacharacters (`!`, `%`)
-is best-effort on Windows -- the portable subset is plain tokens, which the
-conformance suite pins byte-identical across every engine.
+`A-Za-z0-9_`; engine-internal names (and `PATH`, which the cmd runtime
+resolves its own primitives through — it re-prepends its cache dirs after any
+`PATH` set) are best left alone except through `setenv`; and argument/value
+text containing cmd metacharacters (`!`, `%`) is best-effort on Windows -- the
+portable subset is plain tokens, which the conformance suite pins
+byte-identical across every engine.
 
 ## Strings are single lines
 

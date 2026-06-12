@@ -255,8 +255,8 @@ if not exist "!PCACHE!\\_thunks" (echo packed app: program artifacts missing 1>&
 set "PORTSH_OSRDIR=!PCACHE!"
 set "PORTSH_SCRIPT=1"
 cmd /c "call interp-cmd.cmd __packedrun"
-endlocal
-goto :eof
+set "RC=!errorlevel!"
+endlocal & exit /b %RC%
 :PPROG
 {PX}
 exit /b 0

@@ -47,6 +47,19 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# setenv: ""-value UNSETS (cmd cannot store an empty env var -- mirror getenv's empty==unset==nil);
+# same name guard. Children of run/run-capture inherit. exit_prim: terminate with the given code
+# (the fn cannot be named `exit` in sh -- it would shadow the builtin and recurse; brt maps it).
+# File ops (t/nil): make-dir = mkdir -p (parents, idempotent); delete-file = rm -f semantics
+# (missing -> t: the desired state); copy-file overwrites.
+setenv() { _sn=${1#T:}; _sv=${2#T:}
+           case $_sn in *[!A-Za-z0-9_]*|"") R=NIL ;;
+             *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac; }
+exit_prim() { exit "${1#I:}"; }
+make_dir()    { mkdir -p "${1#T:}" 2>/dev/null && R="S:t" || R=NIL; }
+delete_file() { _df=${1#T:}; if [ -e "$_df" ]; then rm -f "$_df" 2>/dev/null; fi
+                [ -e "$_df" ] && R=NIL || R="S:t"; }
+copy_file()   { cp -f "${1#T:}" "${2#T:}" 2>/dev/null && R="S:t" || R=NIL; }
 getenv() { _gn=${1#T:}
            case $_gn in *[!A-Za-z0-9_]*|"") R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app

@@ -1938,6 +1938,41 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 22)
+if [ "${p0}" = "S:setenv" ]; then PC=23; else PC=24; fi
+ACTION=jump; return
+;;
+23)
+R="S:t"; ACTION=ret; return
+;;
+24)
+if [ "${p0}" = "S:exit" ]; then PC=25; else PC=26; fi
+ACTION=jump; return
+;;
+25)
+R="S:t"; ACTION=ret; return
+;;
+26)
+if [ "${p0}" = "S:make-dir" ]; then PC=27; else PC=28; fi
+ACTION=jump; return
+;;
+27)
+R="S:t"; ACTION=ret; return
+;;
+28)
+if [ "${p0}" = "S:delete-file" ]; then PC=29; else PC=30; fi
+ACTION=jump; return
+;;
+29)
+R="S:t"; ACTION=ret; return
+;;
+30)
+if [ "${p0}" = "S:copy-file" ]; then PC=31; else PC=32; fi
+ACTION=jump; return
+;;
+31)
+R="S:t"; ACTION=ret; return
+;;
+32)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -1955,13 +1990,20 @@ ACTION=jump; return
 R="T:read_str"; ACTION=ret; return
 ;;
 2)
+if [ "${p0}" = "S:exit" ]; then PC=3; else PC=4; fi
+ACTION=jump; return
+;;
+3)
+R="T:exit_prim"; ACTION=ret; return
+;;
+4)
 sht0="T:${p0#??}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 CALLEE=sh_mangle
-RPC=3; ACTION=call; return
+RPC=5; ACTION=call; return
 ;;
-3)
+5)
 sht1="${R}"
 R="${sht1}"; ACTION=ret; return
 ;;

@@ -49,6 +49,9 @@ main = r'''
 rem CTR threads the lambda-lift counter, NN the thunk counter -- both persist across proc_forms calls so
 rem successive REPL inputs don't collide __lamN / __evN (which would clobber live closures/defs).
 set "CTR=0" & set "NN=0"
+rem the runtime dir (= the tooling cache when running from it): setenv re-prepends this to PATH
+rem after a user PATH set, since compiled prims resolve through PATH at runtime.
+set "PORTSH_RTDIR=%~dp0"
 if defined PORTSH_OSRDIR set "PATH=!PORTSH_OSRDIR!;!PATH!"
 if "%~1"=="" goto in_repl
 rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv), unless a

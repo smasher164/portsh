@@ -481,6 +481,14 @@ prim_app() {
              fi ;;
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'setenv') arg2 "$args"; _sn=${ARG1#T:}; _sv=${ARG2#T:}
+             case $_sn in *[!A-Za-z0-9_]*|'') R=NIL ;;
+               *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac ;;
+    'exit')  arg1 "$args"; exit "${ARG1#I:}" ;;
+    'make-dir')    arg1 "$args"; mkdir -p "${ARG1#T:}" 2>/dev/null && R="S:t" || R=NIL ;;
+    'delete-file') arg1 "$args"; _df=${ARG1#T:}; if [ -e "$_df" ]; then rm -f "$_df" 2>/dev/null; fi
+             [ -e "$_df" ] && R=NIL || R="S:t" ;;
+    'copy-file')   arg2 "$args"; cp -f "${ARG1#T:}" "${ARG2#T:}" 2>/dev/null && R="S:t" || R=NIL ;;
     'getenv') arg1 "$args"; _gn=${ARG1#T:}
              case $_gn in *[!A-Za-z0-9_]*|'') R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac ;;
     'type-of') arg1 "$args"; case $ARG1 in
@@ -544,7 +552,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -1384,6 +1392,11 @@ if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
 if "!paN!"=="argv" goto pa_argv
 if "!paN!"=="getenv" goto pa_getenv
+if "!paN!"=="setenv" goto pa_setenv
+if "!paN!"=="exit" goto pa_exit
+if "!paN!"=="make-dir" goto pa_mkdir
+if "!paN!"=="delete-file" goto pa_delf
+if "!paN!"=="copy-file" goto pa_copyf
 if "!paN!"=="split" goto pa_split
 set "R=NIL" & goto :eof
 :pa_split
@@ -1443,6 +1456,59 @@ call set "paAvV=%%PORTSH_ARGV_!paAi!%%"
 call :hp_cons "T:!paAvV!" "!paAv!"
 set "paAv=!R!"
 goto pa_av_loop
+:pa_exit
+call :hp_car "%~3"
+exit !R:~2!
+:pa_setenv
+rem (setenv "NAME" "v") -> S:t; ""-value UNSETS (mirror getenv empty==unset); bad name -> NIL
+call :hp_car "%~3"
+set "paSn=!R:~2!"
+call :hp_cdr "%~3"
+call :hp_car "!R!"
+set "paSv=!R:~2!"
+if not defined paSn (set "R=NIL" & goto :eof)
+set "paSt=!paSn!"
+:pa_se_chk
+if not defined paSt goto pa_se_ok
+set "paSc=!paSt:~0,1!"
+set "paSt=!paSt:~1!"
+if "!paSc!" GEQ "a" if "!paSc!" LEQ "z" goto pa_se_chk
+if "!paSc!" GEQ "A" if "!paSc!" LEQ "Z" goto pa_se_chk
+if "!paSc!" GEQ "0" if "!paSc!" LEQ "9" goto pa_se_chk
+if "!paSc!"=="_" goto pa_se_chk
+set "R=NIL"
+goto :eof
+:pa_se_ok
+if defined paSv (set "!paSn!=!paSv!") else (set "!paSn!=")
+set "R=S:t"
+goto :eof
+:pa_mkdir
+call :hp_car "%~3"
+set "paMp=!R:~2!"
+set "paMp=!paMp:/=\!"
+if exist "!paMp!\" (set "R=S:t" & goto :eof)
+mkdir "!paMp!" 2>nul
+if exist "!paMp!\" (set "R=S:t") else (set "R=NIL")
+goto :eof
+:pa_delf
+call :hp_car "%~3"
+set "paDp=!R:~2!"
+set "paDp=!paDp:/=\!"
+if not exist "!paDp!" (set "R=S:t" & goto :eof)
+del /f /q "!paDp!" 2>nul
+if exist "!paDp!" (set "R=NIL") else (set "R=S:t")
+goto :eof
+:pa_copyf
+call :hp_car "%~3"
+set "paCs=!R:~2!"
+set "paCs=!paCs:/=\!"
+call :hp_cdr "%~3"
+call :hp_car "!R!"
+set "paCd=!R:~2!"
+set "paCd=!paCd:/=\!"
+copy /y "!paCs!" "!paCd!" >nul 2>nul
+if exist "!paCd!" (set "R=S:t") else (set "R=NIL")
+goto :eof
 :pa_getenv
 rem (getenv "NAME") -> T:value | NIL when unset (cmd cannot store empty -> empty==unset==nil,
 rem mirrored by sh). Name restricted to A-Za-z0-9_ (mirror kernel.sh).
@@ -1846,6 +1912,11 @@ call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 call :env_define "!GLOBAL!" "S:argv" "R:argv"
 call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
+call :env_define "!GLOBAL!" "S:setenv" "R:setenv"
+call :env_define "!GLOBAL!" "S:exit" "R:exit"
+call :env_define "!GLOBAL!" "S:make-dir" "R:make-dir"
+call :env_define "!GLOBAL!" "S:delete-file" "R:delete-file"
+call :env_define "!GLOBAL!" "S:copy-file" "R:copy-file"
 call :env_define "!GLOBAL!" "S:split" "R:split"
 call :env_define "!GLOBAL!" "S:run" "F:run"
 call :env_define "!GLOBAL!" "S:run-capture" "F:run-capture"

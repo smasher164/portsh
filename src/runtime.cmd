@@ -177,6 +177,7 @@ rem :file-existszzQ -- A1 = path (T:..). R = S:t if it exists, else NIL. Matches
 rem slash normalisation -- consistent with the interpreter; write-lines normalises, fex does not).
 :file-existszzQ
 set "fexP=!A1:~2!"
+set "fexP=!fexP:/=\!"
 if exist "!fexP!" (set "R=S:t") else (set "R=NIL")
 goto :eof
 rem :split -- A1 = T:string, A2 = T:separator. R = list of T: pieces (mirrors the kernel/interp split).
@@ -224,6 +225,65 @@ if "!toT!"=="S:" (set "R=S:symbol" & goto :eof)
 if "!toT!"=="T:" (set "R=S:string" & goto :eof)
 if "!toT!"=="P:" (set "R=S:pair" & goto :eof)
 set "R=S:unknown"
+goto :eof
+rem :exit -- A1 = I:code. Bare `exit` (no /b) terminates the whole cmd.exe instance -- exactly the
+rem semantics we want: the front-end's `cmd /c` child dies with this code and the front-end
+rem propagates it as the script's exit code.
+:exit
+exit !A1:~2!
+rem :setenv -- A1 = T:name, A2 = T:value. ""-value UNSETS (cmd cannot store an empty env var; the
+rem sh side mirrors this). Name restricted to A-Za-z0-9_ (mirror getenv). R = S:t, or NIL on a bad
+rem name. PATH is special-cased: the engine resolves its compiled prims THROUGH PATH at runtime, so
+rem after a user PATH set we re-prepend the program cache (PORTSH_OSRDIR) and the tooling runtime
+rem dir (PORTSH_RTDIR, set at boot) -- run children already saw those dirs before, so inheritance
+rem semantics are unchanged.
+:setenv
+set "seN=!A1:~2!"
+if not defined seN (set "R=NIL" & goto :eof)
+set "seT=!seN!"
+:se_chk
+if not defined seT goto se_ok
+set "seC=!seT:~0,1!"
+set "seT=!seT:~1!"
+if "!seC!" GEQ "a" if "!seC!" LEQ "z" goto se_chk
+if "!seC!" GEQ "A" if "!seC!" LEQ "Z" goto se_chk
+if "!seC!" GEQ "0" if "!seC!" LEQ "9" goto se_chk
+if "!seC!"=="_" goto se_chk
+set "R=NIL"
+goto :eof
+:se_ok
+set "seV=!A2:~2!"
+if defined seV (set "!seN!=!seV!") else (set "!seN!=")
+if /i "!seN!"=="PATH" (
+  if defined PORTSH_RTDIR set "PATH=!PORTSH_RTDIR!;!PATH!"
+  if defined PORTSH_OSRDIR set "PATH=!PORTSH_OSRDIR!;!PATH!"
+)
+set "R=S:t"
+goto :eof
+rem :make-dir -- A1 = T:path ('/' normalised). mkdir -p semantics: parents created (cmd extensions
+rem do this), already-exists is success. :delete-file -- rm -f semantics: missing -> t (the desired
+rem state); still-exists after del -> NIL. :copy-file -- overwrite; R by result.
+:make-dir
+set "mdP=!A1:~2!"
+set "mdP=!mdP:/=\!"
+if exist "!mdP!\" (set "R=S:t" & goto :eof)
+mkdir "!mdP!" 2>nul
+if exist "!mdP!\" (set "R=S:t") else (set "R=NIL")
+goto :eof
+:delete-file
+set "dfP=!A1:~2!"
+set "dfP=!dfP:/=\!"
+if not exist "!dfP!" (set "R=S:t" & goto :eof)
+del /f /q "!dfP!" 2>nul
+if exist "!dfP!" (set "R=NIL") else (set "R=S:t")
+goto :eof
+:copy-file
+set "cfS=!A1:~2!"
+set "cfS=!cfS:/=\!"
+set "cfD=!A2:~2!"
+set "cfD=!cfD:/=\!"
+copy /y "!cfS!" "!cfD!" >nul 2>nul
+if exist "!cfD!" (set "R=S:t") else (set "R=NIL")
 goto :eof
 rem :argv -- R = list of the user arguments (T: strings), built per call from PORTSH_ARGV_<n> /
 rem PORTSH_ARGC (set by the front-end or the engine's own arg capture). REPL/no-args -> NIL.

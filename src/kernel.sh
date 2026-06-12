@@ -477,6 +477,14 @@ prim_app() {
              fi ;;
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'setenv') arg2 "$args"; _sn=${ARG1#T:}; _sv=${ARG2#T:}
+             case $_sn in *[!A-Za-z0-9_]*|'') R=NIL ;;
+               *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac ;;
+    'exit')  arg1 "$args"; exit "${ARG1#I:}" ;;
+    'make-dir')    arg1 "$args"; mkdir -p "${ARG1#T:}" 2>/dev/null && R="S:t" || R=NIL ;;
+    'delete-file') arg1 "$args"; _df=${ARG1#T:}; if [ -e "$_df" ]; then rm -f "$_df" 2>/dev/null; fi
+             [ -e "$_df" ] && R=NIL || R="S:t" ;;
+    'copy-file')   arg2 "$args"; cp -f "${ARG1#T:}" "${ARG2#T:}" 2>/dev/null && R="S:t" || R=NIL ;;
     'getenv') arg1 "$args"; _gn=${ARG1#T:}
              case $_gn in *[!A-Za-z0-9_]*|'') R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac ;;
     'type-of') arg1 "$args"; case $ARG1 in
@@ -540,7 +548,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"

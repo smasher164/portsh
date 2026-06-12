@@ -104,7 +104,7 @@ prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not 
     *) R="" ;;
   esac
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:getenv|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -128,6 +128,15 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
     S:type-of) case $ipa in NIL) ips "S:nil" ;; I:*) ips "S:number" ;; S:*) ips "S:symbol" ;; T:*) ips "S:string" ;; P:*) ips "S:pair" ;; *) ips "S:unknown" ;; esac ;;
     S:argv)   _av=NIL; _ai=${PORTSH_ARGC:-0}
               while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; ips "$_av" ;;
+    S:setenv) _sn=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; _sv=${R#T:}
+              case $_sn in *[!A-Za-z0-9_]*|"") ips NIL ;;
+                *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; ips "S:t" ;; esac ;;
+    S:exit)   exit "${ipa#I:}" ;;
+    S:make-dir)    mkdir -p "${ipa#T:}" 2>/dev/null && ips "S:t" || ips NIL ;;
+    S:delete-file) _df=${ipa#T:}; if [ -e "$_df" ]; then rm -f "$_df" 2>/dev/null; fi
+                   if [ -e "$_df" ]; then ips NIL; else ips "S:t"; fi ;;
+    S:copy-file)   hp_cdr "$ip_args"; hp_car "$R"; _cd2=${R#T:}
+                   cp -f "${ipa#T:}" "$_cd2" 2>/dev/null && ips "S:t" || ips NIL ;;
     S:getenv) _gn=${ipa#T:}
               case $_gn in *[!A-Za-z0-9_]*|"") ips NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then ips "T:$_gv"; else ips NIL; fi ;; esac ;;
     'S:symbol->string') ips "T:${ipa#S:}" ;;

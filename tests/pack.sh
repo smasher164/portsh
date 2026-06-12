@@ -23,6 +23,10 @@ for f in tests/engines/*.lisp; do
   sh tools/pack-app.sh "$f" "$work/$b.cmd" >/dev/null 2>&1
   chk "pack-sh" "$f" "$(PORTSH_TEST_VAR=hello sh "$work/$b.cmd" alpha beta-42 2>&1 | tr -d '\r')"
 done
+# packed apps must propagate (exit n) as the app's exit code on both hosts
+sh "$work/exitcode.cmd" >/dev/null 2>&1
+rc=$?
+if [ "$rc" = 3 ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL pack-sh exitcode (got %s)\n' "$rc"; fi
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   VM=$PORTSH_WIN_SSH; DIR="pk$$"
   tar czf "$work/p.tgz" -C "$work" $(cd "$work" && ls *.cmd)
@@ -34,6 +38,8 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
     b=$(basename "$f" .lisp)
     chk "pack-cmd" "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_TEST_VAR=hello& call $b.cmd alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
   done
+  rc=$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & call exitcode.cmd >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
+  if [ "$rc" = "RC=3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL pack-cmd exitcode (%s)\n' "$rc"; fi
 fi
 printf '\npack: pass=%d fail=%d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

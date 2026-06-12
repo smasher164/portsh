@@ -23,6 +23,7 @@ s = s.replace(needle, 'goto :load_main', 1)
 s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd call _consts_std.cmd', 1)
 main = r'''
 :load_main
+set "PORTSH_RTDIR=%~dp0"
 rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv),
 rem unless a front-end already did.
 if defined PORTSH_ARGC goto lc_args_done

@@ -101,13 +101,13 @@ if defined WOK (schtasks /run /tn "portsh_w_!H:~0,16!" >nul 2>&1) else (start ""
 set "PORTSH_OSRDIR=!PCACHE!"
 set "PORTSH_SCRIPT=1"
 cmd /c "call interp-cmd.cmd "!PROG!""
-endlocal
-goto :eof
+set "RC=!errorlevel!"
+endlocal & exit /b %RC%
 :prepl
 rem the REPL is the warming interpreter (per-input background compile + flip)
-call interp-cmd.cmd
-endlocal
-goto :eof
+cmd /c "call interp-cmd.cmd"
+set "RC=!errorlevel!"
+endlocal & exit /b %RC%
 :PWARM
 rem %2=prog %3=pcache %4=stage %5=taskname -- the MANIFEST-WATCHER warmer (runs detached). The whole-
 rem program compile (heap-safe, emits everything incl clambdas) runs as a background CHILD writing into

@@ -28,6 +28,11 @@ for f in tests/engines/*.lisp; do
   chk "sh-interp" "$f" "$(PORTSH_SCRIPT=1 PORTSH_TEST_VAR=hello $SH interp-sh.sh "$f" alpha beta-42 2>&1 | tr -d '\r')"
   chk "polyglot"  "$f" "$(PORTSH_SCRIPT=1 PORTSH_TEST_VAR=hello sh portsh.cmd "$f" alpha beta-42 2>&1 | tr -d '\r')"
 done
+# (exit n) must set the SCRIPT's exit code (output is goldened above; the code needs its own check)
+xchk() { if [ "$2" = 3 ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL %-12s exitcode (got %s, want 3)\n' "$1" "$2"; fi; }
+PORTSH_SCRIPT=1 $SH load-sh.sh tests/engines/exitcode.lisp >/dev/null 2>&1; xchk "sh-jit" "$?"
+PORTSH_SCRIPT=1 $SH interp-sh.sh tests/engines/exitcode.lisp >/dev/null 2>&1; xchk "sh-interp" "$?"
+PORTSH_SCRIPT=1 sh portsh.cmd tests/engines/exitcode.lisp >/dev/null 2>&1; xchk "polyglot" "$?"
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   VM=$PORTSH_WIN_SSH; DIR="eng$$"
   # build-comp-cmd.sh regenerates comp-cmd/ with rm -rf, dropping the loader and interp; rebuild
@@ -45,6 +50,10 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
     b=$(basename "$f")
     chk "cmd-jit"    "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call load-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
     chk "cmd-interp" "$f" "$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call interp-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
+  done
+  for eng in load-cmd.cmd interp-cmd.cmd; do
+    rc=$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& cmd /c call $eng engines\\exitcode.lisp >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
+    if [ "$rc" = "RC=3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL %-12s exitcode (%s)\n' "$eng" "$rc"; fi
   done
   ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true
 fi

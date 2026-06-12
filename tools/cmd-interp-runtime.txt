@@ -634,6 +634,11 @@ if "!IPO!"=="S:=" set "R=1"
 if "!IPO!"=="S:type-of" set "R=1"
 if "!IPO!"=="S:argv" set "R=1"
 if "!IPO!"=="S:getenv" set "R=1"
+if "!IPO!"=="S:setenv" set "R=1"
+if "!IPO!"=="S:exit" set "R=1"
+if "!IPO!"=="S:make-dir" set "R=1"
+if "!IPO!"=="S:delete-file" set "R=1"
+if "!IPO!"=="S:copy-file" set "R=1"
 if "!IPO!"=="S:symbol->string" set "R=1"
 if "!IPO!"=="S:number->string" set "R=1"
 if "!IPO!"=="S:string->symbol" set "R=1"
@@ -664,6 +669,11 @@ if "!IPO!"=="S:not" goto ipr_null
 if "!IPO!"=="S:type-of" goto ipr_typeof
 if "!IPO!"=="S:argv" goto ipr_argv
 if "!IPO!"=="S:getenv" goto ipr_getenv
+if "!IPO!"=="S:setenv" goto ipr_setenv
+if "!IPO!"=="S:exit" goto ipr_exit
+if "!IPO!"=="S:make-dir" goto ipr_mkdir
+if "!IPO!"=="S:delete-file" goto ipr_delf
+if "!IPO!"=="S:copy-file" goto ipr_copyf
 if "!IPO!"=="S:symbol->string" (set "IPV=T:!ipa:~2!" & goto itk_push)
 if "!IPO!"=="S:number->string" (set "IPV=T:!ipa:~2!" & goto itk_push)
 if "!IPO!"=="S:string->symbol" (set "IPV=S:!ipa:~2!" & goto itk_push)
@@ -731,6 +741,36 @@ goto itk_push
 :ipr_getenv
 set "A1=!ipa!"
 call getenv.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_setenv
+set "A1=!ipa!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "A2=!R!"
+call setenv.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_exit
+set "A1=!ipa!"
+call exit.cmd
+goto itk_push
+:ipr_mkdir
+set "A1=!ipa!"
+call make-dir.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_delf
+set "A1=!ipa!"
+call delete-file.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_copyf
+set "A1=!ipa!"
+call :hp_cdr "!ip_args!"
+call :hp_car "!R!"
+set "A2=!R!"
+call copy-file.cmd
 set "IPV=!R!"
 goto itk_push
 :ipr_slen

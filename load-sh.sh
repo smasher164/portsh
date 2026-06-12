@@ -480,6 +480,14 @@ prim_app() {
              fi ;;
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'setenv') arg2 "$args"; _sn=${ARG1#T:}; _sv=${ARG2#T:}
+             case $_sn in *[!A-Za-z0-9_]*|'') R=NIL ;;
+               *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac ;;
+    'exit')  arg1 "$args"; exit "${ARG1#I:}" ;;
+    'make-dir')    arg1 "$args"; mkdir -p "${ARG1#T:}" 2>/dev/null && R="S:t" || R=NIL ;;
+    'delete-file') arg1 "$args"; _df=${ARG1#T:}; if [ -e "$_df" ]; then rm -f "$_df" 2>/dev/null; fi
+             [ -e "$_df" ] && R=NIL || R="S:t" ;;
+    'copy-file')   arg2 "$args"; cp -f "${ARG1#T:}" "${ARG2#T:}" 2>/dev/null && R="S:t" || R=NIL ;;
     'getenv') arg1 "$args"; _gn=${ARG1#T:}
              case $_gn in *[!A-Za-z0-9_]*|'') R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac ;;
     'type-of') arg1 "$args"; case $ARG1 in
@@ -543,7 +551,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -2524,6 +2532,41 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 22)
+if [ "${p0}" = "S:setenv" ]; then PC=23; else PC=24; fi
+ACTION=jump; return
+;;
+23)
+R="S:t"; ACTION=ret; return
+;;
+24)
+if [ "${p0}" = "S:exit" ]; then PC=25; else PC=26; fi
+ACTION=jump; return
+;;
+25)
+R="S:t"; ACTION=ret; return
+;;
+26)
+if [ "${p0}" = "S:make-dir" ]; then PC=27; else PC=28; fi
+ACTION=jump; return
+;;
+27)
+R="S:t"; ACTION=ret; return
+;;
+28)
+if [ "${p0}" = "S:delete-file" ]; then PC=29; else PC=30; fi
+ACTION=jump; return
+;;
+29)
+R="S:t"; ACTION=ret; return
+;;
+30)
+if [ "${p0}" = "S:copy-file" ]; then PC=31; else PC=32; fi
+ACTION=jump; return
+;;
+31)
+R="S:t"; ACTION=ret; return
+;;
+32)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2541,13 +2584,20 @@ ACTION=jump; return
 R="T:read_str"; ACTION=ret; return
 ;;
 2)
+if [ "${p0}" = "S:exit" ]; then PC=3; else PC=4; fi
+ACTION=jump; return
+;;
+3)
+R="T:exit_prim"; ACTION=ret; return
+;;
+4)
 sht0="T:${p0#??}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 CALLEE=sh_mangle
-RPC=3; ACTION=call; return
+RPC=5; ACTION=call; return
 ;;
-3)
+5)
 sht1="${R}"
 R="${sht1}"; ACTION=ret; return
 ;;
@@ -15766,6 +15816,19 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# setenv: ""-value UNSETS (cmd cannot store an empty env var -- mirror getenv's empty==unset==nil);
+# same name guard. Children of run/run-capture inherit. exit_prim: terminate with the given code
+# (the fn cannot be named `exit` in sh -- it would shadow the builtin and recurse; brt maps it).
+# File ops (t/nil): make-dir = mkdir -p (parents, idempotent); delete-file = rm -f semantics
+# (missing -> t: the desired state); copy-file overwrites.
+setenv() { _sn=${1#T:}; _sv=${2#T:}
+           case $_sn in *[!A-Za-z0-9_]*|"") R=NIL ;;
+             *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac; }
+exit_prim() { exit "${1#I:}"; }
+make_dir()    { mkdir -p "${1#T:}" 2>/dev/null && R="S:t" || R=NIL; }
+delete_file() { _df=${1#T:}; if [ -e "$_df" ]; then rm -f "$_df" 2>/dev/null; fi
+                [ -e "$_df" ] && R=NIL || R="S:t"; }
+copy_file()   { cp -f "${1#T:}" "${2#T:}" 2>/dev/null && R="S:t" || R=NIL; }
 getenv() { _gn=${1#T:}
            case $_gn in *[!A-Za-z0-9_]*|"") R=NIL ;; *) eval "_gv=\${$_gn-}"; if [ -n "$_gv" ]; then R="T:$_gv"; else R=NIL; fi ;; esac; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app

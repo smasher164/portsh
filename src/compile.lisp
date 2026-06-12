@@ -215,7 +215,7 @@
                         (let ((b7 (emit b6 (str ":" tk))))
                           (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
                             (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
-(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) ((eq? o (quote argv)) t) ((eq? o (quote getenv)) t) (t nil))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) ((eq? o (quote argv)) t) ((eq? o (quote getenv)) t) ((eq? o (quote setenv)) t) ((eq? o (quote exit)) t) ((eq? o (quote make-dir)) t) ((eq? o (quote delete-file)) t) ((eq? o (quote copy-file)) t) (t nil))))
 ;; run / run-capture are OPERATIVES: operands are unevaluated literal tokens joined into a host
 ;; command (matching prim_oper). fv/lift must SKIP their operands (like quote) -- runop? guards both.
 ;; The joined command is baked via enc-mc (the SAME sentinel encoding the reader applies to heap
