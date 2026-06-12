@@ -1,32 +1,45 @@
 :el_drive
-if "!CURFN!"=="HALT" goto :eof
-set "ACTION="
-call "!CURFN!_pc!PC!.cmd"
-rem guard (mirrors eval-sh drive): a per-PC file that's missing (unbound global / first-class named
-rem fn) or sets no ACTION would otherwise re-call the same file forever -> hang. Fail loudly instead.
-rem NOTE: `if cond A & B` runs B unconditionally in cmd -- so branch via a label, never `&`-chain here.
-if "!ACTION!"=="" goto eld_noaction
-if "!ACTION!"=="call" goto eld_call
-if "!ACTION!"=="apply" goto eld_apply
-if "!ACTION!"=="ret" goto eld_ret
-goto el_drive
+rem CHUNKED driver (mirror of cmd-interp-runtime's el_drive, minus the interp executor): a cmd
+rem backward goto costs a FULL-FILE scan, so the dispatch loop is a fixed `for /l` whose body is
+rem flag-guarded, drained via ELDONE -- one backward goto per 1000 dispatches. This was the last
+rem unchunked driver (load-cmd/eval-cmd only -- the production engines use the interp runtime's);
+rem it made the cmd-jit test legs ~2.5x slower than the same compile under the chunked driver.
+set "ELDONE="
+:eld_chunk
+for /l %%Z in (1,1,1000) do if not defined ELDONE (
+  set "ACTION="
+  call "!CURFN!_pc!PC!.cmd"
+  if "!ACTION!"=="call" (
+    set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!"
+    set /a RSP+=1
+    set "FP=!NFP!" & set "PC=0" & set "CLO="
+    if "!CALLEE:~0,2!"=="K:" (call :eld_clo) else if "!CALLEE:~0,2!"=="C:" (set "CURFN=!CALLEE:~2!") else set "CURFN=!CALLEE!"
+  ) else if "!ACTION!"=="ret" (
+    if !RSP!==0 (set "CURFN=HALT" & set "ELDONE=1") else (
+      set /a RSP-=1
+      call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%" & call set "CLO=%%RSL!RSP!%%"
+    )
+  ) else if "!ACTION!"=="apply" (
+    set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!"
+    set /a RSP+=1
+    set "FP=!NFP!" & set "PC=0" & set "CLO="
+    call :eld_apply_spread
+    if "!CALLEE:~0,2!"=="K:" (call :eld_clo) else if "!CALLEE:~0,2!"=="C:" (set "CURFN=!CALLEE:~2!") else set "CURFN=!CALLEE!"
+  ) else if "!ACTION!"=="" call :eld_noaction
+  if "!CURFN!"=="HALT" set "ELDONE=1"
+)
+if not defined ELDONE goto eld_chunk
+set "ELDONE="
+goto :eof
 :eld_noaction
 echo drive: !CURFN! pc !PC! yielded no ACTION ^(unbound global / missing fn?^) 1>&2
 set "CURFN=HALT"
 goto :eof
-:eld_call
-set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!"
-set /a RSP+=1
-set "FP=!NFP!" & set "PC=0" & set "CLO="
-goto eld_dispatch
-:eld_apply
-rem (apply fn list): push the caller like a call, then spread APLIST into the callee frame slots.
-set "RSF!RSP!=!CURFN!" & set "RSC!RSP!=!RPC!" & set "RSB!RSP!=!FP!" & set "RSL!RSP!=!CLO!"
-set /a RSP+=1
-set "FP=!NFP!" & set "PC=0" & set "CLO="
+:eld_apply_spread
+rem spread APLIST into the callee frame; publish the count (variadic callees read ARGC)
 set "_ai=0" & set "_ac=!APLIST!"
 :eld_ap_loop
-if "!_ac!"=="NIL" (set "ARGC=!_ai!" & goto eld_dispatch)
+if "!_ac!"=="NIL" (set "ARGC=!_ai!" & goto :eof)
 call :hp_car "!_ac!"
 set /a _i=!FP!+!_ai!
 set "F!_i!=!R!"
@@ -34,21 +47,11 @@ call :hp_cdr "!_ac!"
 set "_ac=!R!"
 set /a _ai+=1
 goto eld_ap_loop
-:eld_dispatch
-if "!CALLEE:~0,2!"=="K:" goto eld_clo
-if "!CALLEE:~0,2!"=="C:" set "CURFN=!CALLEE:~2!" & goto el_drive
-set "CURFN=!CALLEE!"
-goto el_drive
 :eld_clo
 set "CLO=!CALLEE:~2!"
 call :hp_car "P:!CLO!"
 set "CURFN=!R:~2!"
-goto el_drive
-:eld_ret
-if !RSP!==0 ( set "CURFN=HALT" & goto el_drive )
-set /a RSP-=1
-call set "FP=%%RSB!RSP!%%" & call set "CURFN=%%RSF!RSP!%%" & call set "PC=%%RSC!RSP!%%" & call set "CLO=%%RSL!RSP!%%"
-goto el_drive
+goto :eof
 
 rem ---- value renderer: byte-identical to eval-sh's _relem/_rlist (sets ELR) ----------------
 :el_relem
