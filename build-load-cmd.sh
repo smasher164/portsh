@@ -20,7 +20,7 @@ needle = 'if not "%~1"=="" call :feedfile "%~1" 0'
 assert needle in s, "boot line not found"
 s = s.replace(needle, 'goto :load_main', 1)
 # load the AOT stdlib const pool too, if installed (content-named -> idempotent with _consts.cmd).
-s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd call _consts_std.cmd', 1)
+s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd (call _consts_std.cmd) else for %%c in (_consts_std.cmd) do if exist "%%~$PATH:c" call "%%~$PATH:c"', 1)
 main = r'''
 :load_main
 set "PORTSH_RTDIR=%~dp0"

@@ -10,13 +10,20 @@
 #   cmd half: the program is AOT-COMPILED here at pack time (comp.sh, the sh-hosted cmd emitter --
 #             byte-identical to the native comp by the parity guards) and the per-PC artifacts +
 #             _consts.cmd + _thunks are EMBEDDED as a second self-extractor arm (__pextract). First
-#             run extracts the shared tooling cache (same build id as portsh.cmd -- the two share
-#             %LOCALAPPDATA%\portsh\<build>) and the program artifacts (instant, no compiling), then
+#             run extracts the tooling cache and the program artifacts (instant, no compiling), then
 #             every run including the first executes the existing WARM fast path (in_warmrun):
 #             no interpreter curtain, no background warmer, no compile -- ever.
 #
+# The embedded tooling is the RUNTIME-ONLY tree by default (comp-cmd.selfx-rt.cmd: driver + interp
+# machine + reader + prim side files + AOT stdlib/prims -- no compiler, which a packed app never
+# runs since AOT happens at pack time and `eval` is not a compiled builtin). Its build id hashes the
+# subset, so rt apps cache under their own %LOCALAPPDATA%\portsh\<id>, decoupled from portsh.cmd's
+# full cache. PORTSH_PACK_FULL=1 embeds the full tree instead (same build id as portsh.cmd -> the
+# two share the tooling cache).
+#
 # The program cache dir is keyed by the sha256 of prog.lisp, the SAME key the portsh.cmd front-end
-# computes with certutil -- a packed app and a watcher-warmed `portsh.cmd prog.lisp` share the cache.
+# computes with certutil -- a full-embed packed app and a watcher-warmed `portsh.cmd prog.lisp`
+# share the program cache too.
 #
 # The pack-time PARTITION below must mirror the loader's :in_part (build-interp-cmd.sh) EXACTLY --
 # including accumulating kept forms in REVERSE (the __lamN lift numbering depends on form order), so
@@ -30,10 +37,15 @@ OUT=${2:?usage: sh tools/pack-app.sh prog.lisp app.cmd}
 [ -f load-sh.sh ] || sh build-load-sh.sh >/dev/null
 [ -f comp.sh ] || sh build-comp.sh >/dev/null
 [ -f comp-cmd/interp-cmd.cmd ] || sh build-interp-cmd.sh >/dev/null
-if [ ! -f comp-cmd.selfx.cmd ] || [ comp-cmd/interp-cmd.cmd -nt comp-cmd.selfx.cmd ]; then
-  sh tools/pack-comp-cmd.sh >/dev/null
+[ -f comp-cmd/map_pc0.cmd ] || sh tools/build-stdlib-aot-cmd.sh >/dev/null
+[ -f comp-cmd/__p_add_pc0.cmd ] || sh tools/build-prims-aot-cmd.sh >/dev/null
+if [ -n "${PORTSH_PACK_FULL:-}" ]; then SELFX=comp-cmd.selfx.cmd; SXMODE=full
+else SELFX=comp-cmd.selfx-rt.cmd; SXMODE=rt; fi
+# _consts_std.cmd in the staleness check: a stdlib reinstall touches it but not interp-cmd.cmd
+if [ ! -f "$SELFX" ] || [ comp-cmd/interp-cmd.cmd -nt "$SELFX" ] || [ comp-cmd/_consts_std.cmd -nt "$SELFX" ]; then
+  sh tools/pack-comp-cmd.sh "$SXMODE" >/dev/null
 fi
-BUILD=$(sed -n 's/^set "PORTSH_BUILD=\([0-9a-f][0-9a-f]*\)".*/\1/p' comp-cmd.selfx.cmd | head -1)
+BUILD=$(sed -n 's/^set "PORTSH_BUILD=\([0-9a-f][0-9a-f]*\)".*/\1/p' "$SELFX" | head -1)
 [ -n "$BUILD" ] || { echo "pack-app: could not read build id" >&2; exit 1; }
 H=$(shasum -a 256 "$PROG" | cut -c1-16)
 
@@ -143,7 +155,7 @@ rm -f "$work/art/_main"
 echo "pack-app: $(ls "$work/art" | wc -l | tr -d ' ') cmd artifacts"
 
 # ---- 3. weave app.cmd ----
-python3 - load-sh.sh comp-cmd.selfx.cmd "$PROG" "$work/art" "$OUT" "$BUILD" "$H" <<'PY'
+python3 - load-sh.sh "$SELFX" "$PROG" "$work/art" "$OUT" "$BUILD" "$H" <<'PY'
 import sys, os
 loadsh, selfx, prog, artdir, out, build, phash = sys.argv[1:8]
 
@@ -270,4 +282,4 @@ whole = whole.replace('\r\n', '\n').replace('\n', '\r\n')
 open(out, 'wb').write(whole.encode('latin-1'))
 PY
 chmod +x "$OUT"
-echo "packed $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes, build $BUILD, prog $H)"
+echo "packed $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes, tooling $SXMODE build $BUILD, prog $H)"

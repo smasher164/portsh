@@ -177,6 +177,7 @@ case $PC in
 0)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=not
 RPC=1; ACTION=call; return
 ;;

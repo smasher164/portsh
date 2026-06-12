@@ -40,19 +40,26 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   # engine-differential legs).
   [ -f comp-cmd/interp-cmd.cmd ] || sh build-interp-cmd.sh >/dev/null
   [ -f comp-cmd/load-cmd.cmd ]   || sh build-load-cmd.sh >/dev/null
+  [ -f comp-cmd/map_pc0.cmd ]    || sh tools/build-stdlib-aot-cmd.sh >/dev/null
+  [ -f comp-cmd/__p_add_pc0.cmd ] || sh tools/build-prims-aot-cmd.sh >/dev/null
   work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
   tar czf "$work/t.tgz" -C comp-cmd . -C "$root/tests" engines
   ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true
   sleep 2
   scp -q "$work/t.tgz" "${VM}:eng.tgz"
   ssh -n "$VM" "cmd /c \"mkdir %USERPROFILE%\\$DIR & cd /d %USERPROFILE%\\$DIR & tar -xzf %USERPROFILE%\\eng.tgz\"" >/dev/null 2>&1
+  # Each cmd-JIT leg gets its OWN work subdir: load-cmd compiles into cwd, and in a shared dir a
+  # fixture's artifacts CLOBBER the AOT tooling (compile-program truncates _consts.cmd -- killing the
+  # comp's mangle constants -- and a fixture defining a stdlib-named fn overwrites its AOT files).
+  # The tooling stays at the tree root, resolved via PATH; the interp legs don't write, so they run
+  # from the root directly.
   for f in tests/engines/*.lisp; do
     b=$(basename "$f")
-    chk "cmd-jit"    "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call load-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
+    chk "cmd-jit"    "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & mkdir wj_$b & cd wj_$b & set PATH=%USERPROFILE%\\$DIR;%PATH%& set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call load-cmd.cmd ..\\engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
     chk "cmd-interp" "$f" "$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call interp-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
   done
   for eng in load-cmd.cmd interp-cmd.cmd; do
-    rc=$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& cmd /c call $eng engines\\exitcode.lisp >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
+    rc=$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & mkdir wx_$eng & cd wx_$eng & set PATH=%USERPROFILE%\\$DIR;%PATH%& set PORTSH_SCRIPT=1& cmd /c call $eng ..\\engines\\exitcode.lisp >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
     if [ "$rc" = "RC=3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL %-12s exitcode (%s)\n' "$eng" "$rc"; fi
   done
   ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true

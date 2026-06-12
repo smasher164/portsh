@@ -22,6 +22,20 @@ cd "$(dirname "$0")"
 # ---- closure-capable trampoline driver (K:/CLO/RSL) + comp's I/O prims --------------------
 GLOBAL=NIL
 G_DQ='T:"'
+# G_ keys follow the comp's sh-mangle (raw dashed/? names are invalid sh identifiers); mangle when
+# binding a computed define's value -- the comp's own G_ reads are baked mangled at compile time.
+mangle() {
+  mg_o=""; mg_s=$1
+  while [ -n "$mg_s" ]; do
+    mg_c=${mg_s%"${mg_s#?}"}; mg_s=${mg_s#?}
+    case $mg_c in
+      -) mg_o="${mg_o}_" ;; ">") mg_o="${mg_o}zzG" ;; "<") mg_o="${mg_o}zzL" ;; "*") mg_o="${mg_o}zzS" ;;
+      "?") mg_o="${mg_o}zzQ" ;; "!") mg_o="${mg_o}zzB" ;; "=") mg_o="${mg_o}zzE" ;; "+") mg_o="${mg_o}zzP" ;;
+      *) mg_o="${mg_o}${mg_c}" ;;
+    esac
+  done
+  R=$mg_o
+}
 # I/O primitives the JIT lacked (script semantics; mirror prim_app).
 write_lines()  { _f=${1#T:}; _l=$2; : > "$_f"; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
 append_lines() { _f=${1#T:}; _l=$2; while [ "$_l" != NIL ]; do hp_car "$_l"; printf '%s\n' "${R#T:}" >> "$_f"; hp_cdr "$_l"; _l=$R; done; R="S:t"; }
@@ -148,7 +162,7 @@ repl_form() {   # classify one input form, compile it incrementally (threading C
     FP=0; RSP=0; PC=0; CLO=""; CURFN=$REPLTH; drive
     case $REPLACT in
       S)   show_val "$R" ;;
-      G:*) eval "G_${REPLACT#G:}=\$R" ;;
+      G:*) _mgv=$R; mangle "${REPLACT#G:}"; eval "G_$R=\$_mgv" ;;   # mangle clobbers R -- save the value first
     esac
   fi
 }
@@ -236,7 +250,7 @@ for _e in $_thunks; do
   FP=0; RSP=0; PC=0; CLO=""; CURFN=$_th; drive
   case $_act in
     S)   [ -n "${PORTSH_SCRIPT:-}" ] || show_val "$R" ;;
-    G:*) eval "G_${_act#G:}=\$R" ;;
+    G:*) _mgv=$R; mangle "${_act#G:}"; eval "G_$R=\$_mgv" ;;   # mangle clobbers R -- save the value first
   esac
 done
 rm -f "$_tmp"

@@ -19,11 +19,13 @@ cd "$(dirname "$0")/.."
 [ -d comp-cmd ] || sh build-comp-cmd.sh >/dev/null
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 
-python3 - src/stdlib.lisp "$work/sub.lisp" <<'PY'
+python3 - src/stdlib.lisp "$work/sub.lisp" "$work/reg.cmd" <<'PY'
 import sys, re
-src_path, out = sys.argv[1], sys.argv[2]
+src_path, out, regp = sys.argv[1], sys.argv[2], sys.argv[3]
 skip = {'number?','string?','symbol?','pair?',          # comp inlines these (tpreds)
+        '<=','>','>=',                                  # call-position = n-ary builtin chains; value-position = __p_ story (mirror the sh installer)
         'caar','cadr','caddr','not','append','reverse','assoc'}  # already in comp-cmd/
+deps = ['caar','cadr','caddr','not','append','reverse','assoc']  # ...but registered below like the rest
 def forms(s):
     i=0;n=len(s)
     while i<n:
@@ -59,7 +61,18 @@ for f in forms(open(src_path).read()):
     if lm and lm.group(1) != '(': continue
     keep.append(f)
 open(out,'w').write('('+'\n'.join(keep)+'\n)')
-sys.stderr.write("AOT stdlib fns (cmd): %d\n" % len(keep))
+# G_ registrations (-> _consts_std.cmd, called at every engine boot): a stdlib fn referenced from a
+# user program is an unknown global there -- compiled code reads !G_<name>! (raw key, cmd vars allow
+# -/?) and the interp's iresolve falls back to G_<name>. C:<label> routes to <label>_pc<n>.cmd.
+# Registration covers the kept fns AND comp's 7 deps (their files come from build-comp-cmd.sh).
+def cmdmangle(s):
+    return ''.join({'>':'zzG','<':'zzL','&':'zzA','|':'zzP','*':'zzS','?':'zzQ'}.get(c,c) for c in s)
+names = [re.match(r'\(define\s+([^\s()]+)', f).group(1) for f in keep] + deps
+with open(regp,'w') as r:
+    r.write('rem G_ registrations: stdlib fns as first-class globals (cross-unit value/operator refs)\n')
+    for n in names:
+        r.write('set "G_%s=C:%s"\n' % (n, cmdmangle(n)))
+sys.stderr.write("AOT stdlib fns (cmd): %d (+%d G_ registrations)\n" % (len(keep), len(names)))
 PY
 
 mkdir "$work/out"
@@ -70,8 +83,18 @@ rm -f "$work/out/main.lisp"
 for f in "$work/out"/__lam*.cmd; do [ -e "$f" ] || continue; mv "$f" "$(echo "$f" | sed 's/__lam/__sl/')"; done
 for f in "$work/out"/*.cmd; do perl -i -pe 's/__lam/__sl/g' "$f"; done
 
-# install: consts -> _consts_std.cmd (idempotent merge at boot), fn files -> comp-cmd/.
+# install: consts + G_ registrations -> _consts_std.cmd (idempotent merge at boot), fn files -> comp-cmd/.
+[ -f "$work/out/_consts.cmd" ] || : > "$work/out/_consts.cmd"
+cat "$work/reg.cmd" >> "$work/out/_consts.cmd"
 mv "$work/out/_consts.cmd" comp-cmd/_consts_std.cmd
 cp "$work/out"/*.cmd comp-cmd/
 nfn=$(ls "$work/out"/*.cmd | grep -vc '__sl')
-echo "installed stdlib into comp-cmd/: $(ls "$work/out"/*.cmd | wc -l | tr -d ' ') .cmd files + _consts_std.cmd"
+# _rt.lst: the pc files a RUNTIME-ONLY tree needs beyond the non-pc side files -- this installer's
+# outputs (incl. __sl lifts) plus comp's 7 stdlib deps (compiled by build-comp-cmd.sh, but reached
+# at runtime by the stdlib fns themselves). build-prims-aot-cmd.sh APPENDS its files; consumed by
+# `tools/pack-comp-cmd.sh rt` (the minimal selfx packed apps embed). Lives in-tree so a comp-cmd
+# regen drops list and files together.
+{ ls "$work/out"
+  for d in caar cadr caddr not append reverse assoc; do (cd comp-cmd && ls "${d}"_pc*.cmd); done
+} | sort -u > comp-cmd/_rt.lst
+echo "installed stdlib into comp-cmd/: $(ls "$work/out"/*.cmd | wc -l | tr -d ' ') .cmd files + _consts_std.cmd; wrote _rt.lst"

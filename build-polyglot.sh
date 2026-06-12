@@ -16,7 +16,13 @@ set -eu
 cd "$(dirname "$0")"
 [ -f load-sh.sh ] || sh build-load-sh.sh >/dev/null
 [ -f comp-cmd/interp-cmd.cmd ] || sh build-interp-cmd.sh >/dev/null
-if [ ! -f comp-cmd.selfx.cmd ] || [ comp-cmd/interp-cmd.cmd -nt comp-cmd.selfx.cmd ]; then
+# the AOT stdlib/prims install is part of the shipped tree -- a build-comp-cmd.sh regen (rm -rf)
+# drops it, and WITHOUT these guards the polyglot ships with stdlib fns resolvable on the sh half
+# but not on cmd (the v0.1.0 bug).
+[ -f comp-cmd/map_pc0.cmd ] || sh tools/build-stdlib-aot-cmd.sh >/dev/null
+[ -f comp-cmd/__p_add_pc0.cmd ] || sh tools/build-prims-aot-cmd.sh >/dev/null
+# _consts_std.cmd in the staleness check: a stdlib reinstall touches it but not interp-cmd.cmd
+if [ ! -f comp-cmd.selfx.cmd ] || [ comp-cmd/interp-cmd.cmd -nt comp-cmd.selfx.cmd ] || [ comp-cmd/_consts_std.cmd -nt comp-cmd.selfx.cmd ]; then
   sh tools/pack-comp-cmd.sh >/dev/null
 fi
 BUILD=$(sed -n 's/^set "PORTSH_BUILD=\([0-9a-f][0-9a-f]*\)".*/\1/p' comp-cmd.selfx.cmd | head -1)

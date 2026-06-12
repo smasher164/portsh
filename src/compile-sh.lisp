@@ -177,7 +177,7 @@
          ;; global constant G_<name>.
          (if (prim-wrap f) (cons b (cons (quote cst) (str "C:" (prim-wrap f))))
            (if (mem? f (lookup (quote __gfns) pmap)) (cons b (cons (quote cst) (str "C:" (sh-mangle (symbol->string f)))))
-             (cons b (cons (quote loc) (str "G_" (symbol->string f))))))
+             (cons b (cons (quote loc) (str "G_" (sh-mangle (symbol->string f)))))))
          (cons b (cons (quote loc) p)))))
     ((nary-form? f) (lval (nary-rw f) pmap b live))
     ((arith? (car f))
@@ -284,7 +284,7 @@
         (let ((ar (largs (cdr f) pmap b live)))
           (let ((rpc (b-npc (car ar)))
                 (cs (if (mem? (car f) (lookup (quote __gvars) pmap))
-                      (str "CALLEE=${G_" (symbol->string (car f)) "}")
+                      (str "CALLEE=${G_" (sh-mangle (symbol->string (car f))) "}")
                       (str "CALLEE=" (sh-mangle (symbol->string (car f)))))))
             (let ((bc (emit (emit (stage (emit (spill (bnpc+ (car ar)) live 0) "NFP=$FTOP") (cdr ar) 0) cs)
                             (str "RPC=" (number->string rpc) "; ACTION=call; return"))))
@@ -496,7 +496,7 @@
 (define cval-sh (lambda (v) (cond ((string? v) (str "T:" v)) ((number? v) (str "I:" (number->string v))) (t (str "S:" (symbol->string v))))))
 (define gen1-sh (lambda (f gfns gvars)
   (if (pair? (car (cdr (cdr f)))) (compile-def-sh f gfns gvars)
-    (list (str "G_" (symbol->string (car (cdr f))) "='" (cval-sh (car (cdr (cdr f)))) "'")))))
+    (list (str "G_" (sh-mangle (symbol->string (car (cdr f)))) "='" (cval-sh (car (cdr (cdr f)))) "'")))))
 (define compile-all-sh (lambda (fs gfns gvars) (if (null? fs) nil (append (gen1-sh (car fs) gfns gvars) (compile-all-sh (cdr fs) gfns gvars)))))
 ;; gvar-names: the COMPLEMENT of gfn-names -- top-level defines whose value is NOT a lambda (atom
 ;; constants and computed defines). Their value lives in G_<name>; one called in OPERATOR position is

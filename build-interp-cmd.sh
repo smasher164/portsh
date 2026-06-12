@@ -30,7 +30,7 @@ s = s.replace(needle, 'goto :in_main', 1)
 # ~40KB hot blob) -- skip it. The resumable interp resolves via ILAM_*/G_*/iprim instead.
 assert s.count('call :setup_global') == 1
 s = s.replace('call :setup_global', 'rem setup_global SKIPPED (vau env unused by the resumable interp; ~2.4s/boot)', 1)
-s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd call _consts_std.cmd', 1)
+s = s.replace('call _consts.cmd', 'call _consts.cmd\nif exist _consts_std.cmd (call _consts_std.cmd) else for %%c in (_consts_std.cmd) do if exist "%%~$PATH:c" call "%%~$PATH:c"', 1)
 # REPL hooks on the kernel reader's per-line loop (readall): (1) in RDMODE, stop once a complete top-
 # level form is captured (RDRESULT set) so the REPL gets one form per call -- harmless in file mode,
 # where the pre-pushed outer LP keeps DEPTH>0 so RDRESULT stays NIL until the trailing ')' (fed

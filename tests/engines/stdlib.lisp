@@ -1,0 +1,28 @@
+; AOT stdlib availability BY NAME -- nothing here defines its helpers; every engine must resolve
+; map/foldl/... from its embedded/installed stdlib (this is the guard against a comp-cmd regen
+; dropping the stdlib install, and against missing G_ registrations).
+(print (length (quote (a b c))))
+(print (map (lambda (x) (* x x)) (quote (1 2 3 4))))
+(print (filter (lambda (x) (< x 3)) (quote (1 2 3 4))))
+(print (foldl (lambda (a x) (+ a x)) 100 (quote (1 2 3))))
+(print (sum (quote (4 5 6))))
+(print (member? 2 (quote (1 2 3))))
+(print (member? 9 (quote (1 2 3))))
+(print (list-tail (quote (1 2 3 4)) 2))
+(print (nth (quote (a b c)) 1))
+(print (take (quote (1 2 3 4 5)) 2))
+(print (->string 42))
+(print (join "," (quote ("x" "y" "z"))))
+; dep fns (compiled into the tooling by the comp build on cmd; part of stdlib-aot on sh)
+(print (reverse (quote (1 2 3))))
+(print (append (quote (1 2)) (quote (3 4))))
+(print (cadr (quote (a b c))))
+; value position: a stdlib fn passed as an argument (G_ registration -> C:<label> -> route)
+(define app2 (lambda (f x) (f x)))
+(print (app2 length (quote (p q))))
+(print (app2 reverse (quote (1 2))))
+; computed define whose thunk CALLS stdlib fns (binds via the G_ thunk action)
+(define mysum (sum (quote (1 2 3))))
+(print mysum)
+; composed closures over stdlib fns
+(print ((compose length cdr) (quote (1 2 3))))

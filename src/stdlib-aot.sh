@@ -126,6 +126,7 @@ R="${sht1}"; ACTION=ret; return
 hp_cdr "${p0}"
 sht2="${R}"
 eval "F$((FP+0))=\"\${sht2}\""
+ARGC=1
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -147,6 +148,7 @@ hp_cdr "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=length
 RPC=3; ACTION=call; return
 ;;
@@ -179,6 +181,7 @@ eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=append
 RPC=3; ACTION=call; return
 ;;
@@ -208,6 +211,7 @@ hp_cdr "${p0}"
 sht0="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=reverse
 RPC=3; ACTION=call; return
 ;;
@@ -222,6 +226,7 @@ sht3="${R}"
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${sht3}\""
+ARGC=2
 CALLEE=append
 RPC=4; ACTION=call; return
 ;;
@@ -250,6 +255,7 @@ sht0="${R}"
 sht1="I:$(( ${p1#??} - 1 ))"
 eval "F$((FP+0))=\"\${sht0}\""
 eval "F$((FP+1))=\"\${sht1}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -264,6 +270,7 @@ case $PC in
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=list_tail
 RPC=1; ACTION=call; return
 ;;
@@ -305,6 +312,7 @@ eval "F$((FP+NP+0))=\"\${sht0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${sht2}\""
+ARGC=2
 CALLEE=take
 RPC=5; ACTION=call; return
 ;;
@@ -327,6 +335,7 @@ case $PC in
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
+ARGC=2
 CALLEE=list_tail
 RPC=1; ACTION=call; return
 ;;
@@ -363,6 +372,7 @@ hp_cdr "${p1}"
 sht1="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht1}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -383,6 +393,7 @@ R="NIL"; ACTION=ret; return
 2)
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
 CALLEE=caar
 RPC=3; ACTION=call; return
 ;;
@@ -401,6 +412,7 @@ hp_cdr "${p1}"
 sht2="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht2}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -424,6 +436,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=${p0}
 RPC=3; ACTION=call; return
 ;;
@@ -436,6 +449,7 @@ eval "F$((FP+NP+0))=\"\${sht1}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht2}\""
+ARGC=2
 CALLEE=map
 RPC=4; ACTION=call; return
 ;;
@@ -471,6 +485,7 @@ eval "F$((FP+NP+0))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 eval "F$((NFP+1))=\"\${sht1}\""
+ARGC=2
 CALLEE=${p0}
 RPC=3; ACTION=call; return
 ;;
@@ -486,6 +501,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht3}\""
 eval "F$((NFP+2))=\"\${sht4}\""
+ARGC=3
 CALLEE=map2
 RPC=4; ACTION=call; return
 ;;
@@ -512,6 +528,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"\${p0}\""
 eval "F$((NFP+2))=\"\${p1}\""
+ARGC=3
 CALLEE=map2
 RPC=1; ACTION=call; return
 ;;
@@ -524,6 +541,8 @@ SIZE___sl0=2
 __sl0() {
 eval "p0=\"\$F$((FP+0))\""
 eval "p1=\"\$F$((FP+1))\""
+_clrs=$R
+R=$_clrs
 FTOP=$((FP + SIZE___sl0))
 NP=2
 case $PC in
@@ -553,6 +572,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=${p0}
 RPC=3; ACTION=call; return
 ;;
@@ -571,6 +591,7 @@ eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${sht3}\""
+ARGC=2
 CALLEE=filter
 RPC=6; ACTION=call; return
 ;;
@@ -579,6 +600,7 @@ hp_cdr "${p1}"
 sht6="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht6}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 6)
@@ -612,6 +634,7 @@ eval "F$((FP+NP+1))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p1}\""
 eval "F$((NFP+1))=\"\${sht0}\""
+ARGC=2
 CALLEE=${p0}
 RPC=3; ACTION=call; return
 ;;
@@ -624,6 +647,7 @@ sht2="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht1}\""
 eval "F$((FP+2))=\"\${sht2}\""
+ARGC=3
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -653,6 +677,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
 eval "F$((NFP+1))=\"\${p1}\""
 eval "F$((NFP+2))=\"\${sht1}\""
+ARGC=3
 CALLEE=foldr
 RPC=3; ACTION=call; return
 ;;
@@ -664,6 +689,7 @@ eval "F$((FP+NP+0))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
 eval "F$((NFP+1))=\"\${sht2}\""
+ARGC=2
 CALLEE=${p0}
 RPC=4; ACTION=call; return
 ;;
@@ -693,6 +719,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${p0}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=${p0}
 RPC=3; ACTION=call; return
 ;;
@@ -703,6 +730,7 @@ hp_cdr "${p1}"
 sht2="${R}"
 eval "F$((FP+0))=\"\${p0}\""
 eval "F$((FP+1))=\"\${sht2}\""
+ARGC=2
 PC=0; ACTION=tail; return
 ;;
 esac; }
@@ -729,6 +757,7 @@ esac; }
 SIZE___sl1=3
 __sl1() {
 eval "p0=\"\$F$((FP+0))\""
+_clrs=$R
 hp_cdr "P:${CLO}"
 _cl="${R}"
 hp_car "${_cl}"
@@ -739,6 +768,7 @@ hp_car "${_cl}"
 p2="${R}"
 hp_cdr "${_cl}"
 _cl="${R}"
+R=$_clrs
 FTOP=$((FP + SIZE___sl1))
 NP=1
 case $PC in
@@ -747,6 +777,7 @@ eval "F$((FP+NP+0))=\"\${p1}\""
 eval "F$((FP+NP+1))=\"\${p2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
 CALLEE=${p1}
 RPC=1; ACTION=call; return
 ;;
@@ -757,6 +788,7 @@ sht0="${R}"
 eval "F$((FP+NP+0))=\"\${p2}\""
 NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht0}\""
+ARGC=1
 CALLEE=${p2}
 RPC=2; ACTION=call; return
 ;;
@@ -764,64 +796,6 @@ RPC=2; ACTION=call; return
 eval "p2=\"\$F$((FP+NP+0))\""
 sht1="${R}"
 R="${sht1}"; ACTION=ret; return
-;;
-esac; }
-SIZE_zzLzzE=2
-zzLzzE() {
-eval "p0=\"\$F$((FP+0))\""
-eval "p1=\"\$F$((FP+1))\""
-FTOP=$((FP + SIZE_zzLzzE))
-NP=2
-case $PC in
-0)
-if [ ${p0#??} -lt ${p1#??} ]; then PC=1; else PC=2; fi
-ACTION=jump; return
-;;
-1)
-R="S:t"; ACTION=ret; return
-;;
-2)
-if [ ${p0#??} -eq ${p1#??} ]; then
-sht0="S:t"
-else
-sht0="NIL"
-fi
-R="${sht0}"; ACTION=ret; return
-;;
-esac; }
-SIZE_zzG=2
-zzG() {
-eval "p0=\"\$F$((FP+0))\""
-eval "p1=\"\$F$((FP+1))\""
-FTOP=$((FP + SIZE_zzG))
-NP=2
-case $PC in
-0)
-if [ ${p1#??} -lt ${p0#??} ]; then
-sht0="S:t"
-else
-sht0="NIL"
-fi
-R="${sht0}"; ACTION=ret; return
-;;
-esac; }
-SIZE_zzGzzE=2
-zzGzzE() {
-eval "p0=\"\$F$((FP+0))\""
-eval "p1=\"\$F$((FP+1))\""
-FTOP=$((FP + SIZE_zzGzzE))
-NP=2
-case $PC in
-0)
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p1}\""
-eval "F$((NFP+1))=\"\${p0}\""
-CALLEE=zzLzzE
-RPC=1; ACTION=call; return
-;;
-1)
-sht0="${R}"
-R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_abs=1
@@ -892,6 +866,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"I:0\""
 eval "F$((NFP+2))=\"\${p0}\""
+ARGC=3
 CALLEE=foldl
 RPC=1; ACTION=call; return
 ;;
@@ -904,6 +879,8 @@ SIZE___sl2=2
 __sl2() {
 eval "p0=\"\$F$((FP+0))\""
 eval "p1=\"\$F$((FP+1))\""
+_clrs=$R
+R=$_clrs
 FTOP=$((FP + SIZE___sl2))
 NP=2
 case $PC in
@@ -926,6 +903,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht1}\""
 eval "F$((NFP+1))=\"I:1\""
 eval "F$((NFP+2))=\"\${p0}\""
+ARGC=3
 CALLEE=foldl
 RPC=1; ACTION=call; return
 ;;
@@ -938,6 +916,8 @@ SIZE___sl3=2
 __sl3() {
 eval "p0=\"\$F$((FP+0))\""
 eval "p1=\"\$F$((FP+1))\""
+_clrs=$R
+R=$_clrs
 FTOP=$((FP + SIZE___sl3))
 NP=2
 case $PC in
@@ -1007,6 +987,7 @@ NFP=$FTOP
 eval "F$((NFP+0))=\"\${sht2}\""
 eval "F$((NFP+1))=\"\${sht3}\""
 eval "F$((NFP+2))=\"\${sht4}\""
+ARGC=3
 CALLEE=foldl
 RPC=3; ACTION=call; return
 ;;
@@ -1019,12 +1000,14 @@ SIZE___sl4=2
 __sl4() {
 eval "p0=\"\$F$((FP+0))\""
 eval "p1=\"\$F$((FP+1))\""
+_clrs=$R
 hp_cdr "P:${CLO}"
 _cl="${R}"
 hp_car "${_cl}"
 p2="${R}"
 hp_cdr "${_cl}"
 _cl="${R}"
+R=$_clrs
 FTOP=$((FP + SIZE___sl4))
 NP=2
 case $PC in
@@ -1034,3 +1017,36 @@ sht1="T:${p0#??}${sht0#??}"
 R="${sht1}"; ACTION=ret; return
 ;;
 esac; }
+# G_ registrations: stdlib fns as first-class globals (cross-unit value/operator refs)
+G_not="C:not"
+G_cadr="C:cadr"
+G_caddr="C:caddr"
+G_cddr="C:cddr"
+G_cdar="C:cdar"
+G_caar="C:caar"
+G_cadar="C:cadar"
+G_last="C:last"
+G_length="C:length"
+G_append="C:append"
+G_reverse="C:reverse"
+G_list_tail="C:list_tail"
+G_nth="C:nth"
+G_take="C:take"
+G_drop="C:drop"
+G_memberzzQ="C:memberzzQ"
+G_assoc="C:assoc"
+G_map="C:map"
+G_map2="C:map2"
+G_zip="C:zip"
+G_filter="C:filter"
+G_foldl="C:foldl"
+G_foldr="C:foldr"
+G_for_each="C:for_each"
+G_compose="C:compose"
+G_abs="C:abs"
+G_max="C:max"
+G_min="C:min"
+G_sum="C:sum"
+G_product="C:product"
+G__zzGstring="C:_zzGstring"
+G_join="C:join"

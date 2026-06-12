@@ -17,6 +17,8 @@ cd "$(dirname "$0")/.."
   tr -d '\r' < portsh-full.cmd | awk 'NR==1{next} /^main "\$@"$/{exit} {print}'
   cat src/comp-sh-compiled.sh        # the comp -- we reuse lift_program (compiled) via the shared driver
   cat src/prims-aot.sh               # __p_<op> wrappers: prims-as-values resolve to C:__p_<op>, like the comp
+  cat src/stdlib-aot.sh              # AOT stdlib fns + their G_<mangled>="C:<label>" registrations --
+                                     # iresolve's global-var arm yields C:map etc., route()'s final arm runs it
   cat <<'INTERP'
 
 # ===================== P1 resumable interpreter on the trampoline =====================
@@ -95,7 +97,8 @@ iresolve() {
   mangle "$ir_v"; ir_m=$R                                       # global fn -> I:<mangled> fn-value
   case " $GFNS " in *" $ir_m "*) R="I:$ir_m"; return ;; esac
   prim_wrap "$ir_v"; if [ -n "$R" ]; then R="C:$R"; return; fi  # primitive as a value -> C:<wrapper> (like the comp)
-  eval "R=\${G_${ir_v}:-NIL}"                           # global var
+  eval "R=\${G_${ir_m}:-NIL}"                           # global var (mangled: G_ names follow sh-mangle --
+                                                        # raw dashed/? names are invalid sh identifiers)
 }
 prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not wrappable (matches comp prim-wrap)
   case $1 in
@@ -473,7 +476,7 @@ process_forms() {
             ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form" ;;
         esac
         GFNS="$GFNS $ld_nm" ;;
-      *) eval "G_${ld_nm_raw}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;
+      *) eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;   # G_ key mangled (sh idents); GVARS raw (comp matches source symbols)
     esac
   done
   for f in ${PORTSH_OSR:-}; do osr_compile "$f"; done         # OSR flip (no-op if PORTSH_OSR unset)
@@ -482,7 +485,7 @@ process_forms() {
     FP=0; RSP=0; PC=0; CLO=""; ICUR="$th"; CURFN=interp; drive
     case $act in
       S)   [ -n "${PORTSH_SCRIPT:-}" ] || { _relem "$R"; printf '\n'; } ;;
-      G:*) eval "G_${act#G:}=\$R" ;;
+      G:*) _gv=$R; mangle "${act#G:}"; eval "G_$R=\$_gv" ;;   # mangle clobbers R -- save the value first
     esac
   done
 }
