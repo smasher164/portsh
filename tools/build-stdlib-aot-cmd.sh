@@ -88,12 +88,4 @@ cat "$work/reg.cmd" >> "$work/out/_consts.cmd"
 mv "$work/out/_consts.cmd" comp-cmd/_consts_std.cmd
 cp "$work/out"/*.cmd comp-cmd/
 nfn=$(ls "$work/out"/*.cmd | grep -vc '__sl')
-# _rt.lst: the pc files a RUNTIME-ONLY tree needs beyond the non-pc side files -- this installer's
-# outputs (incl. __sl lifts) plus comp's 7 stdlib deps (compiled by build-comp-cmd.sh, but reached
-# at runtime by the stdlib fns themselves). build-prims-aot-cmd.sh APPENDS its files; consumed by
-# `tools/pack-comp-cmd.sh rt` (the minimal selfx packed apps embed). Lives in-tree so a comp-cmd
-# regen drops list and files together.
-{ ls "$work/out"
-  for d in caar cadr caddr not append reverse assoc; do (cd comp-cmd && ls "${d}"_pc*.cmd); done
-} | sort -u > comp-cmd/_rt.lst
-echo "installed stdlib into comp-cmd/: $(ls "$work/out"/*.cmd | wc -l | tr -d ' ') .cmd files + _consts_std.cmd; wrote _rt.lst"
+echo "installed stdlib into comp-cmd/: $(ls "$work/out"/*.cmd | wc -l | tr -d ' ') .cmd files + _consts_std.cmd"

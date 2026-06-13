@@ -9,35 +9,22 @@
 set -eu
 cd "$(dirname "$0")/.."
 [ -d comp-cmd ] || { echo "comp-cmd/ missing (run build-comp-cmd.sh)"; exit 1; }
-# MODE full (default): the whole tree -> comp-cmd.selfx.cmd (embedded by portsh.cmd, which needs the
-# compiler for its JIT/watcher). MODE rt: runtime-only subset -> comp-cmd.selfx-rt.cmd (embedded by
-# packed apps, which never compile: AOT happens at pack time, and `eval` is not a compiled builtin).
-# rt = the _rt.lst pc files (stdlib + prims + comp's 7 stdlib deps, written by the AOT installers)
-# + every non-pc side file except the compiler driver/manifest and the standalone test engines. Its
-# build id hashes the SUBSET -> packed apps cache under their own %LOCALAPPDATA%\portsh\<id>, fully
-# decoupled from the full tooling cache (a partial tree can never poison portsh.cmd's cache).
-MODE=${1:-full}
-case $MODE in
-  full) OUT=comp-cmd.selfx.cmd ;;
-  rt)   OUT=comp-cmd.selfx-rt.cmd
-        [ -f comp-cmd/_rt.lst ] || { echo "comp-cmd/_rt.lst missing -- run tools/build-stdlib-aot-cmd.sh + tools/build-prims-aot-cmd.sh" >&2; exit 1; } ;;
-  *)    echo "usage: sh tools/pack-comp-cmd.sh [full|rt]" >&2; exit 1 ;;
-esac
-python3 - comp-cmd "$OUT" "$MODE" <<'PY'
-import sys, os, hashlib, re
-srcdir, out, mode = sys.argv[1], sys.argv[2], sys.argv[3]
-# load-cmd.cmd / eval-cmd.cmd are the standalone cmd-JIT engines -- dev/test artifacts (engine-
-# differential + stdlib-cmd tests); nothing in the shipped front-end calls them. Excluding them keeps
-# the pack lean AND the build id deterministic regardless of whether their builders have run since
-# the last comp-cmd/ regen.
-EXCLUDE = {'load-cmd.cmd', 'eval-cmd.cmd'}
+# The WHOLE comp-cmd tree -> comp-cmd.selfx.cmd, embedded by portsh.cmd and by packed apps. Packed
+# apps ship the full tooling (interpreter + compiler + loader) so they stay self-contained and
+# DEBUGGABLE -- one file you can inspect, recompile, or REPL. (An earlier runtime-only "rt" subset
+# traded that for size; dropped -- one tooling tree, one build id, one cache.)
+OUT=comp-cmd.selfx.cmd
+python3 - comp-cmd "$OUT" <<'PY'
+import sys, os, hashlib
+srcdir, out = sys.argv[1], sys.argv[2]
+# load-cmd.cmd IS shipped: `portsh.cmd pack` (the AOT subcommand) runs it in compile-only mode to
+# precompile the program at pack time, and shipping the read->compile->run loader keeps a packed app
+# fully debuggable. eval-cmd.cmd (single-expr eval engine) stays excluded -- redundant with load-cmd,
+# nothing calls it. build-polyglot.sh ensures load-cmd.cmd exists before packing (so the build id,
+# which hashes the file set, is deterministic).
+EXCLUDE = {'eval-cmd.cmd'}
 files = sorted(f for f in os.listdir(srcdir)
                if os.path.isfile(os.path.join(srcdir, f)) and f not in EXCLUDE)
-if mode == 'rt':
-    rt = set(open(os.path.join(srcdir, '_rt.lst')).read().split())
-    is_pc = re.compile(r'.*_pc\d+\.cmd$')
-    EXCLUDE_RT = {'comp.cmd', 'main.lisp'}   # the compiler driver + its compiled-fn manifest
-    files = [f for f in files if (f in rt) or (not is_pc.match(f) and f not in EXCLUDE_RT)]
 h = hashlib.sha256()
 for f in files:
     h.update(f.encode())

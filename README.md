@@ -54,23 +54,25 @@ The quickest way, needing nothing but `portsh.cmd` itself (no repo, no tools):
 portsh.cmd pack prog.lisp app.cmd        # on Windows
 ```
 
-`app.cmd` is a byte-exact copy of `portsh.cmd` with `prog.lisp` appended as an
-embedded payload — one self-contained polyglot that runs `prog.lisp` with any
-arguments it's given. It runs the program from source (JIT on Unix; on Windows
-the first run is cold and every run after is warm from the content-hash cache).
+`app.cmd` is a byte-exact copy of `portsh.cmd` with `prog.lisp` embedded — one
+self-contained polyglot that runs `prog.lisp` with any arguments. When you pack
+**on Windows**, it AOT-compiles the program at pack time, so the app is **warm
+on its very first run** (no interpreter, no background compile); packed **on
+Unix** (no cmd compiler available there) it embeds the source and is warm-after-
+cold on Windows, JIT on Unix. Either app runs on either host.
 
-For an app that's **warm on its very first Windows run**, AOT-compile at pack
-time with the repo tool:
+The app always carries the full engine — interpreter, compiler, and the source
+— so it stays inspectable and recompilable, not an opaque blob.
+
+To produce a warm-first-run app **from Unix**, use the repo tool, which
+AOT-compiles via the sh-hosted cmd emitter:
 
 ```sh
 sh tools/pack-app.sh prog.lisp app.cmd
 ```
 
-This embeds `prog.lisp` precompiled plus a runtime-only tooling tree (no
-compiler — a packed app never compiles), roughly half the full tree;
-`PORTSH_PACK_FULL=1` embeds the full tree instead, sharing its per-machine
-tooling cache with `portsh.cmd`. (The bootstrap kernel has a slower low-tech
-cousin: `cat portsh-full.cmd prog.lisp > app.cmd` — see "The bootstrap kernel".)
+(The bootstrap kernel has a slower low-tech cousin: `cat portsh-full.cmd
+prog.lisp > app.cmd` — see "The bootstrap kernel".)
 
 ## The language
 

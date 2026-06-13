@@ -18,7 +18,4 @@ rm -f "$work/out/main.lisp"
 if [ -f "$work/out/_consts.cmd" ]; then cat "$work/out/_consts.cmd" >> comp-cmd/_consts_std.cmd; rm -f "$work/out/_consts.cmd"; fi
 [ -f comp-cmd/_consts_std.cmd ] || : > comp-cmd/_consts_std.cmd
 cp "$work/out"/*.cmd comp-cmd/ 2>/dev/null || true
-# append to the runtime manifest (see build-stdlib-aot-cmd.sh, which creates it)
-{ [ -f comp-cmd/_rt.lst ] && cat comp-cmd/_rt.lst; ls "$work/out" 2>/dev/null; } | sort -u > comp-cmd/_rt.lst.tmp
-mv comp-cmd/_rt.lst.tmp comp-cmd/_rt.lst
 echo "installed prims into comp-cmd/ ($(ls "$work/out"/*.cmd 2>/dev/null | wc -l | tr -d ' ') .cmd files)"

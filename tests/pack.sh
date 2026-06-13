@@ -27,17 +27,6 @@ done
 sh "$work/exitcode.cmd" >/dev/null 2>&1
 rc=$?
 if [ "$rc" = 3 ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL pack-sh exitcode (got %s)\n' "$rc"; fi
-# rt embed guard: the default pack carries the RUNTIME-ONLY tooling (~half the full tree); an app
-# over the cap means the full selfx leaked back in
-for f in "$work"/*.cmd; do
-  if [ "$(wc -c < "$f")" -ge 1300000 ]; then fail=$((fail+1)); printf 'FAIL pack-size %s (%s bytes >= 1300000)\n' "$(basename "$f")" "$(wc -c < "$f" | tr -d ' ')"; else pass=$((pass+1)); fi
-done
-# PORTSH_PACK_FULL=1 must still produce a working (bigger, full-tooling) app
-PORTSH_PACK_FULL=1 sh tools/pack-app.sh tests/engines/exitcode.lisp "$work/exitcode-full.cmd" >/dev/null 2>&1
-sh "$work/exitcode-full.cmd" >/dev/null 2>&1
-rc=$?
-if [ "$rc" = 3 ] && [ "$(wc -c < "$work/exitcode-full.cmd")" -gt "$(wc -c < "$work/exitcode.cmd")" ]; then pass=$((pass+1))
-else fail=$((fail+1)); printf 'FAIL pack-full (rc=%s)\n' "$rc"; fi
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   VM=$PORTSH_WIN_SSH; DIR="pk$$"
   tar czf "$work/p.tgz" -C "$work" $(cd "$work" && ls *.cmd)
@@ -51,8 +40,6 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   done
   rc=$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & call exitcode.cmd >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
   if [ "$rc" = "RC=3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL pack-cmd exitcode (%s)\n' "$rc"; fi
-  rc=$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & call exitcode-full.cmd >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
-  if [ "$rc" = "RC=3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL pack-cmd-full exitcode (%s)\n' "$rc"; fi
 fi
 printf '\npack: pass=%d fail=%d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

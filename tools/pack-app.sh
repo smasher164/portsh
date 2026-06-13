@@ -14,12 +14,10 @@
 #             every run including the first executes the existing WARM fast path (in_warmrun):
 #             no interpreter curtain, no background warmer, no compile -- ever.
 #
-# The embedded tooling is the RUNTIME-ONLY tree by default (comp-cmd.selfx-rt.cmd: driver + interp
-# machine + reader + prim side files + AOT stdlib/prims -- no compiler, which a packed app never
-# runs since AOT happens at pack time and `eval` is not a compiled builtin). Its build id hashes the
-# subset, so rt apps cache under their own %LOCALAPPDATA%\portsh\<id>, decoupled from portsh.cmd's
-# full cache. PORTSH_PACK_FULL=1 embeds the full tree instead (same build id as portsh.cmd -> the
-# two share the tooling cache).
+# The embedded tooling is the FULL comp-cmd tree (interpreter + compiler + loader), so a packed app
+# is self-contained and DEBUGGABLE -- you can inspect, recompile, or REPL it. It shares the tooling
+# cache with portsh.cmd (same build id). (`portsh.cmd pack` does the same AOT, repo-free, when packing
+# on Windows; this script is the way to produce a warm-first-run app FROM unix, via comp.sh.)
 #
 # The program cache dir is keyed by the sha256 of prog.lisp, the SAME key the portsh.cmd front-end
 # computes with certutil -- a full-embed packed app and a watcher-warmed `portsh.cmd prog.lisp`
@@ -39,11 +37,16 @@ OUT=${2:?usage: sh tools/pack-app.sh prog.lisp app.cmd}
 [ -f comp-cmd/interp-cmd.cmd ] || sh build-interp-cmd.sh >/dev/null
 [ -f comp-cmd/map_pc0.cmd ] || sh tools/build-stdlib-aot-cmd.sh >/dev/null
 [ -f comp-cmd/__p_add_pc0.cmd ] || sh tools/build-prims-aot-cmd.sh >/dev/null
-if [ -n "${PORTSH_PACK_FULL:-}" ]; then SELFX=comp-cmd.selfx.cmd; SXMODE=full
-else SELFX=comp-cmd.selfx-rt.cmd; SXMODE=rt; fi
-# _consts_std.cmd in the staleness check: a stdlib reinstall touches it but not interp-cmd.cmd
-if [ ! -f "$SELFX" ] || [ comp-cmd/interp-cmd.cmd -nt "$SELFX" ] || [ comp-cmd/_consts_std.cmd -nt "$SELFX" ]; then
-  sh tools/pack-comp-cmd.sh "$SXMODE" >/dev/null
+[ -f comp-cmd/load-cmd.cmd ] || sh build-load-cmd.sh >/dev/null
+# Always embed the FULL tooling (interpreter + compiler + loader): a packed app stays self-contained
+# and DEBUGGABLE -- the recipient can inspect, recompile, or REPL it, which is the whole point of a
+# one-file Lisp. (The old runtime-only "rt" embed traded that away for size; dropped.) Shares the
+# per-machine tooling cache with portsh.cmd (same build id).
+SELFX=comp-cmd.selfx.cmd
+# _consts_std.cmd / load-cmd.cmd in the staleness check: a stdlib reinstall or loader rebuild touches
+# them but not interp-cmd.cmd.
+if [ ! -f "$SELFX" ] || [ comp-cmd/interp-cmd.cmd -nt "$SELFX" ] || [ comp-cmd/_consts_std.cmd -nt "$SELFX" ] || [ comp-cmd/load-cmd.cmd -nt "$SELFX" ]; then
+  sh tools/pack-comp-cmd.sh >/dev/null
 fi
 BUILD=$(sed -n 's/^set "PORTSH_BUILD=\([0-9a-f][0-9a-f]*\)".*/\1/p' "$SELFX" | head -1)
 [ -n "$BUILD" ] || { echo "pack-app: could not read build id" >&2; exit 1; }
@@ -251,22 +254,22 @@ goto pargs
 :pargs_done
 set "CACHE=%LOCALAPPDATA%\\portsh\\{B}"
 if exist "%CACHE%\\.ok" goto pcache_ok
-rem tooling cold: extract the embedded comp-cmd tree once per build (shared with portsh.cmd)
-if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
-cmd /c call "!SELF!" __extract "%CACHE%.tmp" >nul 2>&1
-move "%CACHE%.tmp" "%CACHE%" >nul 2>&1
-rem promote only a COMPLETE extraction (a failed extract/move must not poison the cache with .ok)
+rem tooling cold: extract the embedded comp-cmd tree once per build (shared with portsh.cmd). Extract
+rem DIRECTLY into %CACHE% -- a `.tmp` + `move` of a freshly-written dir fails "Access is denied" when
+rem the OS/AV still holds the new files (intermittent, worse with the bigger full tree). The `.ok`
+rem sentinel (written last, gated on a complete tree) makes a partial/interrupted extract self-heal:
+rem no `.ok` -> the next run re-extracts over it.
+cmd /c call "!SELF!" __extract "%CACHE%" >nul 2>&1
 if exist "%CACHE%\\interp-cmd.cmd" break>"%CACHE%\\.ok"
 :pcache_ok
 set "PATH=%CACHE%;%PATH%"
 set "PCACHE=%CACHE%\\p\\{H}"
 if exist "!PCACHE!\\.ok" goto prun
 rem program cold: extract the EMBEDDED precompiled artifacts (no compiling -- the program was
-rem AOT-compiled at pack time); every run including the first is the warm fast path.
+rem AOT-compiled at pack time); every run including the first is the warm fast path. Direct extract
+rem (no move) for the same reason as the tooling above.
 if not exist "%CACHE%\\p" mkdir "%CACHE%\\p"
-if exist "!PCACHE!.tmp" rmdir /s /q "!PCACHE!.tmp"
-cmd /c call "!SELF!" __pextract "!PCACHE!.tmp" >nul 2>&1
-move "!PCACHE!.tmp" "!PCACHE!" >nul 2>&1
+cmd /c call "!SELF!" __pextract "!PCACHE!" >nul 2>&1
 if exist "!PCACHE!\\_thunks" break>"!PCACHE!\\.ok"
 :prun
 if not exist "!PCACHE!\\_thunks" (echo packed app: program artifacts missing 1>&2 & endlocal & exit /b 1)
@@ -288,4 +291,4 @@ whole = whole.replace('\r\n', '\n').replace('\n', '\r\n')
 open(out, 'wb').write(whole.encode('latin-1'))
 PY
 chmod +x "$OUT"
-echo "packed $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes, tooling $SXMODE build $BUILD, prog $H)"
+echo "packed $OUT ($(wc -c < "$OUT" | tr -d ' ') bytes, warm AOT, build $BUILD, prog $H)"

@@ -138,6 +138,12 @@ rem compile ALL forms in-process -> per-PC .cmd fns in the cwd.
 set "F0=!XF!" & set "F1=T:." & set "F2=T:elmain.lisp"
 set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO="
 call :el_drive
+rem PACK (AOT) mode: `portsh.cmd pack` runs us here to PRODUCE the warm-run artifacts and STOP -- no
+rem execution (so packing a program with side effects doesn't run it). compile-program already wrote
+rem _consts.cmd + the per-PC .cmd in cwd; write the thunk run-list to _thunks (the file in_warmrun
+rem reads) and exit. The artifact set (_consts.cmd + *_pc*.cmd + _thunks) is exactly what a warm run
+rem consumes, byte-for-byte the same as tools/pack-app.sh produces via comp.sh on Unix.
+if defined PORTSH_PACKCOMPILE (> _thunks echo(!THUNKS! & exit /b 0)
 rem load the PROGRAM's atom-define constants (compile-program writes ./_consts.cmd; the boot-time
 rem call loaded only the TOOLING's). Without this, compiled !G_<name>! reads see an unset var.
 if exist _consts.cmd call _consts.cmd

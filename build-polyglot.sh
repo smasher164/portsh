@@ -16,13 +16,17 @@ set -eu
 cd "$(dirname "$0")"
 [ -f load-sh.sh ] || sh build-load-sh.sh >/dev/null
 [ -f comp-cmd/interp-cmd.cmd ] || sh build-interp-cmd.sh >/dev/null
+# load-cmd.cmd is now embedded (the `pack` AOT subcommand compiles via it; ships for debuggability) --
+# ensure it exists so the selfx build id (hashes the file set) is stable.
+[ -f comp-cmd/load-cmd.cmd ] || sh build-load-cmd.sh >/dev/null
 # the AOT stdlib/prims install is part of the shipped tree -- a build-comp-cmd.sh regen (rm -rf)
 # drops it, and WITHOUT these guards the polyglot ships with stdlib fns resolvable on the sh half
 # but not on cmd (the v0.1.0 bug).
 [ -f comp-cmd/map_pc0.cmd ] || sh tools/build-stdlib-aot-cmd.sh >/dev/null
 [ -f comp-cmd/__p_add_pc0.cmd ] || sh tools/build-prims-aot-cmd.sh >/dev/null
-# _consts_std.cmd in the staleness check: a stdlib reinstall touches it but not interp-cmd.cmd
-if [ ! -f comp-cmd.selfx.cmd ] || [ comp-cmd/interp-cmd.cmd -nt comp-cmd.selfx.cmd ] || [ comp-cmd/_consts_std.cmd -nt comp-cmd.selfx.cmd ]; then
+# _consts_std.cmd / load-cmd.cmd in the staleness check: a stdlib reinstall or loader rebuild touches
+# them but not interp-cmd.cmd.
+if [ ! -f comp-cmd.selfx.cmd ] || [ comp-cmd/interp-cmd.cmd -nt comp-cmd.selfx.cmd ] || [ comp-cmd/_consts_std.cmd -nt comp-cmd.selfx.cmd ] || [ comp-cmd/load-cmd.cmd -nt comp-cmd.selfx.cmd ]; then
   sh tools/pack-comp-cmd.sh >/dev/null
 fi
 BUILD=$(sed -n 's/^set "PORTSH_BUILD=\([0-9a-f][0-9a-f]*\)".*/\1/p' comp-cmd.selfx.cmd | head -1)
@@ -60,22 +64,28 @@ sh_pack = (
   '# treats any such header line as a PEM start, so a literal in THIS code would shadow the real\n'
   '# payload and try to decode source as base64. Only the payload carries it. Asserted at build.\n'
   '_d5=-----; _pb="${_d5}BEGIN CERTIFICATE${_d5}"; _pe="${_d5}END CERTIFICATE${_d5}"\n'
+  '# The payload is a base64 PEM block wrapping a TAR of the program: always prog.lisp, plus the AOT\n'
+  '# artifacts (_consts.cmd/_thunks/*_pc*.cmd) when packed on Windows (the cmd PPACK arm). Shipping the\n'
+  '# full engine + source keeps the app debuggable; the artifacts make a Windows pack warm on its\n'
+  '# first run. sh has no embedded cmd emitter, so a pack ON unix is source-only (the app still runs\n'
+  '# warm-after-cold on cmd); pack ON windows AOT-compiles. Either app runs on either host.\n'
   'if [ "${1:-}" = pack ] && ! grep -q "^__PORTSH_PAYLOAD__$" "$0" 2>/dev/null; then\n'
   '  [ -n "${2:-}" ] && [ -n "${3:-}" ] || { echo "usage: portsh.cmd pack PROG.lisp OUT.cmd" >&2; exit 2; }\n'
   '  [ -f "$2" ] || { echo "portsh pack: $2 not found" >&2; exit 1; }\n'
   '  cp "$PORTSH_SELF" "$3" || exit 1\n'
+  '  _pd=$(mktemp -d); cp "$2" "$_pd/prog.lisp"\n'
   '  { printf \'\\r\\n__PORTSH_PAYLOAD__\\r\\n%s\\r\\n\' "$_pb"\n'
-  '    base64 < "$2" | tr -d \'\\r\\n\' | fold -w 64 | awk \'{printf "%s\\r\\n", $0}\'\n'
+  '    ( cd "$_pd" && tar cf - prog.lisp ) | base64 | tr -d \'\\r\\n\' | fold -w 64 | awk \'{printf "%s\\r\\n", $0}\'\n'
   '    printf \'%s\\r\\n\' "$_pe"\n'
   '  } >> "$3"\n'
-  '  chmod +x "$3" 2>/dev/null\n'
+  '  rm -rf "$_pd"; chmod +x "$3" 2>/dev/null\n'
   '  echo "packed $3"; exit 0\n'
   'fi\n'
   'if grep -q "^__PORTSH_PAYLOAD__$" "$0" 2>/dev/null; then\n'
-  '  _pp=$(mktemp); trap \'rm -f "$_pp"\' EXIT\n'
-  '  sed -n "/^$_pb/,/^$_pe/p" "$0" | sed \'1d;$d\' | base64 -d > "$_pp" 2>/dev/null\n'
+  '  _pd=$(mktemp -d); trap \'rm -rf "$_pd"\' EXIT\n'
+  '  sed -n "/^$_pb/,/^$_pe/p" "$0" | sed \'1d;$d\' | base64 -d | tar xf - -C "$_pd" 2>/dev/null\n'
   '  PORTSH_SCRIPT=${PORTSH_SCRIPT-1}; export PORTSH_SCRIPT\n'
-  '  set -- "$_pp" "$@"\n'
+  '  set -- "$_pd/prog.lisp" "$@"\n'
   'fi\n'
 )
 anchor = 'if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi'
@@ -156,26 +166,54 @@ cmd /c "call interp-cmd.cmd"
 set "RC=!errorlevel!"
 endlocal & exit /b %RC%
 :PPACK
-rem pack PROG OUT: OUT = byte-exact copy of this file + appended payload (marker + PEM base64 of PROG).
-rem copy /b is binary-exact (preserves CRLF + the polyglot); the leading blank echo guarantees the
-rem marker starts its own line regardless of the file's final byte. certutil -encode emits the PEM block
-rem (the same form the sh half writes); certutil -decode / base64 -d read it back on either host.
+rem pack PROG OUT: OUT = byte-exact copy of this file + an appended payload (PEM base64 of a TAR).
+rem On Windows we AOT-COMPILE here (the tooling cache, ensured at :pcache_ok, has load-cmd + comp), so
+rem the app is WARM on its first run; the tar carries the artifacts (_consts.cmd/_thunks/*_pc*.cmd)
+rem PLUS prog.lisp (source ships too -> the app stays debuggable and runs on sh). copy /b is byte-exact;
+rem the leading blank echo guarantees the marker starts its own line; certutil -encode emits the PEM.
 if "%~3"=="" (echo usage: portsh.cmd pack PROG.lisp OUT.cmd 1>&2 & endlocal & exit /b 2)
 if not exist "%~2" (echo portsh pack: %~2 not found 1>&2 & endlocal & exit /b 1)
 copy /b "%~f0" "%~3" >nul 2>&1 || (echo portsh pack: cannot write %~3 1>&2 & endlocal & exit /b 1)
+set "PKART=%TEMP%\\pk_art_!RANDOM!!RANDOM!"
+mkdir "!PKART!"
+copy "%~f2" "!PKART!\\prog.lisp" >nul 2>&1
+rem AOT compile-only (PORTSH_PACKCOMPILE: emit artifacts, do NOT run -> side-effect-free) in PKART.
+rem Compile the LOCAL copy `prog.lisp` (relative to cwd=!PKART!). Do NOT pass %~f2 after the pushd:
+rem %~f2 resolves the relative `pack` arg against the CURRENT dir (now !PKART!), pointing at a file
+rem that isn't there, so load-cmd would emit no artifacts (and the app would silently be cold).
+pushd "!PKART!"
+set "PORTSH_PACKCOMPILE=1"
+cmd /c "call load-cmd.cmd prog.lisp" >nul 2>&1
+set "PORTSH_PACKCOMPILE="
+del elmain.lisp main.lisp 2>nul
+for /d %%d in (ph_*) do rmdir /s /q "%%d" 2>nul
+rem tar ONLY the warm-run artifact set + source (skip the heap dir / compile scratch)
+set "PKLIST=prog.lisp"
+if exist _consts.cmd set "PKLIST=!PKLIST! _consts.cmd"
+if exist _thunks set "PKLIST=!PKLIST! _thunks"
+for %%f in (*_pc*.cmd) do set "PKLIST=!PKLIST! %%f"
+rem tar with a RELATIVE archive name (cwd is !PKART!): bsdtar reads an absolute "C:\..." archive arg
+rem as a host:path remote spec (the colon) and fails "Couldn't visit directory". The relative name
+rem has no colon. certutil/del below take the absolute path fine (only tar parses host:path).
+tar cf bundle.tar !PKLIST!
+popd
+set "PPENC=%TEMP%\\pp_enc_!RANDOM!!RANDOM!.tmp"
+certutil -encode "!PKART!\\bundle.tar" "!PPENC!" >nul 2>&1
 >>"%~3" echo(
 >>"%~3" echo(__PORTSH_PAYLOAD__
-set "PPENC=%TEMP%\\pp_enc_!RANDOM!!RANDOM!.tmp"
-certutil -encode "%~2" "!PPENC!" >nul 2>&1
 for /f "usebackq delims=" %%t in ("!PPENC!") do >>"%~3" echo(%%t
-del "!PPENC!" >nul 2>&1
-echo packed %~3
+del "!PPENC!" >nul 2>&1 & rmdir /s /q "!PKART!" 2>nul
+echo packed %~3 ^(warm, AOT^)
 endlocal & exit /b 0
 :PPACKED
-rem this file carries an embedded program -> decode it (certutil scans for the PEM block, ignoring the
-rem leading polyglot bytes) and run it through the normal content-hash cache path. ALL args are argv.
-set "PPROG=%TEMP%\\pp_run_!RANDOM!!RANDOM!.lisp"
-certutil -decode "%~f0" "!PPROG!" >nul 2>&1
+rem this file carries an embedded program -> certutil-decode the PEM (it scans past the leading polyglot
+rem bytes) to a TAR, extract it, and run. If the tar has _thunks the program was AOT-compiled at pack
+rem time -> set PORTSH_OSRDIR and interp-cmd takes the WARM fast path (in_warmrun). Otherwise (packed on
+rem unix: source only) fall through to the normal cold->warm cache path. ALL args are the program's argv.
+set "PKD=%TEMP%\\pk_run_!RANDOM!!RANDOM!"
+mkdir "!PKD!"
+certutil -decode "%~f0" "!PKD!\\b.tar" >nul 2>&1
+pushd "!PKD!" & tar xf b.tar & del b.tar & popd
 set "PORTSH_ARGC=0"
 :ppargs
 if "%~1"=="" goto ppargs_done
@@ -184,8 +222,18 @@ set /a PORTSH_ARGC+=1
 shift /1
 goto ppargs
 :ppargs_done
-set "PROG=!PPROG!"
+rem WARM if the tar carried AOT artifacts; else cold. Must be a goto, NOT an if-block: `exit /b %RC%`
+rem inside a parenthesised block expands %RC% at PARSE time (block entry, RC unset) -> (exit n) would
+rem not propagate. Sequential lines (like :prun) expand it correctly.
+if exist "!PKD!\\_thunks" goto ppwarm
+set "PROG=!PKD!\\prog.lisp"
 goto phash
+:ppwarm
+set "PORTSH_OSRDIR=!PKD!"
+set "PORTSH_SCRIPT=1"
+cmd /c "call interp-cmd.cmd "!PKD!\\prog.lisp""
+set "RC=!errorlevel!"
+endlocal & exit /b %RC%
 :PWARM
 rem %2=prog %3=pcache %4=stage %5=taskname -- the MANIFEST-WATCHER warmer (runs detached). The whole-
 rem program compile (heap-safe, emits everything incl clambdas) runs as a background CHILD writing into
