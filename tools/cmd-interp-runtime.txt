@@ -623,7 +623,10 @@ if "!IRV!"=="+" set "R=__p_add"
 if "!IRV!"=="-" set "R=__p_sub"
 if "!IRV!"=="*" set "R=__p_mul"
 if "!IRV!"=="!LT!" set "R=__p_lt"
+if "!IRV!"=="!LT!=" set "R=__p_le"
 if "!IRV!"=="=" set "R=__p_neq"
+if "!IRV!"=="!GT!" set "R=__p_gt"
+if "!IRV!"=="!GT!=" set "R=__p_ge"
 if "!IRV!"=="cons" set "R=__p_cons"
 if "!IRV!"=="car" set "R=__p_car"
 if "!IRV!"=="cdr" set "R=__p_cdr"
@@ -631,6 +634,9 @@ if "!IRV!"=="null?" set "R=__p_null"
 if "!IRV!"=="eq?" set "R=__p_eq"
 if "!IRV!"=="pair?" set "R=__p_pair"
 if "!IRV!"=="not" set "R=__p_not"
+if "!IRV!"=="number?" set "R=__p_number"
+if "!IRV!"=="string?" set "R=__p_string"
+if "!IRV!"=="symbol?" set "R=__p_symbol"
 goto :eof
 :isprim
 rem IPO = S:<op> -> R=1 if a call-position prim, else 0
@@ -650,6 +656,8 @@ if "!IPO!"=="S:*" set "R=1"
 if "!IPO!"=="S:!LT!" set "R=1"
 if "!IPO!"=="S:!LT!=" set "R=1"
 if "!IPO!"=="S:=" set "R=1"
+if "!IPO!"=="S:!GT!" set "R=1"
+if "!IPO!"=="S:!GT!=" set "R=1"
 if "!IPO!"=="S:type-of" set "R=1"
 if "!IPO!"=="S:argv" set "R=1"
 if "!IPO!"=="S:getenv" set "R=1"
@@ -721,6 +729,8 @@ if "!IPO!"=="S:*" (set /a ipr=!ipna!*!ipnb! & set "IPV=I:!ipr!" & goto itk_push)
 if "!IPO!"=="S:!LT!" goto ipr_lt
 if "!IPO!"=="S:!LT!=" goto ipr_le
 if "!IPO!"=="S:=" goto ipr_neq
+if "!IPO!"=="S:!GT!" goto ipr_gt
+if "!IPO!"=="S:!GT!=" goto ipr_ge
 echo interp: unknown prim !IPO! 1>&2
 set "IPV=NIL"
 goto itk_push
@@ -744,6 +754,12 @@ if !ipna! LSS !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
 goto itk_push
 :ipr_le
 if !ipna! LEQ !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_gt
+if !ipna! GTR !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
+goto itk_push
+:ipr_ge
+if !ipna! GEQ !ipnb! (set "IPV=S:t") else (set "IPV=NIL")
 goto itk_push
 :ipr_neq
 if !ipna!==!ipnb! (set "IPV=S:t") else (set "IPV=NIL")

@@ -102,12 +102,13 @@ iresolve() {
 }
 prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not wrappable (matches comp prim-wrap)
   case $1 in
-    +) R=__p_add ;; -) R=__p_sub ;; '*') R=__p_mul ;; '<') R=__p_lt ;; =) R=__p_neq ;;
+    +) R=__p_add ;; -) R=__p_sub ;; '*') R=__p_mul ;; '<') R=__p_lt ;; '<=') R=__p_le ;; =) R=__p_neq ;; '>') R=__p_gt ;; '>=') R=__p_ge ;;
     cons) R=__p_cons ;; car) R=__p_car ;; cdr) R=__p_cdr ;; null?) R=__p_null ;; eq?) R=__p_eq ;; pair?) R=__p_pair ;; not) R=__p_not ;;
+    number?) R=__p_number ;; string?) R=__p_string ;; symbol?) R=__p_symbol ;;
     *) R="" ;;
   esac
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|'S:>'|'S:>='|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -184,13 +185,15 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
          'S:*')  ip_acc=${ipa#??}; hp_cdr "$ip_args"; ip_r=$R
                  while [ "$ip_r" != NIL ]; do hp_car "$ip_r"; ip_acc=$((ip_acc * ${R#??})); hp_cdr "$ip_r"; ip_r=$R; done
                  ips "I:$ip_acc" ;;
-         'S:<'|'S:<='|S:=)
+         'S:<'|'S:<='|S:=|'S:>'|'S:>=')
                  ip_prev=${ipa#??}; hp_cdr "$ip_args"; ip_r=$R; ip_ok=1
                  while [ "$ip_r" != NIL ]; do
                    hp_car "$ip_r"; ip_nx=${R#??}
                    case $1 in
                      'S:<')  [ "$ip_prev" -lt "$ip_nx" ] || ip_ok=0 ;;
                      'S:<=') [ "$ip_prev" -le "$ip_nx" ] || ip_ok=0 ;;
+                     'S:>')  [ "$ip_prev" -gt "$ip_nx" ] || ip_ok=0 ;;
+                     'S:>=') [ "$ip_prev" -ge "$ip_nx" ] || ip_ok=0 ;;
                      S:=)    [ "$ip_prev" = "$ip_nx" ]   || ip_ok=0 ;;
                    esac
                    ip_prev=$ip_nx; hp_cdr "$ip_r"; ip_r=$R
@@ -436,8 +439,8 @@ process_forms() {
       ld_vhd=NIL; case $ld_val in P:*) hp_car "$ld_val"; ld_vhd=$R ;; esac
       if [ "$ld_vhd" = "S:lambda" ]; then hp_cons "$ld_form" "$XF"; XF=$R
       else case $ld_val in
-             I:*|T:*|S:*) hp_cons "$ld_form" "$XF"; XF=$R ;;
-             *) ld_mkthunk "$ld_val" "G:${ld_nm0#S:}" ;;
+             I:*|T:*|S:nil|S:t) hp_cons "$ld_form" "$XF"; XF=$R ;;
+             *) ld_mkthunk "$ld_val" "G:${ld_nm0#S:}" ;;   # computed OR bare-symbol alias -> thunk binds g's VALUE
            esac
       fi
     else
@@ -476,7 +479,8 @@ process_forms() {
             ilen "$ld_ps"; eval "ILAM_${ld_nm}_np=$R"; ilen "$ld_cap"; eval "ILAM_${ld_nm}_ncap=$R; ILAM_${ld_nm}_body=\$ld_body; ILAM_${ld_nm}_def=\$ld_form" ;;
         esac
         GFNS="$GFNS $ld_nm" ;;
-      *) eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;   # G_ key mangled (sh idents); GVARS raw (comp matches source symbols)
+      *) [ "$ld_val" = "S:nil" ] && ld_val=NIL               # literal nil -> runtime NIL (kernel parity)
+         eval "G_${ld_nm}=\$ld_val"; GVARS="$GVARS $ld_nm_raw" ;;   # G_ key mangled (sh idents); GVARS raw (comp matches source symbols)
     esac
   done
   for f in ${PORTSH_OSR:-}; do osr_compile "$f"; done         # OSR flip (no-op if PORTSH_OSR unset)

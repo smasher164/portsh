@@ -1285,6 +1285,20 @@ ACTION=jump; return
 R="T:-eq"; ACTION=ret; return
 ;;
 6)
+if [ "${p0}" = "S:>" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="T:-gt"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:>=" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+9)
+R="T:-ge"; ACTION=ret; return
+;;
+10)
 R="T:?"; ACTION=ret; return
 ;;
 esac; }
@@ -1422,6 +1436,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 6)
+if [ "${p0}" = "S:>" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="S:t"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:>=" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+9)
+R="S:t"; ACTION=ret; return
+;;
+10)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -1974,6 +2002,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 20)
+if [ "${p0}" = "S:>" ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
+21)
+R="S:t"; ACTION=ret; return
+;;
+22)
+if [ "${p0}" = "S:>=" ]; then PC=23; else PC=24; fi
+ACTION=jump; return
+;;
+23)
+R="S:t"; ACTION=ret; return
+;;
+24)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2203,55 +2245,90 @@ ACTION=jump; return
 R="T:__p_neq"; ACTION=ret; return
 ;;
 12)
-if [ "${p0}" = "S:cons" ]; then PC=13; else PC=14; fi
+if [ "${p0}" = "S:>" ]; then PC=13; else PC=14; fi
 ACTION=jump; return
 ;;
 13)
-R="T:__p_cons"; ACTION=ret; return
+R="T:__p_gt"; ACTION=ret; return
 ;;
 14)
-if [ "${p0}" = "S:car" ]; then PC=15; else PC=16; fi
+if [ "${p0}" = "S:>=" ]; then PC=15; else PC=16; fi
 ACTION=jump; return
 ;;
 15)
-R="T:__p_car"; ACTION=ret; return
+R="T:__p_ge"; ACTION=ret; return
 ;;
 16)
-if [ "${p0}" = "S:cdr" ]; then PC=17; else PC=18; fi
+if [ "${p0}" = "S:cons" ]; then PC=17; else PC=18; fi
 ACTION=jump; return
 ;;
 17)
-R="T:__p_cdr"; ACTION=ret; return
+R="T:__p_cons"; ACTION=ret; return
 ;;
 18)
-if [ "${p0}" = "S:null?" ]; then PC=19; else PC=20; fi
+if [ "${p0}" = "S:car" ]; then PC=19; else PC=20; fi
 ACTION=jump; return
 ;;
 19)
-R="T:__p_null"; ACTION=ret; return
+R="T:__p_car"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:eq?" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:cdr" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
-R="T:__p_eq"; ACTION=ret; return
+R="T:__p_cdr"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:pair?" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:null?" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
-R="T:__p_pair"; ACTION=ret; return
+R="T:__p_null"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:not" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:eq?" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
-R="T:__p_not"; ACTION=ret; return
+R="T:__p_eq"; ACTION=ret; return
 ;;
 26)
+if [ "${p0}" = "S:pair?" ]; then PC=27; else PC=28; fi
+ACTION=jump; return
+;;
+27)
+R="T:__p_pair"; ACTION=ret; return
+;;
+28)
+if [ "${p0}" = "S:not" ]; then PC=29; else PC=30; fi
+ACTION=jump; return
+;;
+29)
+R="T:__p_not"; ACTION=ret; return
+;;
+30)
+if [ "${p0}" = "S:number?" ]; then PC=31; else PC=32; fi
+ACTION=jump; return
+;;
+31)
+R="T:__p_number"; ACTION=ret; return
+;;
+32)
+if [ "${p0}" = "S:string?" ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+R="T:__p_string"; ACTION=ret; return
+;;
+34)
+if [ "${p0}" = "S:symbol?" ]; then PC=35; else PC=36; fi
+ACTION=jump; return
+;;
+35)
+R="T:__p_symbol"; ACTION=ret; return
+;;
+36)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -14283,23 +14360,37 @@ FTOP=$((FP + SIZE_cval_sh))
 NP=1
 case $PC in
 0)
-if [ "${p0#T:}" != "${p0}" ]; then PC=1; else PC=2; fi
+if [ "${p0}" = NIL ]; then PC=1; else PC=2; fi
 ACTION=jump; return
 ;;
 1)
-sht0="T:T:${p0#??}"
-R="${sht0}"; ACTION=ret; return
+R="T:NIL"; ACTION=ret; return
 ;;
 2)
-if [ "${p0#I:}" != "${p0}" ]; then PC=3; else PC=4; fi
+if [ "${p0#T:}" != "${p0}" ]; then PC=3; else PC=4; fi
 ACTION=jump; return
 ;;
 3)
+sht0="T:T:${p0#??}"
+R="${sht0}"; ACTION=ret; return
+;;
+4)
+if [ "${p0#I:}" != "${p0}" ]; then PC=5; else PC=6; fi
+ACTION=jump; return
+;;
+5)
 sht1="T:${p0#??}"
 sht2="T:I:${sht1#??}"
 R="${sht2}"; ACTION=ret; return
 ;;
-4)
+6)
+if [ "${p0}" = "S:nil" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="T:NIL"; ACTION=ret; return
+;;
+8)
 sht3="T:${p0#??}"
 sht4="T:S:${sht3#??}"
 R="${sht4}"; ACTION=ret; return

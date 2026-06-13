@@ -18,12 +18,12 @@
 
 (define cadddr (lambda (x) (car (cdr (cdr (cdr x))))))
 (define op->batch  (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
-(define cmp->batch (lambda (o) (cond ((eq? o (quote <)) "LSS") ((eq? o (quote <=)) "LEQ") ((eq? o (quote =)) "EQU") (t "?"))))
+(define cmp->batch (lambda (o) (cond ((eq? o (quote <)) "LSS") ((eq? o (quote <=)) "LEQ") ((eq? o (quote =)) "EQU") ((eq? o (quote >)) "GTR") ((eq? o (quote >=)) "GEQ") (t "?"))))
 (define arith? (lambda (o) (if (eq? o (quote +)) t (if (eq? o (quote -)) t (eq? o (quote *))))))
 ;; predicates test-stmts can evaluate; in VALUE position we wrap them in an if so
 ;; the result becomes S:t / NIL (e.g. comp's is? returns (eq? (car f) h)).
 (define tpred? (lambda (o) (cond ((eq? o (quote eq?)) t) ((eq? o (quote null?)) t) ((eq? o (quote pair?)) t)
-  ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) (t nil))))
+  ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) ((eq? o (quote >)) t) ((eq? o (quote >=)) t) (t nil))))
 (define is? (lambda (f h) (if (pair? f) (eq? (car f) h) nil)))
 
 ;; ref kinds: lit (literal int) | raw (var, raw int) | val (var, tagged value) |
@@ -228,9 +228,11 @@
 (define prim-wrap (lambda (s)
   (cond ((eq? s (quote +)) "__p_add") ((eq? s (quote -)) "__p_sub") ((eq? s (quote *)) "__p_mul")
         ((eq? s (quote <)) "__p_lt")  ((eq? s (quote <=)) "__p_le") ((eq? s (quote =)) "__p_neq")
+        ((eq? s (quote >)) "__p_gt")  ((eq? s (quote >=)) "__p_ge")
         ((eq? s (quote cons)) "__p_cons") ((eq? s (quote car)) "__p_car") ((eq? s (quote cdr)) "__p_cdr")
         ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
         ((eq? s (quote not)) "__p_not")
+        ((eq? s (quote number?)) "__p_number") ((eq? s (quote string?)) "__p_string") ((eq? s (quote symbol?)) "__p_symbol")
         (t nil))))
 (define aas (lambda (refs i) (if (null? refs) nil (cons (qset (str "A" (number->string i) "=" (vref (car refs)))) (aas (cdr refs) (+ i 1))))))
 (define emit-list (lambda (b lns) (if (null? lns) b (emit-list (emit b (car lns)) (cdr lns)))))
@@ -498,7 +500,14 @@
 ;; recursive helper so comp itself stays compilable). One per call shape comp uses.
 (define map-inline-expr (lambda (xs tbl) (if (null? xs) nil (cons (inline-expr (car xs) tbl) (map-inline-expr (cdr xs) tbl)))))
 (define map-inline-form (lambda (xs tbl) (if (null? xs) nil (cons (inline-form (car xs) tbl) (map-inline-form (cdr xs) tbl)))))
-(define map-mexpand (lambda (xs) (if (null? xs) nil (cons (mexpand (car xs)) (map-mexpand (cdr xs))))))
+;; map mexpand over a LIST of expressions (operands), preserving structural sharing (return xs
+;; unchanged when nothing expanded). Used for call operands: this is what lets a special-form NAME
+;; appear as a first-class argument ((app str 42)) without the operand list (str 42) being misread
+;; as a (str ...) FORM -- each operand is mexpanded on its own, a bare `str` symbol stays itself.
+(define map-mexpand (lambda (xs)
+  (if (null? xs) nil
+    (let ((a (mexpand (car xs))) (d (map-mexpand (cdr xs))))
+      (if (if (eq? a (car xs)) (eq? d (cdr xs)) nil) xs (cons a d))))))
 (define map-show (lambda (xs) (if (null? xs) nil (cons (show (car xs)) (map-show (cdr xs))))))
 (define inline-expr (lambda (e tbl)
   (if (pair? e)
@@ -575,7 +584,7 @@
 ;; __cmpN is reserved like __or/__case: an inner chain's bindings are consumed before the
 ;; outer's next bind, so nesting shadows safely.
 (define arith-op? (lambda (s) (if (eq? s (quote +)) t (if (eq? s (quote -)) t (eq? s (quote *))))))
-(define cmp-op? (lambda (s) (if (eq? s (quote <)) t (if (eq? s (quote <=)) t (eq? s (quote =))))))
+(define cmp-op? (lambda (s) (if (eq? s (quote <)) t (if (eq? s (quote <=)) t (if (eq? s (quote =)) t (if (eq? s (quote >)) t (eq? s (quote >=))))))))
 (define extra-args? (lambda (as) (if (null? as) nil (if (null? (cdr as)) nil (if (null? (cdr (cdr as))) nil t)))))
 (define unary-args? (lambda (as) (if (null? as) nil (null? (cdr as)))))
 (define nary->bin (lambda (op acc rest)
@@ -610,6 +619,10 @@
       ;; the fn loses its params -> undefined G_<name> globals). cond/and/or/when/unless are
       ;; builtin DERIVED control forms: rewrite to core if/let/begin, then re-mexpand.
       (if (eq? (car f) (quote lambda)) (cons (quote lambda) (cons (car (cdr f)) (map-mexpand (cdr (cdr f)))))
+      ;; define: preserve the NAME verbatim, mexpand only the value. The structural walk would
+      ;; otherwise see (str (lambda ..)) inside (define str (lambda ..)) and desugar it as a (str ..)
+      ;; FORM -- the define silently collapses (same for list/when/cond/...-named defines).
+      (if (eq? (car f) (quote define)) (cons (quote define) (cons (car (cdr f)) (map-mexpand (cdr (cdr f)))))
       (if (eq? (car f) (quote cond)) (mexpand (cond->if (cdr f)))
       (if (eq? (car f) (quote and)) (mexpand (and->if (cdr f)))
       (if (eq? (car f) (quote or)) (mexpand (or->if (cdr f)))
@@ -621,10 +634,12 @@
         (mexpand (nary-rw f))
         (if (eq? (car f) (quote str)) (str->app (map-mexpand (cdr f)))
           (if (eq? (car f) (quote list)) (list->cons (map-mexpand (cdr f)))
-            ;; structural sharing: if neither sub-tree changed, return f rather than
-            ;; re-consing, so most of comp's source isn't copied.
-            (let ((a (mexpand (car f))) (d (mexpand (cdr f))))
-              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d)))))))))))))))
+            ;; function application: mexpand the OPERATOR, then map over the OPERANDS individually
+            ;; (NOT recurse on (cdr f) as if it were a form -- that misreads an operand list whose
+            ;; head is a special-form name, e.g. (g str 1), as a (str ...) call). Structural sharing:
+            ;; if operator and every operand are unchanged, return f rather than re-consing.
+            (let ((a (mexpand (car f))) (d (map-mexpand (cdr f))))
+              (if (if (eq? a (car f)) (eq? d (cdr f)) nil) f (cons a d))))))))))))))))
     f)))
 (define mexpand-program (lambda (forms) (map-mexpand forms)))
 

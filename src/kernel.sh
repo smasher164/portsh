@@ -450,10 +450,10 @@ prim_app() {
     '-')     hp_car "$args"; _d=${R#I:}; hp_cdr "$args"; lst=$R
              if [ "$lst" = NIL ]; then R="I:$((0 - _d))"; else
                while [ "$lst" != NIL ]; do hp_car "$lst"; _d=$((_d - ${R#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$_d"; fi ;;
-    '<'|'<='|'=')                       # chained: every adjacent pair must hold ((< 1 3 2) is nil)
+    '<'|'<='|'='|'>'|'>=')              # chained: every adjacent pair must hold ((< 1 3 2) is nil)
              hp_car "$args"; _p=${R#I:}; hp_cdr "$args"; lst=$R; _ok=1
              while [ "$lst" != NIL ]; do hp_car "$lst"; _v=${R#I:}
-               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
+               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; '>') [ "$_p" -gt "$_v" ] || _ok=0 ;; '>=') [ "$_p" -ge "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
                _p=$_v; hp_cdr "$lst"; lst=$R; done
              [ "$_ok" = 1 ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
@@ -551,7 +551,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"

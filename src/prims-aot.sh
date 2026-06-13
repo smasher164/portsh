@@ -85,6 +85,38 @@ fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE___p_gt=2
+__p_gt() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE___p_gt))
+NP=2
+case $PC in
+0)
+if [ ${p0#??} -gt ${p1#??} ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_ge=2
+__p_ge() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE___p_ge))
+NP=2
+case $PC in
+0)
+if [ ${p0#??} -ge ${p1#??} ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
 SIZE___p_cons=2
 __p_cons() {
 eval "p0=\"\$F$((FP+0))\""
@@ -183,6 +215,51 @@ RPC=1; ACTION=call; return
 ;;
 1)
 sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_number=1
+__p_number() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_number))
+NP=1
+case $PC in
+0)
+if [ "${p0#I:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_string=1
+__p_string() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_string))
+NP=1
+case $PC in
+0)
+if [ "${p0#T:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_symbol=1
+__p_symbol() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_symbol))
+NP=1
+case $PC in
+0)
+if [ "${p0#S:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }

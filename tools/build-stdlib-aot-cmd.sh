@@ -4,8 +4,9 @@
 # interpreter, no per-run stdlib load. The cmd analog of tools/build-stdlib-aot.sh (which emits the
 # single src/stdlib-aot.sh for the sh side). Uses comp.sh (native, byte-identical, fast).
 #
-# SKIPS (same as the sh side): vau forms, variadic lambdas, the comp-inlined tpreds
-# (number?/string?/symbol?/pair?). ALSO skips comp's own 7 deps (caar/cadr/caddr/not/append/reverse/
+# SKIPS (same as the sh side): vau forms, the comp-inlined tpreds (number?/string?/symbol?/pair?).
+# Variadic lambdas (begin/str) ARE compiled (value position; call position stays a comp form).
+# ALSO skips comp's own 7 deps (caar/cadr/caddr/not/append/reverse/
 # assoc) -- those are ALREADY compiled into comp-cmd/ by build-comp-cmd.sh; the stdlib fns reach them
 # via `call <dep>_pc0.cmd` just like comp does.
 #
@@ -57,8 +58,6 @@ for f in forms(open(src_path).read()):
     name, body = m.group(1), m.group(2).lstrip()
     if name in skip: continue
     if body.startswith('(vau'): continue
-    lm=re.match(r'\(lambda\s+(\S)', body)
-    if lm and lm.group(1) != '(': continue
     keep.append(f)
 open(out,'w').write('('+'\n'.join(keep)+'\n)')
 # G_ registrations (-> _consts_std.cmd, called at every engine boot): a stdlib fn referenced from a

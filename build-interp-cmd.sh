@@ -177,10 +177,19 @@ call :hp_cdr "!NV!"
 set "VV=!R!"
 call :hp_car "!VV!"
 set "DVAL=!R!"
-if not "!DVAL:~0,2!"=="P:" goto in_keepform
+if not "!DVAL:~0,2!"=="P:" goto in_atomdef
 call :hp_car "!DVAL!"
 set "DVHD=!R!"
 if "!DVHD!"=="S:lambda" goto in_keepform
+goto in_compthunk
+:in_atomdef
+rem literal atoms (numbers/strings/nil/t) stay verbatim -> G_<name> constants; a BARE SYMBOL value
+rem ((define f g)) is fn ALIASING: evaluate g at define time like the kernel -- thunk binds g's VALUE.
+if "!DVAL!"=="S:nil" goto in_keepform
+if "!DVAL!"=="S:t" goto in_keepform
+if "!DVAL:~0,2!"=="S:" goto in_compthunk
+goto in_keepform
+:in_compthunk
 rem computed define: ALSO emit a (define <name> nil) placeholder so gvar-names sees <name> as a
 rem global VAR -- a later call of it in operator position loads G_<name> and applies (the thunk's
 rem value is a closure); without this the comp emits a direct call to a fn that doesn't exist
@@ -262,6 +271,7 @@ set "DVHD=NIL"
 if "!DVAL:~0,2!"=="P:" (call :hp_car "!DVAL!" & set "DVHD=!R!")
 if "!DVHD!"=="S:lambda" goto in_reg_lam
 if "!DVHD!"=="S:clambda" goto in_reg_clam
+if "!DVAL!"=="S:nil" set "DVAL=NIL"
 set "G_!NMRAW!=!DVAL!"
 goto in_reg
 :in_reg_lam

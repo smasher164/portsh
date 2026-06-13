@@ -130,6 +130,29 @@ ARGC=1
 PC=0; ACTION=tail; return
 ;;
 esac; }
+SIZE_begin=1
+begin() {
+if [ "$PC" = 0 ]; then
+_vi=$ARGC; _vl=NIL
+while [ "$_vi" -gt 0 ]; do _vi=$((_vi-1)); eval "_vv=\"\$F$((FP+_vi))\""; hp_cons "$_vv" "$_vl"; _vl=$R; done
+eval "F$FP=\"\$_vl\""
+fi
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_begin))
+NP=1
+case $PC in
+0)
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
+CALLEE=last
+RPC=1; ACTION=call; return
+;;
+1)
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
 SIZE_length=1
 length() {
 eval "p0=\"\$F$((FP+0))\""
@@ -959,6 +982,59 @@ R="${sht1}"; ACTION=ret; return
 R="${p0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE_str=1
+str() {
+if [ "$PC" = 0 ]; then
+_vi=$ARGC; _vl=NIL
+while [ "$_vi" -gt 0 ]; do _vi=$((_vi-1)); eval "_vv=\"\$F$((FP+_vi))\""; hp_cons "$_vv" "$_vl"; _vl=$R; done
+eval "F$FP=\"\$_vl\""
+fi
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_str))
+NP=1
+case $PC in
+0)
+hp_cons "S:__sl4" "NIL"
+sht0="${R}"
+sht1="K:${sht0#P:}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht1}\""
+STGV="T:"
+eval "F$((NFP+1))=\"\$STGV\""
+eval "F$((NFP+2))=\"\${p0}\""
+ARGC=3
+CALLEE=foldl
+RPC=1; ACTION=call; return
+;;
+1)
+sht2="${R}"
+R="${sht2}"; ACTION=ret; return
+;;
+esac; }
+SIZE___sl4=3
+__sl4() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+_clrs=$R
+R=$_clrs
+FTOP=$((FP + SIZE___sl4))
+NP=2
+case $PC in
+0)
+eval "F$((FP+NP+0))=\"\${p0}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=_zzGstring
+RPC=1; ACTION=call; return
+;;
+1)
+eval "p0=\"\$F$((FP+NP+0))\""
+sht0="${R}"
+sht1="T:${p0#??}${sht0#??}"
+R="${sht1}"; ACTION=ret; return
+;;
+esac; }
 SIZE_join=2
 join() {
 eval "p0=\"\$F$((FP+0))\""
@@ -976,7 +1052,7 @@ R="T:"; ACTION=ret; return
 2)
 hp_cons "${p0}" "NIL"
 sht0="${R}"
-hp_cons "S:__sl4" "${sht0}"
+hp_cons "S:__sl5" "${sht0}"
 sht1="${R}"
 sht2="K:${sht1#P:}"
 hp_car "${p1}"
@@ -996,8 +1072,8 @@ sht5="${R}"
 R="${sht5}"; ACTION=ret; return
 ;;
 esac; }
-SIZE___sl4=2
-__sl4() {
+SIZE___sl5=2
+__sl5() {
 eval "p0=\"\$F$((FP+0))\""
 eval "p1=\"\$F$((FP+1))\""
 _clrs=$R
@@ -1008,7 +1084,7 @@ p2="${R}"
 hp_cdr "${_cl}"
 _cl="${R}"
 R=$_clrs
-FTOP=$((FP + SIZE___sl4))
+FTOP=$((FP + SIZE___sl5))
 NP=2
 case $PC in
 0)
@@ -1026,6 +1102,7 @@ G_cdar="C:cdar"
 G_caar="C:caar"
 G_cadar="C:cadar"
 G_last="C:last"
+G_begin="C:begin"
 G_length="C:length"
 G_append="C:append"
 G_reverse="C:reverse"
@@ -1049,4 +1126,5 @@ G_min="C:min"
 G_sum="C:sum"
 G_product="C:product"
 G__zzGstring="C:_zzGstring"
+G_str="C:str"
 G_join="C:join"

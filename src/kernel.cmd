@@ -773,6 +773,8 @@ if "!paN!"=="*" goto pa_mul
 if "!paN!"=="<" set "paCmp=LSS" & goto pa_cmp
 if "!paN!"=="<=" set "paCmp=LEQ" & goto pa_cmp
 if "!paN!"=="=" set "paCmp=EQU" & goto pa_cmp
+if "!paN!"==">" set "paCmp=GTR" & goto pa_cmp
+if "!paN!"==">=" set "paCmp=GEQ" & goto pa_cmp
 if "!paN!"=="wrap" goto pa_wrap
 if "!paN!"=="unwrap" goto pa_unwrap
 if "!paN!"=="eval" goto pa_eval
@@ -1293,6 +1295,8 @@ call :env_define "!GLOBAL!" "S:*" "R:*"
 call :env_define "!GLOBAL!" "S:<" "R:<"
 call :env_define "!GLOBAL!" "S:<=" "R:<="
 call :env_define "!GLOBAL!" "S:=" "R:="
+call :env_define "!GLOBAL!" "S:>" "R:>"
+call :env_define "!GLOBAL!" "S:>=" "R:>="
 call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 call :env_define "!GLOBAL!" "S:eval" "R:eval"

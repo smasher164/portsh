@@ -54,7 +54,7 @@
     (list f nil ctr))))
 (define arith? (lambda (o) (if (eq? o (quote +)) t (if (eq? o (quote -)) t (eq? o (quote *))))))
 (define shop (lambda (o) (cond ((eq? o (quote +)) "+") ((eq? o (quote -)) "-") ((eq? o (quote *)) "*") (t "?"))))
-(define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote <=)) "-le") ((eq? o (quote =)) "-eq") (t "?"))))
+(define shcmp (lambda (o) (cond ((eq? o (quote <)) "-lt") ((eq? o (quote <=)) "-le") ((eq? o (quote =)) "-eq") ((eq? o (quote >)) "-gt") ((eq? o (quote >=)) "-ge") (t "?"))))
 ;; n-ary arithmetic and chained comparisons (mirrors compile.lisp's mexpand arms -- the sh backend
 ;; desugars inline in codegen, so the rewrite lives here). (+ a b c) left-folds to (+ (+ a b) c);
 ;; unary (+ a)/(* a) are identity. (< a b c) binds every operand ONCE in order, then ANDs adjacent
@@ -63,7 +63,7 @@
 (define unary-args? (lambda (as) (if (null? as) nil (null? (cdr as)))))
 (define nary->bin (lambda (op acc rest)
   (if (null? rest) acc (nary->bin op (list op acc (car rest)) (cdr rest)))))
-(define cmpch? (lambda (o) (cond ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) (t nil))))
+(define cmpch? (lambda (o) (cond ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) ((eq? o (quote >)) t) ((eq? o (quote >=)) t) (t nil))))
 (define cmp-names (lambda (as i)
   (if (null? as) nil
     (cons (string->symbol (string-append "__cmp" (number->string i))) (cmp-names (cdr as) (+ i 1))))))
@@ -87,7 +87,7 @@
         ((and (eq? (car f) (quote -)) (unary-args? (cdr f))) (list (quote -) 0 (car (cdr f))))
         ((arith? (car f)) (car (cdr f)))
         (t (chain->and (car f) (cdr f))))))
-(define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) (t nil))))
+(define pred? (lambda (o) (cond ((eq? o (quote null?)) t) ((eq? o (quote eq?)) t) ((eq? o (quote pair?)) t) ((eq? o (quote atom?)) t) ((eq? o (quote number?)) t) ((eq? o (quote string?)) t) ((eq? o (quote symbol?)) t) ((eq? o (quote <)) t) ((eq? o (quote <=)) t) ((eq? o (quote =)) t) ((eq? o (quote >)) t) ((eq? o (quote >=)) t) (t nil))))
 (define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) ((eq? o (quote argv)) t) ((eq? o (quote getenv)) t) ((eq? o (quote setenv)) t) ((eq? o (quote exit)) t) ((eq? o (quote make-dir)) t) ((eq? o (quote delete-file)) t) ((eq? o (quote copy-file)) t) (t nil))))
 ;; runtime fn name for a builtin: usually the mangle, but `read` would shadow the shell `read`
 ;; builtin (the driver uses it), so the read primitive's runtime fn is read_str.
@@ -101,9 +101,11 @@
 (define prim-wrap (lambda (s)
   (cond ((eq? s (quote +)) "__p_add") ((eq? s (quote -)) "__p_sub") ((eq? s (quote *)) "__p_mul")
         ((eq? s (quote <)) "__p_lt")  ((eq? s (quote <=)) "__p_le") ((eq? s (quote =)) "__p_neq")
+        ((eq? s (quote >)) "__p_gt")  ((eq? s (quote >=)) "__p_ge")
         ((eq? s (quote cons)) "__p_cons") ((eq? s (quote car)) "__p_car") ((eq? s (quote cdr)) "__p_cdr")
         ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
         ((eq? s (quote not)) "__p_not")
+        ((eq? s (quote number?)) "__p_number") ((eq? s (quote string?)) "__p_string") ((eq? s (quote symbol?)) "__p_symbol")
         (t nil))))
 (define bargs (lambda (refs) (if (null? refs) "" (str " " (dq) (shval (car refs)) (dq) (bargs (cdr refs))))))
 (define sh-mangle-at (lambda (c) (cond ((eq? c "-") "_") ((eq? c ">") "zzG") ((eq? c "<") "zzL") ((eq? c "*") "zzS") ((eq? c "?") "zzQ") ((eq? c "!") "zzB") ((eq? c "=") "zzE") ((eq? c "+") "zzP") (t c))))
@@ -493,7 +495,8 @@
 ;; whole-program entry (for the native sh-emitter, comp-sh.sh): lambda-lift, then per top-level
 ;; form emit either a compiled fn (lambda/clambda body) or a G_<name> constant init (atom body),
 ;; concatenated. Mirrors tools/bootstrap-comp.sh's gen1 but over the whole program in one process.
-(define cval-sh (lambda (v) (cond ((string? v) (str "T:" v)) ((number? v) (str "I:" (number->string v))) (t (str "S:" (symbol->string v))))))
+;; nil must become the runtime NIL, not the symbol S:nil ((define x nil) then (null? x) -- kernel says t)
+(define cval-sh (lambda (v) (cond ((null? v) "NIL") ((string? v) (str "T:" v)) ((number? v) (str "I:" (number->string v))) ((eq? v (quote nil)) "NIL") (t (str "S:" (symbol->string v))))))
 (define gen1-sh (lambda (f gfns gvars)
   (if (pair? (car (cdr (cdr f)))) (compile-def-sh f gfns gvars)
     (list (str "G_" (sh-mangle (symbol->string (car (cdr f)))) "='" (cval-sh (car (cdr (cdr f)))) "'")))))

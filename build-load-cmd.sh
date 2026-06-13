@@ -79,10 +79,19 @@ call :hp_cdr "!NV!"
 set "VV=!R!"
 call :hp_car "!VV!"
 set "DVAL=!R!"
-if not "!DVAL:~0,2!"=="P:" goto lm_keepform
+if not "!DVAL:~0,2!"=="P:" goto lm_atomdef
 call :hp_car "!DVAL!"
 set "DVHD=!R!"
 if "!DVHD!"=="S:lambda" goto lm_keepform
+goto lm_compthunk
+:lm_atomdef
+rem literal atoms (numbers/strings/nil/t) stay verbatim; a BARE SYMBOL value ((define f g)) is fn
+rem ALIASING: evaluate g at define time like the kernel -- the thunk below binds g's VALUE.
+if "!DVAL!"=="S:nil" goto lm_keepform
+if "!DVAL!"=="S:t" goto lm_keepform
+if "!DVAL:~0,2!"=="S:" goto lm_compthunk
+goto lm_keepform
+:lm_compthunk
 rem placeholder (define <name> nil) onto XF so gvarnames sees <name> as a global VAR -> a later call of
 rem it in operator position loads !G_<name>! and applies (the thunk below binds G_<name> to the closure).
 call :hp_cons "S:nil" "NIL"
@@ -129,6 +138,9 @@ rem compile ALL forms in-process -> per-PC .cmd fns in the cwd.
 set "F0=!XF!" & set "F1=T:." & set "F2=T:elmain.lisp"
 set "FP=0" & set "RSP=0" & set "CURFN=compile-program" & set "PC=0" & set "CLO="
 call :el_drive
+rem load the PROGRAM's atom-define constants (compile-program writes ./_consts.cmd; the boot-time
+rem call loaded only the TOOLING's). Without this, compiled !G_<name>! reads see an unset var.
+if exist _consts.cmd call _consts.cmd
 rem run each top-level expression's thunk, in SOURCE order, via a goto-loop over THUNKS (avoid
 rem calling el_drive's goto-machine from inside a for-body). Render each like eval-sh show_val.
 set "RUNQ=!THUNKS!"

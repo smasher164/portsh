@@ -145,6 +145,8 @@ repl_form() {   # classify one input form, compile it incrementally (threading C
       P:*) hp_car "$_val"; _vhd=$R
            if [ "$_vhd" = "S:lambda" ]; then hp_cons "$_form" NIL; REPLXF=$R
            else _mkthunk1 "$_val" "G:${_name#S:}"; fi ;;
+      S:nil|S:t) hp_cons "$_form" NIL; REPLXF=$R ;;
+      S:*) _mkthunk1 "$_val" "G:${_name#S:}" ;;            # fn aliasing: bind g's VALUE (mirror file mode)
       *)   hp_cons "$_form" NIL; REPLXF=$R ;;
     esac
   else
@@ -232,6 +234,13 @@ while [ "$_cur" != NIL ]; do
              hp_cons "$_ph" "$_xf"; _xf=$R
              _mkthunk "$_val" "G:${_name#S:}"              # computed define -> thunk binds G_<name>
            fi ;;
+      S:nil|S:t)
+           hp_cons "$_form" "$_xf"; _xf=$R ;;              # literal nil/t -> G_<name> constant
+      S:*) # bare-symbol define = fn ALIASING ((define f g)): evaluate g at define time like the
+           # kernel does -- a thunk binds G_<name> to g's VALUE (fn value, closure, or constant).
+           hp_cons "S:nil" NIL; _ph=$R; hp_cons "$_name" "$_ph"; _ph=$R; hp_cons "S:define" "$_ph"; _ph=$R
+           hp_cons "$_ph" "$_xf"; _xf=$R
+           _mkthunk "$_val" "G:${_name#S:}" ;;
       *)   hp_cons "$_form" "$_xf"; _xf=$R ;;              # atom define -> G_<name> constant
     esac
   else

@@ -47,18 +47,30 @@ once.
 
 ## Packing an app
 
+The quickest way, needing nothing but `portsh.cmd` itself (no repo, no tools):
+
+```sh
+./portsh.cmd pack prog.lisp app.cmd      # on Unix
+portsh.cmd pack prog.lisp app.cmd        # on Windows
+```
+
+`app.cmd` is a byte-exact copy of `portsh.cmd` with `prog.lisp` appended as an
+embedded payload — one self-contained polyglot that runs `prog.lisp` with any
+arguments it's given. It runs the program from source (JIT on Unix; on Windows
+the first run is cold and every run after is warm from the content-hash cache).
+
+For an app that's **warm on its very first Windows run**, AOT-compile at pack
+time with the repo tool:
+
 ```sh
 sh tools/pack-app.sh prog.lisp app.cmd
 ```
 
-`app.cmd` is a single self-contained polyglot with `prog.lisp` AOT-compiled
-and embedded: on Windows it starts **warm on its first run** (~1s — no
-interpreter, no background compile, ever), on Unix it compiles at startup like
-any sh run. The embedded tooling is runtime-only (no compiler — a packed app
-never compiles), roughly half the size of the full tree; `PORTSH_PACK_FULL=1`
-embeds the full tree instead, which shares its per-machine tooling cache with
-`portsh.cmd`. (The bootstrap kernel has a slower low-tech cousin:
-`cat portsh-full.cmd prog.lisp > app.cmd` — see "The bootstrap kernel".)
+This embeds `prog.lisp` precompiled plus a runtime-only tooling tree (no
+compiler — a packed app never compiles), roughly half the full tree;
+`PORTSH_PACK_FULL=1` embeds the full tree instead, sharing its per-machine
+tooling cache with `portsh.cmd`. (The bootstrap kernel has a slower low-tech
+cousin: `cat portsh-full.cmd prog.lisp > app.cmd` — see "The bootstrap kernel".)
 
 ## The language
 
@@ -77,7 +89,7 @@ body)` binds all arguments as a list), `if`, `quote`, `let`, `let*`, `cond`,
 `and`, `or`, `when`, `unless`, `case`, `begin`, `list`, `str`. Primitives:
 `cons`/`car`/`cdr`, `eq?`/`null?`/`pair?`/`atom?`/`number?`/`not`, `apply`,
 arithmetic `+ - *` (n-ary, left fold; `(- x)` negates) and comparisons
-`< <= =` (chained, each operand evaluated once: `(< 1 3 2)` is nil),
+`< <= = > >=` (chained, each operand evaluated once: `(< 1 3 2)` is nil),
 `type-of`, `eval`, `read`, `print`, `exit`; `run`/`run-capture`, `argv`,
 `getenv`/`setenv`, `file-exists?`, `make-dir`/`delete-file`/`copy-file` for the
 host (file paths use forward slashes everywhere — normalized per host); `string-append`/`string-length`/`substring`/`split` plus the

@@ -139,8 +139,14 @@ for f in forms(src):
         xf.append('(define %s nil)' % name)
         xf.append('(define __ev%d (lambda () %s))' % (nn, val))
         thunks.append('__ev%d=G:%s' % (nn, name)); nn += 1
+    elif (val in ('nil', 't') or val.startswith('"') or val[0].isdigit()
+          or (val[0] == '-' and len(val) > 1 and val[1].isdigit())):
+        xf.append(f)                           # literal atom define: kept verbatim -> G_<name> const
     else:
-        xf.append(f)                           # atom define: kept verbatim -> G_<name> const
+        # bare-symbol value = fn ALIASING ((define f g)): evaluate g at define time (mirror in_part)
+        xf.append('(define %s nil)' % name)
+        xf.append('(define __ev%d (lambda () %s))' % (nn, val))
+        thunks.append('__ev%d=G:%s' % (nn, name)); nn += 1
 open(outp, 'w').write('(' + '\n'.join(reversed(xf)) + '\n)')
 # _thunks: ONE line, entries space-separated with a LEADING space (mirror `set "THUNKS=!THUNKS! ..."`)
 open(thunksp, 'w').write((' ' + ' '.join(thunks)) if thunks else '')

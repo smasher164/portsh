@@ -22,17 +22,16 @@ text containing cmd metacharacters (`!`, `%`) is best-effort on Windows -- the
 portable subset is plain tokens, which the conformance suite pins
 byte-identical across every engine.
 
-## Stdlib edges: a few names are forms, not values
+## Stdlib edges: the control forms are forms, not values
 
-The applicative stdlib (`map`/`foldl`/`filter`/`member?`/`->string`/...) is
-AOT-compiled into every engine and works as both operators and first-class
-values. The exceptions are names the compiler treats as forms: `str` and
-`begin` desugar at compile time (so they work in call position but are not
-values you can pass), and `<=`/`>`/`>=` compile to the n-ary chain builtins in
-call position while only `+ - * < =` and the core list/test primitives have
-value-position wrappers (`__p_*`) today. Aliasing a function by bare name
-(`(define f g)`) is also unsupported — wrap it (`(define f (lambda (x) (g x)))`)
-or use a computed define.
+The applicative stdlib (`map`/`foldl`/`filter`/`member?`/`->string`/`str`/...)
+is AOT-compiled into every engine and works as both operators and first-class
+values; the arithmetic/comparison/test primitives (`+ - * < <= = > >=`,
+`number?`/`string?`/... ) have value-position wrappers; and `(define f g)`
+aliases a function by evaluating `g` at define time. What you cannot pass as a
+value are the control forms — `and`/`or`/`when`/`unless`/`cond`/`let`/`case`
+(and `if`/`define` themselves) — which expand at compile time, as in any Lisp
+with macros.
 
 ## Strings are single lines
 

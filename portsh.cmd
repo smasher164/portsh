@@ -458,10 +458,10 @@ prim_app() {
     '-')     hp_car "$args"; _d=${R#I:}; hp_cdr "$args"; lst=$R
              if [ "$lst" = NIL ]; then R="I:$((0 - _d))"; else
                while [ "$lst" != NIL ]; do hp_car "$lst"; _d=$((_d - ${R#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$_d"; fi ;;
-    '<'|'<='|'=')                       # chained: every adjacent pair must hold ((< 1 3 2) is nil)
+    '<'|'<='|'='|'>'|'>=')              # chained: every adjacent pair must hold ((< 1 3 2) is nil)
              hp_car "$args"; _p=${R#I:}; hp_cdr "$args"; lst=$R; _ok=1
              while [ "$lst" != NIL ]; do hp_car "$lst"; _v=${R#I:}
-               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
+               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; '>') [ "$_p" -gt "$_v" ] || _ok=0 ;; '>=') [ "$_p" -ge "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
                _p=$_v; hp_cdr "$lst"; lst=$R; done
              [ "$_ok" = 1 ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
@@ -559,7 +559,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -1887,6 +1887,20 @@ ACTION=jump; return
 R="T:-eq"; ACTION=ret; return
 ;;
 6)
+if [ "${p0}" = "S:>" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="T:-gt"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:>=" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+9)
+R="T:-ge"; ACTION=ret; return
+;;
+10)
 R="T:?"; ACTION=ret; return
 ;;
 esac; }
@@ -2024,6 +2038,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 6)
+if [ "${p0}" = "S:>" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="S:t"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:>=" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+9)
+R="S:t"; ACTION=ret; return
+;;
+10)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2576,6 +2604,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 20)
+if [ "${p0}" = "S:>" ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
+21)
+R="S:t"; ACTION=ret; return
+;;
+22)
+if [ "${p0}" = "S:>=" ]; then PC=23; else PC=24; fi
+ACTION=jump; return
+;;
+23)
+R="S:t"; ACTION=ret; return
+;;
+24)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2805,55 +2847,90 @@ ACTION=jump; return
 R="T:__p_neq"; ACTION=ret; return
 ;;
 12)
-if [ "${p0}" = "S:cons" ]; then PC=13; else PC=14; fi
+if [ "${p0}" = "S:>" ]; then PC=13; else PC=14; fi
 ACTION=jump; return
 ;;
 13)
-R="T:__p_cons"; ACTION=ret; return
+R="T:__p_gt"; ACTION=ret; return
 ;;
 14)
-if [ "${p0}" = "S:car" ]; then PC=15; else PC=16; fi
+if [ "${p0}" = "S:>=" ]; then PC=15; else PC=16; fi
 ACTION=jump; return
 ;;
 15)
-R="T:__p_car"; ACTION=ret; return
+R="T:__p_ge"; ACTION=ret; return
 ;;
 16)
-if [ "${p0}" = "S:cdr" ]; then PC=17; else PC=18; fi
+if [ "${p0}" = "S:cons" ]; then PC=17; else PC=18; fi
 ACTION=jump; return
 ;;
 17)
-R="T:__p_cdr"; ACTION=ret; return
+R="T:__p_cons"; ACTION=ret; return
 ;;
 18)
-if [ "${p0}" = "S:null?" ]; then PC=19; else PC=20; fi
+if [ "${p0}" = "S:car" ]; then PC=19; else PC=20; fi
 ACTION=jump; return
 ;;
 19)
-R="T:__p_null"; ACTION=ret; return
+R="T:__p_car"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:eq?" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:cdr" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
-R="T:__p_eq"; ACTION=ret; return
+R="T:__p_cdr"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:pair?" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:null?" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
-R="T:__p_pair"; ACTION=ret; return
+R="T:__p_null"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:not" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:eq?" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
-R="T:__p_not"; ACTION=ret; return
+R="T:__p_eq"; ACTION=ret; return
 ;;
 26)
+if [ "${p0}" = "S:pair?" ]; then PC=27; else PC=28; fi
+ACTION=jump; return
+;;
+27)
+R="T:__p_pair"; ACTION=ret; return
+;;
+28)
+if [ "${p0}" = "S:not" ]; then PC=29; else PC=30; fi
+ACTION=jump; return
+;;
+29)
+R="T:__p_not"; ACTION=ret; return
+;;
+30)
+if [ "${p0}" = "S:number?" ]; then PC=31; else PC=32; fi
+ACTION=jump; return
+;;
+31)
+R="T:__p_number"; ACTION=ret; return
+;;
+32)
+if [ "${p0}" = "S:string?" ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+R="T:__p_string"; ACTION=ret; return
+;;
+34)
+if [ "${p0}" = "S:symbol?" ]; then PC=35; else PC=36; fi
+ACTION=jump; return
+;;
+35)
+R="T:__p_symbol"; ACTION=ret; return
+;;
+36)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -14885,23 +14962,37 @@ FTOP=$((FP + SIZE_cval_sh))
 NP=1
 case $PC in
 0)
-if [ "${p0#T:}" != "${p0}" ]; then PC=1; else PC=2; fi
+if [ "${p0}" = NIL ]; then PC=1; else PC=2; fi
 ACTION=jump; return
 ;;
 1)
-sht0="T:T:${p0#??}"
-R="${sht0}"; ACTION=ret; return
+R="T:NIL"; ACTION=ret; return
 ;;
 2)
-if [ "${p0#I:}" != "${p0}" ]; then PC=3; else PC=4; fi
+if [ "${p0#T:}" != "${p0}" ]; then PC=3; else PC=4; fi
 ACTION=jump; return
 ;;
 3)
+sht0="T:T:${p0#??}"
+R="${sht0}"; ACTION=ret; return
+;;
+4)
+if [ "${p0#I:}" != "${p0}" ]; then PC=5; else PC=6; fi
+ACTION=jump; return
+;;
+5)
 sht1="T:${p0#??}"
 sht2="T:I:${sht1#??}"
 R="${sht2}"; ACTION=ret; return
 ;;
-4)
+6)
+if [ "${p0}" = "S:nil" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="T:NIL"; ACTION=ret; return
+;;
+8)
 sht3="T:${p0#??}"
 sht4="T:S:${sht3#??}"
 R="${sht4}"; ACTION=ret; return
@@ -15795,6 +15886,38 @@ fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE___p_gt=2
+__p_gt() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE___p_gt))
+NP=2
+case $PC in
+0)
+if [ ${p0#??} -gt ${p1#??} ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_ge=2
+__p_ge() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+FTOP=$((FP + SIZE___p_ge))
+NP=2
+case $PC in
+0)
+if [ ${p0#??} -ge ${p1#??} ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
 SIZE___p_cons=2
 __p_cons() {
 eval "p0=\"\$F$((FP+0))\""
@@ -15893,6 +16016,51 @@ RPC=1; ACTION=call; return
 ;;
 1)
 sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_number=1
+__p_number() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_number))
+NP=1
+case $PC in
+0)
+if [ "${p0#I:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_string=1
+__p_string() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_string))
+NP=1
+case $PC in
+0)
+if [ "${p0#T:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
+SIZE___p_symbol=1
+__p_symbol() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_symbol))
+NP=1
+case $PC in
+0)
+if [ "${p0#S:}" != "${p0}" ]; then
+sht0="S:t"
+else
+sht0="NIL"
+fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
@@ -16026,6 +16194,29 @@ sht2="${R}"
 eval "F$((FP+0))=\"\${sht2}\""
 ARGC=1
 PC=0; ACTION=tail; return
+;;
+esac; }
+SIZE_begin=1
+begin() {
+if [ "$PC" = 0 ]; then
+_vi=$ARGC; _vl=NIL
+while [ "$_vi" -gt 0 ]; do _vi=$((_vi-1)); eval "_vv=\"\$F$((FP+_vi))\""; hp_cons "$_vv" "$_vl"; _vl=$R; done
+eval "F$FP=\"\$_vl\""
+fi
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_begin))
+NP=1
+case $PC in
+0)
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
+CALLEE=last
+RPC=1; ACTION=call; return
+;;
+1)
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_length=1
@@ -16857,6 +17048,59 @@ R="${sht1}"; ACTION=ret; return
 R="${p0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE_str=1
+str() {
+if [ "$PC" = 0 ]; then
+_vi=$ARGC; _vl=NIL
+while [ "$_vi" -gt 0 ]; do _vi=$((_vi-1)); eval "_vv=\"\$F$((FP+_vi))\""; hp_cons "$_vv" "$_vl"; _vl=$R; done
+eval "F$FP=\"\$_vl\""
+fi
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE_str))
+NP=1
+case $PC in
+0)
+hp_cons "S:__sl4" "NIL"
+sht0="${R}"
+sht1="K:${sht0#P:}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht1}\""
+STGV="T:"
+eval "F$((NFP+1))=\"\$STGV\""
+eval "F$((NFP+2))=\"\${p0}\""
+ARGC=3
+CALLEE=foldl
+RPC=1; ACTION=call; return
+;;
+1)
+sht2="${R}"
+R="${sht2}"; ACTION=ret; return
+;;
+esac; }
+SIZE___sl4=3
+__sl4() {
+eval "p0=\"\$F$((FP+0))\""
+eval "p1=\"\$F$((FP+1))\""
+_clrs=$R
+R=$_clrs
+FTOP=$((FP + SIZE___sl4))
+NP=2
+case $PC in
+0)
+eval "F$((FP+NP+0))=\"\${p0}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p1}\""
+ARGC=1
+CALLEE=_zzGstring
+RPC=1; ACTION=call; return
+;;
+1)
+eval "p0=\"\$F$((FP+NP+0))\""
+sht0="${R}"
+sht1="T:${p0#??}${sht0#??}"
+R="${sht1}"; ACTION=ret; return
+;;
+esac; }
 SIZE_join=2
 join() {
 eval "p0=\"\$F$((FP+0))\""
@@ -16874,7 +17118,7 @@ R="T:"; ACTION=ret; return
 2)
 hp_cons "${p0}" "NIL"
 sht0="${R}"
-hp_cons "S:__sl4" "${sht0}"
+hp_cons "S:__sl5" "${sht0}"
 sht1="${R}"
 sht2="K:${sht1#P:}"
 hp_car "${p1}"
@@ -16894,8 +17138,8 @@ sht5="${R}"
 R="${sht5}"; ACTION=ret; return
 ;;
 esac; }
-SIZE___sl4=2
-__sl4() {
+SIZE___sl5=2
+__sl5() {
 eval "p0=\"\$F$((FP+0))\""
 eval "p1=\"\$F$((FP+1))\""
 _clrs=$R
@@ -16906,7 +17150,7 @@ p2="${R}"
 hp_cdr "${_cl}"
 _cl="${R}"
 R=$_clrs
-FTOP=$((FP + SIZE___sl4))
+FTOP=$((FP + SIZE___sl5))
 NP=2
 case $PC in
 0)
@@ -16924,6 +17168,7 @@ G_cdar="C:cdar"
 G_caar="C:caar"
 G_cadar="C:cadar"
 G_last="C:last"
+G_begin="C:begin"
 G_length="C:length"
 G_append="C:append"
 G_reverse="C:reverse"
@@ -16947,6 +17192,7 @@ G_min="C:min"
 G_sum="C:sum"
 G_product="C:product"
 G__zzGstring="C:_zzGstring"
+G_str="C:str"
 G_join="C:join"
 
 # ---- closure-capable trampoline driver (K:/CLO/RSL) + comp's I/O prims --------------------
@@ -17075,6 +17321,8 @@ repl_form() {   # classify one input form, compile it incrementally (threading C
       P:*) hp_car "$_val"; _vhd=$R
            if [ "$_vhd" = "S:lambda" ]; then hp_cons "$_form" NIL; REPLXF=$R
            else _mkthunk1 "$_val" "G:${_name#S:}"; fi ;;
+      S:nil|S:t) hp_cons "$_form" NIL; REPLXF=$R ;;
+      S:*) _mkthunk1 "$_val" "G:${_name#S:}" ;;            # fn aliasing: bind g's VALUE (mirror file mode)
       *)   hp_cons "$_form" NIL; REPLXF=$R ;;
     esac
   else
@@ -17130,6 +17378,29 @@ _mkthunk() {   # $1 = body heap-ref, $2 = action (S | G:name)  -> wraps (define 
   _thunks="$_thunks __ev$_n=$2"; _n=$((_n+1))   # '=' separator: mksh treats '|' as glob-alternation
 }
 # ---- dispatch: a file arg runs the program (always-JIT); no arg starts the JIT REPL ---------------
+# ---- packed-app + `pack` subcommand (generated by build-polyglot.sh) ----
+# The PEM header/footer are ASSEMBLED at runtime (the 5 dashes come from $_d5) so the dash-BEGIN
+# header token never appears literally in the unpacked file -- certutil -decode "%~f0" (cmd side)
+# treats any such header line as a PEM start, so a literal in THIS code would shadow the real
+# payload and try to decode source as base64. Only the payload carries it. Asserted at build.
+_d5=-----; _pb="${_d5}BEGIN CERTIFICATE${_d5}"; _pe="${_d5}END CERTIFICATE${_d5}"
+if [ "${1:-}" = pack ] && ! grep -q "^__PORTSH_PAYLOAD__$" "$0" 2>/dev/null; then
+  [ -n "${2:-}" ] && [ -n "${3:-}" ] || { echo "usage: portsh.cmd pack PROG.lisp OUT.cmd" >&2; exit 2; }
+  [ -f "$2" ] || { echo "portsh pack: $2 not found" >&2; exit 1; }
+  cp "$PORTSH_SELF" "$3" || exit 1
+  { printf '\r\n__PORTSH_PAYLOAD__\r\n%s\r\n' "$_pb"
+    base64 < "$2" | tr -d '\r\n' | fold -w 64 | awk '{printf "%s\r\n", $0}'
+    printf '%s\r\n' "$_pe"
+  } >> "$3"
+  chmod +x "$3" 2>/dev/null
+  echo "packed $3"; exit 0
+fi
+if grep -q "^__PORTSH_PAYLOAD__$" "$0" 2>/dev/null; then
+  _pp=$(mktemp); trap 'rm -f "$_pp"' EXIT
+  sed -n "/^$_pb/,/^$_pe/p" "$0" | sed '1d;$d' | base64 -d > "$_pp" 2>/dev/null
+  PORTSH_SCRIPT=${PORTSH_SCRIPT-1}; export PORTSH_SCRIPT
+  set -- "$_pp" "$@"
+fi
 if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
 # capture user args (after the program path) for (argv), unless a front-end already did
 if [ -z "${PORTSH_ARGC:-}" ]; then
@@ -17162,6 +17433,13 @@ while [ "$_cur" != NIL ]; do
              hp_cons "$_ph" "$_xf"; _xf=$R
              _mkthunk "$_val" "G:${_name#S:}"              # computed define -> thunk binds G_<name>
            fi ;;
+      S:nil|S:t)
+           hp_cons "$_form" "$_xf"; _xf=$R ;;              # literal nil/t -> G_<name> constant
+      S:*) # bare-symbol define = fn ALIASING ((define f g)): evaluate g at define time like the
+           # kernel does -- a thunk binds G_<name> to g's VALUE (fn value, closure, or constant).
+           hp_cons "S:nil" NIL; _ph=$R; hp_cons "$_name" "$_ph"; _ph=$R; hp_cons "S:define" "$_ph"; _ph=$R
+           hp_cons "$_ph" "$_xf"; _xf=$R
+           _mkthunk "$_val" "G:${_name#S:}" ;;
       *)   hp_cons "$_form" "$_xf"; _xf=$R ;;              # atom define -> G_<name> constant
     esac
   else
@@ -17187,11 +17465,11 @@ rm -f "$_tmp"
 exit $?
 :CMDSTART
 @echo off
-rem ============ portsh cmd OSR front-end (build 3267f01b6002) -- generated by build-polyglot.sh ============
+rem ============ portsh cmd OSR front-end (build da3f60eb8e7e) -- generated by build-polyglot.sh ============
 if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__warm" goto :PWARM
 setlocal enabledelayedexpansion
-set "CACHE=%LOCALAPPDATA%\portsh\3267f01b6002"
+set "CACHE=%LOCALAPPDATA%\portsh\da3f60eb8e7e"
 if exist "%CACHE%\.ok" goto pcache_ok
 rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomic: tmp -> move -> .ok)
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
@@ -17201,6 +17479,9 @@ rem promote only a COMPLETE extraction (a failed extract/move must not poison th
 if exist "%CACHE%\interp-cmd.cmd" break>"%CACHE%\.ok"
 :pcache_ok
 set "PATH=%CACHE%;%PATH%"
+rem packed app? (a copy of this file with an appended payload) -> decode + run it, ALL args are the program's.
+findstr /b /x /c:"__PORTSH_PAYLOAD__" "%~f0" >nul 2>&1 && goto :PPACKED
+if /i "%~1"=="pack" goto :PPACK
 if "%~1"=="" goto prepl
 set "PROG=%~f1"
 rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv) -- env
@@ -17213,6 +17494,7 @@ set /a PORTSH_ARGC+=1
 shift /2
 goto pargs
 :pargs_done
+:phash
 rem program cache key = content hash (edits invalidate; identical content reuses)
 set "H="
 for /f "skip=1 tokens=1" %%h in ('certutil -hashfile "!PROG!" SHA256') do if not defined H set "H=%%h"
@@ -17240,6 +17522,37 @@ rem the REPL is the warming interpreter (per-input background compile + flip)
 cmd /c "call interp-cmd.cmd"
 set "RC=!errorlevel!"
 endlocal & exit /b %RC%
+:PPACK
+rem pack PROG OUT: OUT = byte-exact copy of this file + appended payload (marker + PEM base64 of PROG).
+rem copy /b is binary-exact (preserves CRLF + the polyglot); the leading blank echo guarantees the
+rem marker starts its own line regardless of the file's final byte. certutil -encode emits the PEM block
+rem (the same form the sh half writes); certutil -decode / base64 -d read it back on either host.
+if "%~3"=="" (echo usage: portsh.cmd pack PROG.lisp OUT.cmd 1>&2 & endlocal & exit /b 2)
+if not exist "%~2" (echo portsh pack: %~2 not found 1>&2 & endlocal & exit /b 1)
+copy /b "%~f0" "%~3" >nul 2>&1 || (echo portsh pack: cannot write %~3 1>&2 & endlocal & exit /b 1)
+>>"%~3" echo(
+>>"%~3" echo(__PORTSH_PAYLOAD__
+set "PPENC=%TEMP%\pp_enc_!RANDOM!!RANDOM!.tmp"
+certutil -encode "%~2" "!PPENC!" >nul 2>&1
+for /f "usebackq delims=" %%t in ("!PPENC!") do >>"%~3" echo(%%t
+del "!PPENC!" >nul 2>&1
+echo packed %~3
+endlocal & exit /b 0
+:PPACKED
+rem this file carries an embedded program -> decode it (certutil scans for the PEM block, ignoring the
+rem leading polyglot bytes) and run it through the normal content-hash cache path. ALL args are argv.
+set "PPROG=%TEMP%\pp_run_!RANDOM!!RANDOM!.lisp"
+certutil -decode "%~f0" "!PPROG!" >nul 2>&1
+set "PORTSH_ARGC=0"
+:ppargs
+if "%~1"=="" goto ppargs_done
+set "PORTSH_ARGV_!PORTSH_ARGC!=%~1"
+set /a PORTSH_ARGC+=1
+shift /1
+goto ppargs
+:ppargs_done
+set "PROG=!PPROG!"
+goto phash
 :PWARM
 rem %2=prog %3=pcache %4=stage %5=taskname -- the MANIFEST-WATCHER warmer (runs detached). The whole-
 rem program compile (heap-safe, emits everything incl clambdas) runs as a background CHILD writing into
@@ -17255,7 +17568,7 @@ set "WPROG=%~2"
 set "WPUB=%~3"
 set "WSTG=%~4"
 set "WTASK=%~5"
-set "PATH=%LOCALAPPDATA%\portsh\3267f01b6002;!PATH!"
+set "PATH=%LOCALAPPDATA%\portsh\da3f60eb8e7e;!PATH!"
 if exist "!WSTG!" rmdir /s /q "!WSTG!"
 mkdir "!WSTG!"
 if not exist "!WPUB!" mkdir "!WPUB!"
@@ -17448,6 +17761,68 @@ echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\__p_ge_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(if !p0:~2! GEQ !p1:~2! ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_ge_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(set "zt0=S:t"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_ge_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(set "zt0=NIL"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_ge_pc3.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\__p_gt_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(if !p0:~2! GTR !p1:~2! ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_gt_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(set "zt0=S:t"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_gt_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(set "zt0=NIL"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_gt_pc3.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=2"
+echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\__p_le_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
@@ -17594,6 +17969,35 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\__p_number_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zp0=!p0!"
+echo(set "zp0=!zp0:~0,1!"
+echo(if !zp0!==I ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_number_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=S:t"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_number_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=NIL"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_number_pc3.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\__p_pair_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
@@ -17623,6 +18027,35 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\__p_string_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zp0=!p0!"
+echo(set "zp0=!zp0:~0,1!"
+echo(if !zp0!==T ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_string_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=S:t"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_string_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=NIL"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_string_pc3.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\__p_sub_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
@@ -17630,6 +18063,35 @@ echo(set /a FT=!FP!+2
 echo(set "NP=2"
 echo(set /a zt0=!p0:~2!-!p1:~2!
 echo(set "R=I:!zt0!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\__p_symbol_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zp0=!p0!"
+echo(set "zp0=!zp0:~0,1!"
+echo(if !zp0!==S ^(set "PC=1" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=2" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_symbol_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=S:t"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_symbol_pc2.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt1=NIL"
+echo(set "PC=3" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\__p_symbol_pc3.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\__sl0_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -17740,6 +18202,33 @@ echo(set "R=I:!zt0!" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
 echo(set "_clrs=!R!"
+echo(set "R=!_clrs!"
+echo(set /a FT=!FP!+3
+echo(set "NP=2"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!p0!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p1!"
+echo(set "ARGC=1"
+echo(set "CALLEE=-zzGstring"
+echo(set "RPC=1"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\__sl4_pc1.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set "_clrs=!R!"
+echo(set "R=!_clrs!"
+echo(set /a FT=!FP!+3
+echo(set "NP=2"
+echo(set /a _i=!FP!+!NP!+0 ^& call set "p0=%%%%F!_i!%%%%"
+echo(set "zt0=!R!"
+echo(set "zt1=T:!p0:~2!!zt0:~2!"
+echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\__sl5_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
+echo(set "_clrs=!R!"
 echo(for %%%%v in ^(!CLO!^) do set /p R=^<%%HD%%\cdr%%%%v
 echo(set "_cl=!R:~2,-1!"
 echo(for %%%%v in ^(!_cl!^) do set /p R=^<%%HD%%\car%%%%v
@@ -17769,6 +18258,7 @@ echo(set "G_cddr=C:cddr"
 echo(set "G_cdar=C:cdar"
 echo(set "G_cadar=C:cadar"
 echo(set "G_last=C:last"
+echo(set "G_begin=C:begin"
 echo(set "G_length=C:length"
 echo(set "G_list-tail=C:list-tail"
 echo(set "G_nth=C:nth"
@@ -17789,6 +18279,7 @@ echo(set "G_min=C:min"
 echo(set "G_sum=C:sum"
 echo(set "G_product=C:product"
 echo(set "G_->string=C:-zzGstring"
+echo(set "G_str=C:str"
 echo(set "G_join=C:join"
 echo(set "G_caar=C:caar"
 echo(set "G_cadr=C:cadr"
@@ -17807,6 +18298,14 @@ echo(__p_eq_pc0.cmd
 echo(__p_eq_pc1.cmd
 echo(__p_eq_pc2.cmd
 echo(__p_eq_pc3.cmd
+echo(__p_ge_pc0.cmd
+echo(__p_ge_pc1.cmd
+echo(__p_ge_pc2.cmd
+echo(__p_ge_pc3.cmd
+echo(__p_gt_pc0.cmd
+echo(__p_gt_pc1.cmd
+echo(__p_gt_pc2.cmd
+echo(__p_gt_pc3.cmd
 echo(__p_le_pc0.cmd
 echo(__p_le_pc1.cmd
 echo(__p_le_pc2.cmd
@@ -17826,11 +18325,23 @@ echo(__p_null_pc0.cmd
 echo(__p_null_pc1.cmd
 echo(__p_null_pc2.cmd
 echo(__p_null_pc3.cmd
+echo(__p_number_pc0.cmd
+echo(__p_number_pc1.cmd
+echo(__p_number_pc2.cmd
+echo(__p_number_pc3.cmd
 echo(__p_pair_pc0.cmd
 echo(__p_pair_pc1.cmd
 echo(__p_pair_pc2.cmd
 echo(__p_pair_pc3.cmd
+echo(__p_string_pc0.cmd
+echo(__p_string_pc1.cmd
+echo(__p_string_pc2.cmd
+echo(__p_string_pc3.cmd
 echo(__p_sub_pc0.cmd
+echo(__p_symbol_pc0.cmd
+echo(__p_symbol_pc1.cmd
+echo(__p_symbol_pc2.cmd
+echo(__p_symbol_pc3.cmd
 echo(__sl0_pc0.cmd
 echo(__sl1_pc0.cmd
 echo(__sl1_pc1.cmd
@@ -17838,6 +18349,8 @@ echo(__sl1_pc2.cmd
 echo(__sl2_pc0.cmd
 echo(__sl3_pc0.cmd
 echo(__sl4_pc0.cmd
+echo(__sl4_pc1.cmd
+echo(__sl5_pc0.cmd
 echo(-zzGstring_pc0.cmd
 echo(-zzGstring_pc1.cmd
 echo(-zzGstring_pc2.cmd
@@ -17858,6 +18371,8 @@ echo(assoc_pc2.cmd
 echo(assoc_pc3.cmd
 echo(assoc_pc4.cmd
 echo(assoc_pc5.cmd
+echo(begin_pc0.cmd
+echo(begin_pc1.cmd
 echo(caar_pc0.cmd
 echo(cadar_pc0.cmd
 echo(caddr_pc0.cmd
@@ -17934,6 +18449,8 @@ echo(reverse_pc1.cmd
 echo(reverse_pc2.cmd
 echo(reverse_pc3.cmd
 echo(reverse_pc4.cmd
+echo(str_pc0.cmd
+echo(str_pc1.cmd
 echo(sum_pc0.cmd
 echo(sum_pc1.cmd
 echo(take_pc0.cmd
@@ -19691,6 +20208,56 @@ echo(set "zt3=!R!"
 echo(set "zt4=T:!zt1:~2!!zt3:~2!"
 echo(set "zt5=T: !zt4:~2!"
 echo(set "R=!zt5!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\begin_pc0.cmd" (
+echo(if not "!PC!"=="0" goto _vrdy
+echo(set "vL=NIL"
+echo(set /a vI=ARGC
+echo(:_vcl
+echo(if !vI! LEQ 0 goto _vfin
+echo(set /a vI-=1
+echo(set /a _i=!FP!+!vI!
+echo(call set "vV=%%%%F!_i!%%%%"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!vV!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!vL!#
+echo(set "vL=P:%%HN%%"
+echo(goto _vcl
+echo(:_vfin
+echo(set "F!FP!=!vL!"
+echo(:_vrdy
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
+echo(set "ARGC=1"
+echo(set "CALLEE=last"
+echo(set "RPC=1"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\begin_pc1.cmd" (
+echo(if not "!PC!"=="0" goto _vrdy
+echo(set "vL=NIL"
+echo(set /a vI=ARGC
+echo(:_vcl
+echo(if !vI! LEQ 0 goto _vfin
+echo(set /a vI-=1
+echo(set /a _i=!FP!+!vI!
+echo(call set "vV=%%%%F!_i!%%%%"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!vV!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!vL!#
+echo(set "vL=P:%%HN%%"
+echo(goto _vcl
+echo(:_vfin
+echo(set "F!FP!=!vL!"
+echo(:_vrdy
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt0=!R!"
+echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\bk+_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -21519,6 +22086,19 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\cmp-opzzQ_pc10.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt0=NIL"
+echo(set "PC=11" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\cmp-opzzQ_pc11.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\cmp-opzzQ_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
@@ -21543,21 +22123,34 @@ echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "zt0=S:t"
-echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\cmp-opzzQ_pc6.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "zt0=NIL"
-echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
+echo(if "!p0!"=="S:!GT!" ^(set "PC=7" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=8" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\cmp-opzzQ_pc7.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\cmp-opzzQ_pc8.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:!GT!=" ^(set "PC=9" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\cmp-opzzQ_pc9.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt0=S:t"
+echo(set "PC=11" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\cmp-pairs_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -21720,6 +22313,12 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "R=T:LSS" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\cmp-zzGbatch_pc10.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:?" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\cmp-zzGbatch_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
@@ -21750,7 +22349,27 @@ echo(set "R=T:EQU" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:?" ^& set "ACTION=ret" ^& goto :eof
+echo(if "!p0!"=="S:!GT!" ^(set "PC=7" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=8" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\cmp-zzGbatch_pc7.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:GTR" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\cmp-zzGbatch_pc8.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:!GT!=" ^(set "PC=9" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\cmp-zzGbatch_pc9.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:GEQ" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\comp.cmd" (
 echo(@echo off
@@ -22529,6 +23148,8 @@ echo(if "!paN!"=="*" goto pa_mul
 echo(if "!paN!"=="<" set "paCmp=LSS" ^& goto pa_cmp
 echo(if "!paN!"=="<=" set "paCmp=LEQ" ^& goto pa_cmp
 echo(if "!paN!"=="=" set "paCmp=EQU" ^& goto pa_cmp
+echo(if "!paN!"==">" set "paCmp=GTR" ^& goto pa_cmp
+echo(if "!paN!"==">=" set "paCmp=GEQ" ^& goto pa_cmp
 echo(if "!paN!"=="wrap" goto pa_wrap
 echo(if "!paN!"=="unwrap" goto pa_unwrap
 echo(if "!paN!"=="eval" goto pa_eval
@@ -23049,6 +23670,8 @@ echo(call :env_define "!GLOBAL!" "S:*" "R:*"
 echo(call :env_define "!GLOBAL!" "S:<" "R:<"
 echo(call :env_define "!GLOBAL!" "S:<=" "R:<="
 echo(call :env_define "!GLOBAL!" "S:=" "R:="
+echo(call :env_define "!GLOBAL!" "S:>" "R:>"
+echo(call :env_define "!GLOBAL!" "S:>=" "R:>="
 echo(call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 echo(call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 echo(call :env_define "!GLOBAL!" "S:eval" "R:eval"
@@ -31900,10 +32523,19 @@ echo(call :hp_cdr "!NV!"
 echo(set "VV=!R!"
 echo(call :hp_car "!VV!"
 echo(set "DVAL=!R!"
-echo(if not "!DVAL:~0,2!"=="P:" goto in_keepform
+echo(if not "!DVAL:~0,2!"=="P:" goto in_atomdef
 echo(call :hp_car "!DVAL!"
 echo(set "DVHD=!R!"
 echo(if "!DVHD!"=="S:lambda" goto in_keepform
+echo(goto in_compthunk
+echo(:in_atomdef
+echo(rem literal atoms ^(numbers/strings/nil/t^) stay verbatim -^> G_^<name^> constants; a BARE SYMBOL value
+echo(rem ^(^(define f g^)^) is fn ALIASING: evaluate g at define time like the kernel -- thunk binds g's VALUE.
+echo(if "!DVAL!"=="S:nil" goto in_keepform
+echo(if "!DVAL!"=="S:t" goto in_keepform
+echo(if "!DVAL:~0,2!"=="S:" goto in_compthunk
+echo(goto in_keepform
+echo(:in_compthunk
 echo(rem computed define: ALSO emit a ^(define ^<name^> nil^) placeholder so gvar-names sees ^<name^> as a
 echo(rem global VAR -- a later call of it in operator position loads G_^<name^> and applies ^(the thunk's
 echo(rem value is a closure^); without this the comp emits a direct call to a fn that doesn't exist
@@ -31985,6 +32617,7 @@ echo(set "DVHD=NIL"
 echo(if "!DVAL:~0,2!"=="P:" ^(call :hp_car "!DVAL!" ^& set "DVHD=!R!"^)
 echo(if "!DVHD!"=="S:lambda" goto in_reg_lam
 echo(if "!DVHD!"=="S:clambda" goto in_reg_clam
+echo(if "!DVAL!"=="S:nil" set "DVAL=NIL"
 echo(set "G_!NMRAW!=!DVAL!"
 echo(goto in_reg
 echo(:in_reg_lam
@@ -32671,6 +33304,8 @@ echo(if "!paN!"=="*" goto pa_mul
 echo(if "!paN!"=="<" set "paCmp=LSS" ^& goto pa_cmp
 echo(if "!paN!"=="<=" set "paCmp=LEQ" ^& goto pa_cmp
 echo(if "!paN!"=="=" set "paCmp=EQU" ^& goto pa_cmp
+echo(if "!paN!"==">" set "paCmp=GTR" ^& goto pa_cmp
+echo(if "!paN!"==">=" set "paCmp=GEQ" ^& goto pa_cmp
 echo(if "!paN!"=="wrap" goto pa_wrap
 echo(if "!paN!"=="unwrap" goto pa_unwrap
 echo(if "!paN!"=="eval" goto pa_eval
@@ -33191,6 +33826,8 @@ echo(call :env_define "!GLOBAL!" "S:*" "R:*"
 echo(call :env_define "!GLOBAL!" "S:<" "R:<"
 echo(call :env_define "!GLOBAL!" "S:<=" "R:<="
 echo(call :env_define "!GLOBAL!" "S:=" "R:="
+echo(call :env_define "!GLOBAL!" "S:>" "R:>"
+echo(call :env_define "!GLOBAL!" "S:>=" "R:>="
 echo(call :env_define "!GLOBAL!" "S:wrap" "R:wrap"
 echo(call :env_define "!GLOBAL!" "S:unwrap" "R:unwrap"
 echo(call :env_define "!GLOBAL!" "S:eval" "R:eval"
@@ -33805,7 +34442,10 @@ echo(if "!IRV!"=="+" set "R=__p_add"
 echo(if "!IRV!"=="-" set "R=__p_sub"
 echo(if "!IRV!"=="*" set "R=__p_mul"
 echo(if "!IRV!"=="!LT!" set "R=__p_lt"
+echo(if "!IRV!"=="!LT!=" set "R=__p_le"
 echo(if "!IRV!"=="=" set "R=__p_neq"
+echo(if "!IRV!"=="!GT!" set "R=__p_gt"
+echo(if "!IRV!"=="!GT!=" set "R=__p_ge"
 echo(if "!IRV!"=="cons" set "R=__p_cons"
 echo(if "!IRV!"=="car" set "R=__p_car"
 echo(if "!IRV!"=="cdr" set "R=__p_cdr"
@@ -33813,6 +34453,9 @@ echo(if "!IRV!"=="null?" set "R=__p_null"
 echo(if "!IRV!"=="eq?" set "R=__p_eq"
 echo(if "!IRV!"=="pair?" set "R=__p_pair"
 echo(if "!IRV!"=="not" set "R=__p_not"
+echo(if "!IRV!"=="number?" set "R=__p_number"
+echo(if "!IRV!"=="string?" set "R=__p_string"
+echo(if "!IRV!"=="symbol?" set "R=__p_symbol"
 echo(goto :eof
 echo(:isprim
 echo(rem IPO = S:^<op^> -^> R=1 if a call-position prim, else 0
@@ -33832,6 +34475,8 @@ echo(if "!IPO!"=="S:*" set "R=1"
 echo(if "!IPO!"=="S:!LT!" set "R=1"
 echo(if "!IPO!"=="S:!LT!=" set "R=1"
 echo(if "!IPO!"=="S:=" set "R=1"
+echo(if "!IPO!"=="S:!GT!" set "R=1"
+echo(if "!IPO!"=="S:!GT!=" set "R=1"
 echo(if "!IPO!"=="S:type-of" set "R=1"
 echo(if "!IPO!"=="S:argv" set "R=1"
 echo(if "!IPO!"=="S:getenv" set "R=1"
@@ -33903,6 +34548,8 @@ echo(if "!IPO!"=="S:*" ^(set /a ipr=!ipna!*!ipnb! ^& set "IPV=I:!ipr!" ^& goto i
 echo(if "!IPO!"=="S:!LT!" goto ipr_lt
 echo(if "!IPO!"=="S:!LT!=" goto ipr_le
 echo(if "!IPO!"=="S:=" goto ipr_neq
+echo(if "!IPO!"=="S:!GT!" goto ipr_gt
+echo(if "!IPO!"=="S:!GT!=" goto ipr_ge
 echo(echo interp: unknown prim !IPO! 1^>^&2
 echo(set "IPV=NIL"
 echo(goto itk_push
@@ -33926,6 +34573,12 @@ echo(if !ipna! LSS !ipnb! ^(set "IPV=S:t"^) else ^(set "IPV=NIL"^)
 echo(goto itk_push
 echo(:ipr_le
 echo(if !ipna! LEQ !ipnb! ^(set "IPV=S:t"^) else ^(set "IPV=NIL"^)
+echo(goto itk_push
+echo(:ipr_gt
+echo(if !ipna! GTR !ipnb! ^(set "IPV=S:t"^) else ^(set "IPV=NIL"^)
+echo(goto itk_push
+echo(:ipr_ge
+echo(if !ipna! GEQ !ipnb! ^(set "IPV=S:t"^) else ^(set "IPV=NIL"^)
 echo(goto itk_push
 echo(:ipr_neq
 echo(if !ipna!==!ipnb! ^(set "IPV=S:t"^) else ^(set "IPV=NIL"^)
@@ -34311,7 +34964,7 @@ echo(^>%%HD%%\car%%HN%% echo^(!p0!#
 echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
 echo(set "zt0=P:!HN!"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(S:__sl4#
+echo(^>%%HD%%\car%%HN%% echo^(S:__sl5#
 echo(^>%%HD%%\cdr%%HN%% echo^(!zt0!#
 echo(set "zt1=P:!HN!"
 echo(set "zt2=K:!zt1:~2!"
@@ -47257,6 +47910,29 @@ echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\map-mexpand_pc10.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "zt7=!zt9!"
+echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc11.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc12.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt2!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt5!#
+echo(set "zt10=P:!HN!"
+echo(set "R=!zt10!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\map-mexpand_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
@@ -47276,12 +47952,13 @@ echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
 echo(set "zt1=!R!"
-echo(set "zi2=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi2!^) do set /p zt2=^<%%HD%%\cdr%%%%v^) else set "zt2=NIL#"
-echo(set "zt2=!zt2:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt1!"
+echo(set "zt2=!zt1!"
+echo(set "zi3=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi3!^) do set /p zt3=^<%%HD%%\cdr%%%%v^) else set "zt3=NIL#"
+echo(set "zt3=!zt3:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt2!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt2!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt3!"
 echo(set "ARGC=1"
 echo(set "CALLEE=map-mexpand"
 echo(set "RPC=4"
@@ -47291,13 +47968,52 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt1=%%%%F!_i!%%%%"
-echo(set "zt3=!R!"
-echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt1!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt3!#
-echo(set "zt4=P:!HN!"
-echo(set "R=!zt4!" ^& set "ACTION=ret" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt2=%%%%F!_i!%%%%"
+echo(set "zt4=!R!"
+echo(set "zt5=!zt4!"
+echo(set "zi6=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi6!^) do set /p zt6=^<%%HD%%\car%%%%v^) else set "zt6=NIL#"
+echo(set "zt6=!zt6:~0,-1!"
+echo(if "!zt2!"=="!zt6!" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc5.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "zi8=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi8!^) do set /p zt8=^<%%HD%%\cdr%%%%v^) else set "zt8=NIL#"
+echo(set "zt8=!zt8:~0,-1!"
+echo(if "!zt5!"=="!zt8!" ^(set "PC=8" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=9" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc6.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "zt7=NIL"
+echo(set "PC=7" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc7.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(if not "!zt7!"=="NIL" ^(set "PC=11" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=12" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc8.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "zt9=S:t"
+echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\map-mexpand_pc9.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "zt9=NIL"
+echo(set "PC=10" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\map-show_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -47767,22 +48483,29 @@ echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt12=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt12!"
-echo(set "ARGC=1"
-echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt12=%%%%F!_i!%%%%"
+echo(set "zt15=!R!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!zt12!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt15!#
+echo(set "zt16=P:!HN!"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:define#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt16!#
+echo(set "zt17=P:!HN!"
+echo(set "R=!zt17!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc11.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi14=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
-echo(set "zt14=!zt14:~0,-1!"
+echo(set "zi19=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\cdr%%%%v^) else set "zt19=NIL#"
+echo(set "zt19=!zt19:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt19!"
 echo(set "ARGC=1"
-echo(set "CALLEE=and-zzGif"
+echo(set "CALLEE=cond-zzGif"
 echo(set "RPC=13"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -47790,18 +48513,18 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi16=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi16!^) do set /p zt16=^<%%HD%%\car%%%%v^) else set "zt16=NIL#"
-echo(set "zt16=!zt16:~0,-1!"
-echo(if "!zt16!"=="S:or" ^(set "PC=14" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "zi21=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v^) else set "zt21=NIL#"
+echo(set "zt21=!zt21:~0,-1!"
+echo(if "!zt21!"=="S:and" ^(set "PC=14" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=15" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc13.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt15=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt15!"
+echo(set "zt20=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt20!"
 echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
@@ -47809,13 +48532,13 @@ echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi17=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi17!^) do set /p zt17=^<%%HD%%\cdr%%%%v^) else set "zt17=NIL#"
-echo(set "zt17=!zt17:~0,-1!"
+echo(set "zi22=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v^) else set "zt22=NIL#"
+echo(set "zt22=!zt22:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt17!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt22!"
 echo(set "ARGC=1"
-echo(set "CALLEE=or-zzGif"
+echo(set "CALLEE=and-zzGif"
 echo(set "RPC=16"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -47823,18 +48546,18 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi19=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi19!^) do set /p zt19=^<%%HD%%\car%%%%v^) else set "zt19=NIL#"
-echo(set "zt19=!zt19:~0,-1!"
-echo(if "!zt19!"=="S:when" ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "zi24=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi24!^) do set /p zt24=^<%%HD%%\car%%%%v^) else set "zt24=NIL#"
+echo(set "zt24=!zt24:~0,-1!"
+echo(if "!zt24!"=="S:or" ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=18" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc16.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt18=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt18!"
+echo(set "zt23=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt23!"
 echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
@@ -47842,23 +48565,13 @@ echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi20=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi20!^) do set /p zt20=^<%%HD%%\cdr%%%%v^) else set "zt20=NIL#"
-echo(set "zt20=!zt20:~0,-1!"
-echo(set "zi21=!zt20:~2!"
-echo(if "!zt20:~0,2!"=="P:" ^(for %%%%v in ^(!zi21!^) do set /p zt21=^<%%HD%%\car%%%%v^) else set "zt21=NIL#"
-echo(set "zt21=!zt21:~0,-1!"
-echo(set "zi22=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi22!^) do set /p zt22=^<%%HD%%\cdr%%%%v^) else set "zt22=NIL#"
-echo(set "zt22=!zt22:~0,-1!"
-echo(set "zi23=!zt22:~2!"
-echo(if "!zt22:~0,2!"=="P:" ^(for %%%%v in ^(!zi23!^) do set /p zt23=^<%%HD%%\cdr%%%%v^) else set "zt23=NIL#"
-echo(set "zt23=!zt23:~0,-1!"
+echo(set "zi25=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\cdr%%%%v^) else set "zt25=NIL#"
+echo(set "zt25=!zt25:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt21!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt23!"
-echo(set "ARGC=2"
-echo(set "CALLEE=when-zzGif"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt25!"
+echo(set "ARGC=1"
+echo(set "CALLEE=or-zzGif"
 echo(set "RPC=19"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -47866,18 +48579,18 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi25=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi25!^) do set /p zt25=^<%%HD%%\car%%%%v^) else set "zt25=NIL#"
-echo(set "zt25=!zt25:~0,-1!"
-echo(if "!zt25!"=="S:unless" ^(set "PC=20" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "zi27=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\car%%%%v^) else set "zt27=NIL#"
+echo(set "zt27=!zt27:~0,-1!"
+echo(if "!zt27!"=="S:when" ^(set "PC=20" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=21" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc19.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt24=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt24!"
+echo(set "zt26=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt26!"
 echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
@@ -47891,23 +48604,23 @@ echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi26=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi26!^) do set /p zt26=^<%%HD%%\cdr%%%%v^) else set "zt26=NIL#"
-echo(set "zt26=!zt26:~0,-1!"
-echo(set "zi27=!zt26:~2!"
-echo(if "!zt26:~0,2!"=="P:" ^(for %%%%v in ^(!zi27!^) do set /p zt27=^<%%HD%%\car%%%%v^) else set "zt27=NIL#"
-echo(set "zt27=!zt27:~0,-1!"
 echo(set "zi28=!p0:~2!"
 echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi28!^) do set /p zt28=^<%%HD%%\cdr%%%%v^) else set "zt28=NIL#"
 echo(set "zt28=!zt28:~0,-1!"
 echo(set "zi29=!zt28:~2!"
-echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\cdr%%%%v^) else set "zt29=NIL#"
+echo(if "!zt28:~0,2!"=="P:" ^(for %%%%v in ^(!zi29!^) do set /p zt29=^<%%HD%%\car%%%%v^) else set "zt29=NIL#"
 echo(set "zt29=!zt29:~0,-1!"
+echo(set "zi30=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi30!^) do set /p zt30=^<%%HD%%\cdr%%%%v^) else set "zt30=NIL#"
+echo(set "zt30=!zt30:~0,-1!"
+echo(set "zi31=!zt30:~2!"
+echo(if "!zt30:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\cdr%%%%v^) else set "zt31=NIL#"
+echo(set "zt31=!zt31:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt27!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt29!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt29!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt31!"
 echo(set "ARGC=2"
-echo(set "CALLEE=unless-zzGif"
+echo(set "CALLEE=when-zzGif"
 echo(set "RPC=22"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -47915,18 +48628,18 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi31=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi31!^) do set /p zt31=^<%%HD%%\car%%%%v^) else set "zt31=NIL#"
-echo(set "zt31=!zt31:~0,-1!"
-echo(if "!zt31!"=="S:case" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "zi33=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\car%%%%v^) else set "zt33=NIL#"
+echo(set "zt33=!zt33:~0,-1!"
+echo(if "!zt33!"=="S:unless" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc22.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt30=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt30!"
+echo(set "zt32=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt32!"
 echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
@@ -47934,23 +48647,23 @@ echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi32=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi32!^) do set /p zt32=^<%%HD%%\cdr%%%%v^) else set "zt32=NIL#"
-echo(set "zt32=!zt32:~0,-1!"
-echo(set "zi33=!zt32:~2!"
-echo(if "!zt32:~0,2!"=="P:" ^(for %%%%v in ^(!zi33!^) do set /p zt33=^<%%HD%%\car%%%%v^) else set "zt33=NIL#"
-echo(set "zt33=!zt33:~0,-1!"
 echo(set "zi34=!p0:~2!"
 echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi34!^) do set /p zt34=^<%%HD%%\cdr%%%%v^) else set "zt34=NIL#"
 echo(set "zt34=!zt34:~0,-1!"
 echo(set "zi35=!zt34:~2!"
-echo(if "!zt34:~0,2!"=="P:" ^(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\cdr%%%%v^) else set "zt35=NIL#"
+echo(if "!zt34:~0,2!"=="P:" ^(for %%%%v in ^(!zi35!^) do set /p zt35=^<%%HD%%\car%%%%v^) else set "zt35=NIL#"
 echo(set "zt35=!zt35:~0,-1!"
+echo(set "zi36=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi36!^) do set /p zt36=^<%%HD%%\cdr%%%%v^) else set "zt36=NIL#"
+echo(set "zt36=!zt36:~0,-1!"
+echo(set "zi37=!zt36:~2!"
+echo(if "!zt36:~0,2!"=="P:" ^(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\cdr%%%%v^) else set "zt37=NIL#"
+echo(set "zt37=!zt37:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt33!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt35!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt37!"
 echo(set "ARGC=2"
-echo(set "CALLEE=case-zzGcond"
+echo(set "CALLEE=unless-zzGif"
 echo(set "RPC=25"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -47958,18 +48671,18 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi37=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi37!^) do set /p zt37=^<%%HD%%\car%%%%v^) else set "zt37=NIL#"
-echo(set "zt37=!zt37:~0,-1!"
-echo(if "!zt37!"=="S:let*" ^(set "PC=26" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "zi39=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v^) else set "zt39=NIL#"
+echo(set "zt39=!zt39:~0,-1!"
+echo(if "!zt39!"=="S:case" ^(set "PC=26" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=27" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc25.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt36=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt36!"
+echo(set "zt38=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt38!"
 echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
@@ -47977,23 +48690,23 @@ echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi38=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi38!^) do set /p zt38=^<%%HD%%\cdr%%%%v^) else set "zt38=NIL#"
-echo(set "zt38=!zt38:~0,-1!"
-echo(set "zi39=!zt38:~2!"
-echo(if "!zt38:~0,2!"=="P:" ^(for %%%%v in ^(!zi39!^) do set /p zt39=^<%%HD%%\car%%%%v^) else set "zt39=NIL#"
-echo(set "zt39=!zt39:~0,-1!"
 echo(set "zi40=!p0:~2!"
 echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi40!^) do set /p zt40=^<%%HD%%\cdr%%%%v^) else set "zt40=NIL#"
 echo(set "zt40=!zt40:~0,-1!"
 echo(set "zi41=!zt40:~2!"
-echo(if "!zt40:~0,2!"=="P:" ^(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\cdr%%%%v^) else set "zt41=NIL#"
+echo(if "!zt40:~0,2!"=="P:" ^(for %%%%v in ^(!zi41!^) do set /p zt41=^<%%HD%%\car%%%%v^) else set "zt41=NIL#"
 echo(set "zt41=!zt41:~0,-1!"
+echo(set "zi42=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi42!^) do set /p zt42=^<%%HD%%\cdr%%%%v^) else set "zt42=NIL#"
+echo(set "zt42=!zt42:~0,-1!"
+echo(set "zi43=!zt42:~2!"
+echo(if "!zt42:~0,2!"=="P:" ^(for %%%%v in ^(!zi43!^) do set /p zt43=^<%%HD%%\cdr%%%%v^) else set "zt43=NIL#"
+echo(set "zt43=!zt43:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt39!"
-echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt41!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt41!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt43!"
 echo(set "ARGC=2"
-echo(set "CALLEE=letzzS-zzGlets"
+echo(set "CALLEE=case-zzGcond"
 echo(set "RPC=28"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -48001,19 +48714,18 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
-echo(set "ARGC=1"
-echo(set "CALLEE=nary-formzzQ"
-echo(set "RPC=29"
-echo(set "ACTION=call" ^& goto :eof
+echo(set "zi45=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\car%%%%v^) else set "zt45=NIL#"
+echo(set "zt45=!zt45:~0,-1!"
+echo(if "!zt45!"=="S:let*" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=30" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc28.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt42=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt42!"
+echo(set "zt44=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt44!"
 echo(set "ARGC=1"
 echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
@@ -48021,9 +48733,25 @@ echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt43=!R!"
-echo(if not "!zt43!"=="NIL" ^(set "PC=30" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=31" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zi46=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi46!^) do set /p zt46=^<%%HD%%\cdr%%%%v^) else set "zt46=NIL#"
+echo(set "zt46=!zt46:~0,-1!"
+echo(set "zi47=!zt46:~2!"
+echo(if "!zt46:~0,2!"=="P:" ^(for %%%%v in ^(!zi47!^) do set /p zt47=^<%%HD%%\car%%%%v^) else set "zt47=NIL#"
+echo(set "zt47=!zt47:~0,-1!"
+echo(set "zi48=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi48!^) do set /p zt48=^<%%HD%%\cdr%%%%v^) else set "zt48=NIL#"
+echo(set "zt48=!zt48:~0,-1!"
+echo(set "zi49=!zt48:~2!"
+echo(if "!zt48:~0,2!"=="P:" ^(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\cdr%%%%v^) else set "zt49=NIL#"
+echo(set "zt49=!zt49:~0,-1!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt47!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=!zt49!"
+echo(set "ARGC=2"
+echo(set "CALLEE=letzzS-zzGlets"
+echo(set "RPC=31"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -48038,7 +48766,7 @@ echo(set "NP=1"
 echo(set /a NFP=!FT!
 echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set "ARGC=1"
-echo(set "CALLEE=nary-rw"
+echo(set "CALLEE=nary-formzzQ"
 echo(set "RPC=32"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -48046,32 +48774,27 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi45=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi45!^) do set /p zt45=^<%%HD%%\car%%%%v^) else set "zt45=NIL#"
-echo(set "zt45=!zt45:~0,-1!"
-echo(if "!zt45!"=="S:str" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zt50=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt50!"
+echo(set "ARGC=1"
+echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc32.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt44=!R!"
-echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt44!"
-echo(set "ARGC=1"
-echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
+echo(set "zt51=!R!"
+echo(if not "!zt51!"=="NIL" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc33.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi46=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi46!^) do set /p zt46=^<%%HD%%\cdr%%%%v^) else set "zt46=NIL#"
-echo(set "zt46=!zt46:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt46!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!p0!"
 echo(set "ARGC=1"
-echo(set "CALLEE=map-mexpand"
+echo(set "CALLEE=nary-rw"
 echo(set "RPC=35"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -48079,70 +48802,63 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi49=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi49!^) do set /p zt49=^<%%HD%%\car%%%%v^) else set "zt49=NIL#"
-echo(set "zt49=!zt49:~0,-1!"
-echo(if "!zt49!"=="S:list" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=38" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zi53=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\car%%%%v^) else set "zt53=NIL#"
+echo(set "zt53=!zt53:~0,-1!"
+echo(if "!zt53!"=="S:str" ^(set "PC=36" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=37" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc35.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt47=!R!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt47!"
+echo(set "zt52=!R!"
+echo(set /a _i=!FP!+0 ^& set "F!_i!=!zt52!"
 echo(set "ARGC=1"
-echo(set "CALLEE=str-zzGapp"
-echo(set "RPC=36"
-echo(set "ACTION=call" ^& goto :eof
+echo(set "PC=0" ^& set "ACTION=tail" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc36.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt48=!R!"
-echo(set "R=!zt48!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zi54=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi54!^) do set /p zt54=^<%%HD%%\cdr%%%%v^) else set "zt54=NIL#"
+echo(set "zt54=!zt54:~0,-1!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt54!"
+echo(set "ARGC=1"
+echo(set "CALLEE=map-mexpand"
+echo(set "RPC=38"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc37.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi50=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi50!^) do set /p zt50=^<%%HD%%\cdr%%%%v^) else set "zt50=NIL#"
-echo(set "zt50=!zt50:~0,-1!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt50!"
-echo(set "ARGC=1"
-echo(set "CALLEE=map-mexpand"
-echo(set "RPC=39"
-echo(set "ACTION=call" ^& goto :eof
+echo(set "zi57=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi57!^) do set /p zt57=^<%%HD%%\car%%%%v^) else set "zt57=NIL#"
+echo(set "zt57=!zt57:~0,-1!"
+echo(if "!zt57!"=="S:list" ^(set "PC=40" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=41" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc38.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi53=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi53!^) do set /p zt53=^<%%HD%%\car%%%%v^) else set "zt53=NIL#"
-echo(set "zt53=!zt53:~0,-1!"
+echo(set "zt55=!R!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt53!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt55!"
 echo(set "ARGC=1"
-echo(set "CALLEE=mexpand"
-echo(set "RPC=41"
+echo(set "CALLEE=str-zzGapp"
+echo(set "RPC=39"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc39.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt51=!R!"
-echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt51!"
-echo(set "ARGC=1"
-echo(set "CALLEE=list-zzGcons"
-echo(set "RPC=40"
-echo(set "ACTION=call" ^& goto :eof
+echo(set "zt56=!R!"
+echo(set "R=!zt56!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc4.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -48158,89 +48874,109 @@ echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt52=!R!"
-echo(set "R=!zt52!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zi58=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi58!^) do set /p zt58=^<%%HD%%\cdr%%%%v^) else set "zt58=NIL#"
+echo(set "zt58=!zt58:~0,-1!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt58!"
+echo(set "ARGC=1"
+echo(set "CALLEE=map-mexpand"
+echo(set "RPC=42"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc41.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt54=!R!"
-echo(set "zt55=!zt54!"
-echo(set "zi56=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi56!^) do set /p zt56=^<%%HD%%\cdr%%%%v^) else set "zt56=NIL#"
-echo(set "zt56=!zt56:~0,-1!"
-echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt55!"
+echo(set "zi61=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi61!^) do set /p zt61=^<%%HD%%\car%%%%v^) else set "zt61=NIL#"
+echo(set "zt61=!zt61:~0,-1!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt56!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt61!"
 echo(set "ARGC=1"
 echo(set "CALLEE=mexpand"
-echo(set "RPC=42"
+echo(set "RPC=44"
 echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc42.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set /a _i=!FP!+!NP!+0 ^& call set "zt55=%%%%F!_i!%%%%"
-echo(set "zt57=!R!"
-echo(set "zt58=!zt57!"
-echo(set "zi59=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi59!^) do set /p zt59=^<%%HD%%\car%%%%v^) else set "zt59=NIL#"
-echo(set "zt59=!zt59:~0,-1!"
-echo(if "!zt55!"=="!zt59!" ^(set "PC=43" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=44" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zt59=!R!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt59!"
+echo(set "ARGC=1"
+echo(set "CALLEE=list-zzGcons"
+echo(set "RPC=43"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc43.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi61=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi61!^) do set /p zt61=^<%%HD%%\cdr%%%%v^) else set "zt61=NIL#"
-echo(set "zt61=!zt61:~0,-1!"
-echo(if "!zt58!"=="!zt61!" ^(set "PC=46" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=47" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zt60=!R!"
+echo(set "R=!zt60!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc44.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt60=NIL"
-echo(set "PC=45" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zt62=!R!"
+echo(set "zt63=!zt62!"
+echo(set "zi64=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi64!^) do set /p zt64=^<%%HD%%\cdr%%%%v^) else set "zt64=NIL#"
+echo(set "zt64=!zt64:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt63!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt64!"
+echo(set "ARGC=1"
+echo(set "CALLEE=map-mexpand"
+echo(set "RPC=45"
+echo(set "ACTION=call" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc45.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(if not "!zt60!"=="NIL" ^(set "PC=49" ^& set "ACTION=jump" ^& goto :eof^)
-echo(set "PC=50" ^& set "ACTION=jump" ^& goto :eof
+echo(set /a _i=!FP!+!NP!+0 ^& call set "zt63=%%%%F!_i!%%%%"
+echo(set "zt65=!R!"
+echo(set "zt66=!zt65!"
+echo(set "zi67=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi67!^) do set /p zt67=^<%%HD%%\car%%%%v^) else set "zt67=NIL#"
+echo(set "zt67=!zt67:~0,-1!"
+echo(if "!zt63!"=="!zt67!" ^(set "PC=46" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=47" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc46.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt62=S:t"
-echo(set "PC=48" ^& set "ACTION=jump" ^& goto :eof
+echo(set "zi69=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi69!^) do set /p zt69=^<%%HD%%\cdr%%%%v^) else set "zt69=NIL#"
+echo(set "zt69=!zt69:~0,-1!"
+echo(if "!zt66!"=="!zt69!" ^(set "PC=49" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=50" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc47.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt62=NIL"
+echo(set "zt68=NIL"
 echo(set "PC=48" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc48.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zt60=!zt62!"
-echo(set "PC=45" ^& set "ACTION=jump" ^& goto :eof
+echo(if not "!zt68!"=="NIL" ^(set "PC=52" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=53" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc49.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
+echo(set "zt70=S:t"
+echo(set "PC=51" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc5.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -48270,11 +49006,31 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
+echo(set "zt70=NIL"
+echo(set "PC=51" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\mexpand_pc51.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "zt68=!zt70!"
+echo(set "PC=48" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\mexpand_pc52.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
+echo(set "R=!p0!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\mexpand_pc53.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+2
+echo(set "NP=1"
 echo(set /a HN+=1
-echo(^>%%HD%%\car%%HN%% echo^(!zt55!#
-echo(^>%%HD%%\cdr%%HN%% echo^(!zt58!#
-echo(set "zt63=P:!HN!"
-echo(set "R=!zt63!" ^& set "ACTION=ret" ^& goto :eof
+echo(^>%%HD%%\car%%HN%% echo^(!zt63!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!zt66!#
+echo(set "zt71=P:!HN!"
+echo(set "R=!zt71!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc6.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -48283,7 +49039,7 @@ echo(set "NP=1"
 echo(set "zi10=!p0:~2!"
 echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi10!^) do set /p zt10=^<%%HD%%\car%%%%v^) else set "zt10=NIL#"
 echo(set "zt10=!zt10:~0,-1!"
-echo(if "!zt10!"=="S:cond" ^(set "PC=8" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!zt10!"=="S:define" ^(set "PC=8" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=9" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\mexpand_pc7.cmd" (
@@ -48309,10 +49065,20 @@ echo(set "NP=1"
 echo(set "zi11=!p0:~2!"
 echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi11!^) do set /p zt11=^<%%HD%%\cdr%%%%v^) else set "zt11=NIL#"
 echo(set "zt11=!zt11:~0,-1!"
+echo(set "zi12=!zt11:~2!"
+echo(if "!zt11:~0,2!"=="P:" ^(for %%%%v in ^(!zi12!^) do set /p zt12=^<%%HD%%\car%%%%v^) else set "zt12=NIL#"
+echo(set "zt12=!zt12:~0,-1!"
+echo(set "zi13=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\cdr%%%%v^) else set "zt13=NIL#"
+echo(set "zt13=!zt13:~0,-1!"
+echo(set "zi14=!zt13:~2!"
+echo(if "!zt13:~0,2!"=="P:" ^(for %%%%v in ^(!zi14!^) do set /p zt14=^<%%HD%%\cdr%%%%v^) else set "zt14=NIL#"
+echo(set "zt14=!zt14:~0,-1!"
+echo(set /a _i=!FP!+!NP!+0 ^& set "F!_i!=!zt12!"
 echo(set /a NFP=!FT!
-echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt11!"
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt14!"
 echo(set "ARGC=1"
-echo(set "CALLEE=cond-zzGif"
+echo(set "CALLEE=map-mexpand"
 echo(set "RPC=10"
 echo(set "ACTION=call" ^& goto :eof
 )
@@ -48320,10 +49086,10 @@ echo(set "ACTION=call" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+2
 echo(set "NP=1"
-echo(set "zi13=!p0:~2!"
-echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi13!^) do set /p zt13=^<%%HD%%\car%%%%v^) else set "zt13=NIL#"
-echo(set "zt13=!zt13:~0,-1!"
-echo(if "!zt13!"=="S:and" ^(set "PC=11" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "zi18=!p0:~2!"
+echo(if "!p0:~0,2!"=="P:" ^(for %%%%v in ^(!zi18!^) do set /p zt18=^<%%HD%%\car%%%%v^) else set "zt18=NIL#"
+echo(set "zt18=!zt18:~0,-1!"
+echo(if "!zt18!"=="S:cond" ^(set "PC=11" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=12" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\min_pc0.cmd" (
@@ -49509,53 +50275,53 @@ echo(set "R=T:__p_neq" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:cons" ^(set "PC=13" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:!GT!" ^(set "PC=13" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=14" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc13.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_cons" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_gt" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc14.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:car" ^(set "PC=15" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:!GT!=" ^(set "PC=15" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=16" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc15.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_car" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_ge" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc16.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:cdr" ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:cons" ^(set "PC=17" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=18" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc17.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_cdr" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_cons" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc18.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:null?" ^(set "PC=19" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:car" ^(set "PC=19" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=20" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc19.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_null" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_car" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -49568,52 +50334,117 @@ echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:eq?" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:cdr" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=22" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc21.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_eq" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_cdr" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc22.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:pair?" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:null?" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc23.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_pair" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_null" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc24.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:not" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:eq?" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=26" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc25.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=T:__p_not" ^& set "ACTION=ret" ^& goto :eof
+echo(set "R=T:__p_eq" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc26.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
+echo(if "!p0!"=="S:pair?" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=28" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc27.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:__p_pair" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc28.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:not" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=30" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc29.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:__p_not" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "R=T:__p_sub" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc30.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:number?" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=32" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc31.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:__p_number" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc32.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:string?" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc33.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:__p_string" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc34.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:symbol?" ^(set "PC=35" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=36" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc35.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:__p_symbol" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc36.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc4.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -54585,6 +55416,63 @@ echo(^>%%HD%%\cdr%%HN%% echo^(!zt6!#
 echo(set "zt7=P:!HN!"
 echo(set "R=!zt7!" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\str_pc0.cmd" (
+echo(if not "!PC!"=="0" goto _vrdy
+echo(set "vL=NIL"
+echo(set /a vI=ARGC
+echo(:_vcl
+echo(if !vI! LEQ 0 goto _vfin
+echo(set /a vI-=1
+echo(set /a _i=!FP!+!vI!
+echo(call set "vV=%%%%F!_i!%%%%"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!vV!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!vL!#
+echo(set "vL=P:%%HN%%"
+echo(goto _vcl
+echo(:_vfin
+echo(set "F!FP!=!vL!"
+echo(:_vrdy
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(S:__sl4#
+echo(^>%%HD%%\cdr%%HN%% echo^(NIL#
+echo(set "zt0=P:!HN!"
+echo(set "zt1=K:!zt0:~2!"
+echo(set /a NFP=!FT!
+echo(set /a _i=!NFP!+0 ^& set "F!_i!=!zt1!"
+echo(set /a _i=!NFP!+1 ^& set "F!_i!=T:"
+echo(set /a _i=!NFP!+2 ^& set "F!_i!=!p0!"
+echo(set "ARGC=3"
+echo(set "CALLEE=foldl"
+echo(set "RPC=1"
+echo(set "ACTION=call" ^& goto :eof
+)
+>"%PSDIR%\str_pc1.cmd" (
+echo(if not "!PC!"=="0" goto _vrdy
+echo(set "vL=NIL"
+echo(set /a vI=ARGC
+echo(:_vcl
+echo(if !vI! LEQ 0 goto _vfin
+echo(set /a vI-=1
+echo(set /a _i=!FP!+!vI!
+echo(call set "vV=%%%%F!_i!%%%%"
+echo(set /a HN+=1
+echo(^>%%HD%%\car%%HN%% echo^(!vV!#
+echo(^>%%HD%%\cdr%%HN%% echo^(!vL!#
+echo(set "vL=P:%%HN%%"
+echo(goto _vcl
+echo(:_vfin
+echo(set "F!FP!=!vL!"
+echo(:_vrdy
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "zt2=!R!"
+echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\subst_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
@@ -55114,7 +56002,14 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
+echo(if "!p0!"=="S:!GT!" ^(set "PC=19" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=20" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\tpredzzQ_pc19.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\tpredzzQ_pc2.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -55122,6 +56017,25 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(if "!p0!"=="S:null?" ^(set "PC=3" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\tpredzzQ_pc20.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:!GT!=" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=22" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\tpredzzQ_pc21.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\tpredzzQ_pc22.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\tpredzzQ_pc3.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -56610,6 +57524,6 @@ echo(set "NP=2"
 echo(set "zt2=!R!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
->"%PSDIR%\.ok" echo 3267f01b6002
+>"%PSDIR%\.ok" echo da3f60eb8e7e
 endlocal
 exit /b 0

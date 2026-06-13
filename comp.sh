@@ -453,10 +453,10 @@ prim_app() {
     '-')     hp_car "$args"; _d=${R#I:}; hp_cdr "$args"; lst=$R
              if [ "$lst" = NIL ]; then R="I:$((0 - _d))"; else
                while [ "$lst" != NIL ]; do hp_car "$lst"; _d=$((_d - ${R#I:})); hp_cdr "$lst"; lst=$R; done; R="I:$_d"; fi ;;
-    '<'|'<='|'=')                       # chained: every adjacent pair must hold ((< 1 3 2) is nil)
+    '<'|'<='|'='|'>'|'>=')              # chained: every adjacent pair must hold ((< 1 3 2) is nil)
              hp_car "$args"; _p=${R#I:}; hp_cdr "$args"; lst=$R; _ok=1
              while [ "$lst" != NIL ]; do hp_car "$lst"; _v=${R#I:}
-               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
+               case $name in '<') [ "$_p" -lt "$_v" ] || _ok=0 ;; '<=') [ "$_p" -le "$_v" ] || _ok=0 ;; '>') [ "$_p" -gt "$_v" ] || _ok=0 ;; '>=') [ "$_p" -ge "$_v" ] || _ok=0 ;; *) [ "$_p" -eq "$_v" ] || _ok=0 ;; esac
                _p=$_v; hp_cdr "$lst"; lst=$R; done
              [ "$_ok" = 1 ] && R="S:t" || R=NIL ;;
     'file-exists?') arg1 "$args"; [ -e "${ARG1#T:}" ] && R="S:t" || R=NIL ;;
@@ -554,7 +554,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -852,6 +852,20 @@ ACTION=jump; return
 R="T:EQU"; ACTION=ret; return
 ;;
 6)
+if [ "${p0}" = "S:>" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="T:GTR"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:>=" ]; then PC=9; else PC=10; fi
+ACTION=jump; return
+;;
+9)
+R="T:GEQ"; ACTION=ret; return
+;;
+10)
 R="T:?"; ACTION=ret; return
 ;;
 esac; }
@@ -954,6 +968,20 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 18)
+if [ "${p0}" = "S:>" ]; then PC=19; else PC=20; fi
+ACTION=jump; return
+;;
+19)
+R="S:t"; ACTION=ret; return
+;;
+20)
+if [ "${p0}" = "S:>=" ]; then PC=21; else PC=22; fi
+ACTION=jump; return
+;;
+21)
+R="S:t"; ACTION=ret; return
+;;
+22)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -6512,55 +6540,90 @@ ACTION=jump; return
 R="T:__p_neq"; ACTION=ret; return
 ;;
 12)
-if [ "${p0}" = "S:cons" ]; then PC=13; else PC=14; fi
+if [ "${p0}" = "S:>" ]; then PC=13; else PC=14; fi
 ACTION=jump; return
 ;;
 13)
-R="T:__p_cons"; ACTION=ret; return
+R="T:__p_gt"; ACTION=ret; return
 ;;
 14)
-if [ "${p0}" = "S:car" ]; then PC=15; else PC=16; fi
+if [ "${p0}" = "S:>=" ]; then PC=15; else PC=16; fi
 ACTION=jump; return
 ;;
 15)
-R="T:__p_car"; ACTION=ret; return
+R="T:__p_ge"; ACTION=ret; return
 ;;
 16)
-if [ "${p0}" = "S:cdr" ]; then PC=17; else PC=18; fi
+if [ "${p0}" = "S:cons" ]; then PC=17; else PC=18; fi
 ACTION=jump; return
 ;;
 17)
-R="T:__p_cdr"; ACTION=ret; return
+R="T:__p_cons"; ACTION=ret; return
 ;;
 18)
-if [ "${p0}" = "S:null?" ]; then PC=19; else PC=20; fi
+if [ "${p0}" = "S:car" ]; then PC=19; else PC=20; fi
 ACTION=jump; return
 ;;
 19)
-R="T:__p_null"; ACTION=ret; return
+R="T:__p_car"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:eq?" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:cdr" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
-R="T:__p_eq"; ACTION=ret; return
+R="T:__p_cdr"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:pair?" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:null?" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
-R="T:__p_pair"; ACTION=ret; return
+R="T:__p_null"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:not" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:eq?" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
-R="T:__p_not"; ACTION=ret; return
+R="T:__p_eq"; ACTION=ret; return
 ;;
 26)
+if [ "${p0}" = "S:pair?" ]; then PC=27; else PC=28; fi
+ACTION=jump; return
+;;
+27)
+R="T:__p_pair"; ACTION=ret; return
+;;
+28)
+if [ "${p0}" = "S:not" ]; then PC=29; else PC=30; fi
+ACTION=jump; return
+;;
+29)
+R="T:__p_not"; ACTION=ret; return
+;;
+30)
+if [ "${p0}" = "S:number?" ]; then PC=31; else PC=32; fi
+ACTION=jump; return
+;;
+31)
+R="T:__p_number"; ACTION=ret; return
+;;
+32)
+if [ "${p0}" = "S:string?" ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+R="T:__p_string"; ACTION=ret; return
+;;
+34)
+if [ "${p0}" = "S:symbol?" ]; then PC=35; else PC=36; fi
+ACTION=jump; return
+;;
+35)
+R="T:__p_symbol"; ACTION=ret; return
+;;
+36)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -13099,7 +13162,7 @@ sht4="${R}"
 R="${sht4}"; ACTION=ret; return
 ;;
 esac; }
-SIZE_map_mexpand=2
+SIZE_map_mexpand=3
 map_mexpand() {
 eval "p0=\"\$F$((FP+0))\""
 FTOP=$((FP + SIZE_map_mexpand))
@@ -13123,21 +13186,55 @@ RPC=3; ACTION=call; return
 ;;
 3)
 sht1="${R}"
+sht2="${sht1}"
 hp_cdr "${p0}"
-sht2="${R}"
-eval "F$((FP+NP+0))=\"\${sht1}\""
+sht3="${R}"
+eval "F$((FP+NP+0))=\"\${sht2}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht2}\""
+eval "F$((NFP+0))=\"\${sht3}\""
 ARGC=1
 CALLEE=map_mexpand
 RPC=4; ACTION=call; return
 ;;
 4)
-eval "sht1=\"\$F$((FP+NP+0))\""
-sht3="${R}"
-hp_cons "${sht1}" "${sht3}"
+eval "sht2=\"\$F$((FP+NP+0))\""
 sht4="${R}"
-R="${sht4}"; ACTION=ret; return
+sht5="${sht4}"
+hp_car "${p0}"
+sht6="${R}"
+if [ "${sht2}" = "${sht6}" ]; then PC=5; else PC=6; fi
+ACTION=jump; return
+;;
+5)
+hp_cdr "${p0}"
+sht8="${R}"
+if [ "${sht5}" = "${sht8}" ]; then
+sht9="S:t"
+else
+sht9="NIL"
+fi
+sht7="${sht9}"
+PC=7; ACTION=jump; return
+;;
+6)
+sht7="NIL"
+PC=7; ACTION=jump; return
+;;
+7)
+if [ "${sht7}" != NIL ]; then PC=8; else PC=9; fi
+ACTION=jump; return
+;;
+8)
+R="${p0}"; ACTION=ret; return
+;;
+9)
+eval "F$((FP+NP+0))=\"\${sht5}\""
+eval "F$((FP+NP+1))=\"\${sht2}\""
+hp_cons "${sht2}" "${sht5}"
+eval "sht5=\"\$F$((FP+NP+0))\""
+eval "sht2=\"\$F$((FP+NP+1))\""
+sht10="${R}"
+R="${sht10}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_map_show=2
@@ -14180,7 +14277,21 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 4)
-if [ "${p0}" = "S:=" ]; then
+if [ "${p0}" = "S:=" ]; then PC=5; else PC=6; fi
+ACTION=jump; return
+;;
+5)
+R="S:t"; ACTION=ret; return
+;;
+6)
+if [ "${p0}" = "S:>" ]; then PC=7; else PC=8; fi
+ACTION=jump; return
+;;
+7)
+R="S:t"; ACTION=ret; return
+;;
+8)
+if [ "${p0}" = "S:>=" ]; then
 sht0="S:t"
 else
 sht0="NIL"
@@ -14801,7 +14912,7 @@ RPC=7; ACTION=call; return
 6)
 hp_car "${p0}"
 sht9="${R}"
-if [ "${sht9}" = "S:cond" ]; then PC=8; else PC=9; fi
+if [ "${sht9}" = "S:define" ]; then PC=8; else PC=9; fi
 ACTION=jump; return
 ;;
 7)
@@ -14816,311 +14927,342 @@ R="${sht8}"; ACTION=ret; return
 8)
 hp_cdr "${p0}"
 sht10="${R}"
+hp_car "${sht10}"
+sht11="${R}"
+hp_cdr "${p0}"
+sht12="${R}"
+hp_cdr "${sht12}"
+sht13="${R}"
+eval "F$((FP+NP+0))=\"\${sht11}\""
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht10}\""
+eval "F$((NFP+0))=\"\${sht13}\""
 ARGC=1
-CALLEE=cond_zzGif
+CALLEE=map_mexpand
 RPC=10; ACTION=call; return
 ;;
 9)
 hp_car "${p0}"
-sht12="${R}"
-if [ "${sht12}" = "S:and" ]; then PC=11; else PC=12; fi
+sht17="${R}"
+if [ "${sht17}" = "S:cond" ]; then PC=11; else PC=12; fi
 ACTION=jump; return
 ;;
 10)
-sht11="${R}"
-eval "F$((FP+0))=\"\${sht11}\""
-ARGC=1
-PC=0; ACTION=tail; return
+eval "sht11=\"\$F$((FP+NP+0))\""
+sht14="${R}"
+hp_cons "${sht11}" "${sht14}"
+sht15="${R}"
+hp_cons "S:define" "${sht15}"
+sht16="${R}"
+R="${sht16}"; ACTION=ret; return
 ;;
 11)
 hp_cdr "${p0}"
-sht13="${R}"
+sht18="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht13}\""
+eval "F$((NFP+0))=\"\${sht18}\""
 ARGC=1
-CALLEE=and_zzGif
+CALLEE=cond_zzGif
 RPC=13; ACTION=call; return
 ;;
 12)
 hp_car "${p0}"
-sht15="${R}"
-if [ "${sht15}" = "S:or" ]; then PC=14; else PC=15; fi
+sht20="${R}"
+if [ "${sht20}" = "S:and" ]; then PC=14; else PC=15; fi
 ACTION=jump; return
 ;;
 13)
-sht14="${R}"
-eval "F$((FP+0))=\"\${sht14}\""
+sht19="${R}"
+eval "F$((FP+0))=\"\${sht19}\""
 ARGC=1
 PC=0; ACTION=tail; return
 ;;
 14)
 hp_cdr "${p0}"
-sht16="${R}"
+sht21="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht16}\""
+eval "F$((NFP+0))=\"\${sht21}\""
 ARGC=1
-CALLEE=or_zzGif
+CALLEE=and_zzGif
 RPC=16; ACTION=call; return
 ;;
 15)
 hp_car "${p0}"
-sht18="${R}"
-if [ "${sht18}" = "S:when" ]; then PC=17; else PC=18; fi
+sht23="${R}"
+if [ "${sht23}" = "S:or" ]; then PC=17; else PC=18; fi
 ACTION=jump; return
 ;;
 16)
-sht17="${R}"
-eval "F$((FP+0))=\"\${sht17}\""
+sht22="${R}"
+eval "F$((FP+0))=\"\${sht22}\""
 ARGC=1
 PC=0; ACTION=tail; return
 ;;
 17)
 hp_cdr "${p0}"
-sht19="${R}"
-hp_car "${sht19}"
-sht20="${R}"
-hp_cdr "${p0}"
-sht21="${R}"
-hp_cdr "${sht21}"
-sht22="${R}"
+sht24="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht20}\""
-eval "F$((NFP+1))=\"\${sht22}\""
-ARGC=2
-CALLEE=when_zzGif
+eval "F$((NFP+0))=\"\${sht24}\""
+ARGC=1
+CALLEE=or_zzGif
 RPC=19; ACTION=call; return
 ;;
 18)
 hp_car "${p0}"
-sht24="${R}"
-if [ "${sht24}" = "S:unless" ]; then PC=20; else PC=21; fi
+sht26="${R}"
+if [ "${sht26}" = "S:when" ]; then PC=20; else PC=21; fi
 ACTION=jump; return
 ;;
 19)
-sht23="${R}"
-eval "F$((FP+0))=\"\${sht23}\""
+sht25="${R}"
+eval "F$((FP+0))=\"\${sht25}\""
 ARGC=1
 PC=0; ACTION=tail; return
 ;;
 20)
 hp_cdr "${p0}"
-sht25="${R}"
-hp_car "${sht25}"
-sht26="${R}"
-hp_cdr "${p0}"
 sht27="${R}"
-hp_cdr "${sht27}"
+hp_car "${sht27}"
 sht28="${R}"
+hp_cdr "${p0}"
+sht29="${R}"
+hp_cdr "${sht29}"
+sht30="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht26}\""
-eval "F$((NFP+1))=\"\${sht28}\""
+eval "F$((NFP+0))=\"\${sht28}\""
+eval "F$((NFP+1))=\"\${sht30}\""
 ARGC=2
-CALLEE=unless_zzGif
+CALLEE=when_zzGif
 RPC=22; ACTION=call; return
 ;;
 21)
 hp_car "${p0}"
-sht30="${R}"
-if [ "${sht30}" = "S:case" ]; then PC=23; else PC=24; fi
+sht32="${R}"
+if [ "${sht32}" = "S:unless" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 22)
-sht29="${R}"
-eval "F$((FP+0))=\"\${sht29}\""
+sht31="${R}"
+eval "F$((FP+0))=\"\${sht31}\""
 ARGC=1
 PC=0; ACTION=tail; return
 ;;
 23)
 hp_cdr "${p0}"
-sht31="${R}"
-hp_car "${sht31}"
-sht32="${R}"
-hp_cdr "${p0}"
 sht33="${R}"
-hp_cdr "${sht33}"
+hp_car "${sht33}"
 sht34="${R}"
+hp_cdr "${p0}"
+sht35="${R}"
+hp_cdr "${sht35}"
+sht36="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht32}\""
-eval "F$((NFP+1))=\"\${sht34}\""
+eval "F$((NFP+0))=\"\${sht34}\""
+eval "F$((NFP+1))=\"\${sht36}\""
 ARGC=2
-CALLEE=case_zzGcond
+CALLEE=unless_zzGif
 RPC=25; ACTION=call; return
 ;;
 24)
 hp_car "${p0}"
-sht36="${R}"
-if [ "${sht36}" = "S:let*" ]; then PC=26; else PC=27; fi
+sht38="${R}"
+if [ "${sht38}" = "S:case" ]; then PC=26; else PC=27; fi
 ACTION=jump; return
 ;;
 25)
-sht35="${R}"
-eval "F$((FP+0))=\"\${sht35}\""
+sht37="${R}"
+eval "F$((FP+0))=\"\${sht37}\""
 ARGC=1
 PC=0; ACTION=tail; return
 ;;
 26)
 hp_cdr "${p0}"
-sht37="${R}"
-hp_car "${sht37}"
-sht38="${R}"
-hp_cdr "${p0}"
 sht39="${R}"
-hp_cdr "${sht39}"
+hp_car "${sht39}"
 sht40="${R}"
+hp_cdr "${p0}"
+sht41="${R}"
+hp_cdr "${sht41}"
+sht42="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht38}\""
-eval "F$((NFP+1))=\"\${sht40}\""
+eval "F$((NFP+0))=\"\${sht40}\""
+eval "F$((NFP+1))=\"\${sht42}\""
 ARGC=2
-CALLEE=letzzS_zzGlets
+CALLEE=case_zzGcond
 RPC=28; ACTION=call; return
 ;;
 27)
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p0}\""
-ARGC=1
-CALLEE=nary_formzzQ
-RPC=29; ACTION=call; return
-;;
-28)
-sht41="${R}"
-eval "F$((FP+0))=\"\${sht41}\""
-ARGC=1
-PC=0; ACTION=tail; return
-;;
-29)
-sht42="${R}"
-if [ "${sht42}" != NIL ]; then PC=30; else PC=31; fi
-ACTION=jump; return
-;;
-30)
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${p0}\""
-ARGC=1
-CALLEE=nary_rw
-RPC=32; ACTION=call; return
-;;
-31)
 hp_car "${p0}"
 sht44="${R}"
-if [ "${sht44}" = "S:str" ]; then PC=33; else PC=34; fi
+if [ "${sht44}" = "S:let*" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
-32)
+28)
 sht43="${R}"
 eval "F$((FP+0))=\"\${sht43}\""
 ARGC=1
 PC=0; ACTION=tail; return
 ;;
-33)
+29)
 hp_cdr "${p0}"
 sht45="${R}"
+hp_car "${sht45}"
+sht46="${R}"
+hp_cdr "${p0}"
+sht47="${R}"
+hp_cdr "${sht47}"
+sht48="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht45}\""
+eval "F$((NFP+0))=\"\${sht46}\""
+eval "F$((NFP+1))=\"\${sht48}\""
+ARGC=2
+CALLEE=letzzS_zzGlets
+RPC=31; ACTION=call; return
+;;
+30)
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
 ARGC=1
-CALLEE=map_mexpand
+CALLEE=nary_formzzQ
+RPC=32; ACTION=call; return
+;;
+31)
+sht49="${R}"
+eval "F$((FP+0))=\"\${sht49}\""
+ARGC=1
+PC=0; ACTION=tail; return
+;;
+32)
+sht50="${R}"
+if [ "${sht50}" != NIL ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${p0}\""
+ARGC=1
+CALLEE=nary_rw
 RPC=35; ACTION=call; return
 ;;
 34)
 hp_car "${p0}"
-sht48="${R}"
-if [ "${sht48}" = "S:list" ]; then PC=37; else PC=38; fi
+sht52="${R}"
+if [ "${sht52}" = "S:str" ]; then PC=36; else PC=37; fi
 ACTION=jump; return
 ;;
 35)
-sht46="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht46}\""
+sht51="${R}"
+eval "F$((FP+0))=\"\${sht51}\""
 ARGC=1
-CALLEE=str_zzGapp
-RPC=36; ACTION=call; return
+PC=0; ACTION=tail; return
 ;;
 36)
-sht47="${R}"
-R="${sht47}"; ACTION=ret; return
-;;
-37)
 hp_cdr "${p0}"
-sht49="${R}"
+sht53="${R}"
 NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht49}\""
+eval "F$((NFP+0))=\"\${sht53}\""
 ARGC=1
 CALLEE=map_mexpand
-RPC=39; ACTION=call; return
+RPC=38; ACTION=call; return
 ;;
-38)
+37)
 hp_car "${p0}"
-sht52="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht52}\""
-ARGC=1
-CALLEE=mexpand
-RPC=41; ACTION=call; return
-;;
-39)
-sht50="${R}"
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht50}\""
-ARGC=1
-CALLEE=list_zzGcons
-RPC=40; ACTION=call; return
-;;
-40)
-sht51="${R}"
-R="${sht51}"; ACTION=ret; return
-;;
-41)
-sht53="${R}"
-sht54="${sht53}"
-hp_cdr "${p0}"
-sht55="${R}"
-eval "F$((FP+NP+0))=\"\${sht54}\""
-NFP=$FTOP
-eval "F$((NFP+0))=\"\${sht55}\""
-ARGC=1
-CALLEE=mexpand
-RPC=42; ACTION=call; return
-;;
-42)
-eval "sht54=\"\$F$((FP+NP+0))\""
 sht56="${R}"
-sht57="${sht56}"
-hp_car "${p0}"
-sht58="${R}"
-if [ "${sht54}" = "${sht58}" ]; then PC=43; else PC=44; fi
+if [ "${sht56}" = "S:list" ]; then PC=40; else PC=41; fi
 ACTION=jump; return
 ;;
-43)
+38)
+sht54="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht54}\""
+ARGC=1
+CALLEE=str_zzGapp
+RPC=39; ACTION=call; return
+;;
+39)
+sht55="${R}"
+R="${sht55}"; ACTION=ret; return
+;;
+40)
 hp_cdr "${p0}"
+sht57="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht57}\""
+ARGC=1
+CALLEE=map_mexpand
+RPC=42; ACTION=call; return
+;;
+41)
+hp_car "${p0}"
 sht60="${R}"
-if [ "${sht57}" = "${sht60}" ]; then
-sht61="S:t"
-else
-sht61="NIL"
-fi
-sht59="${sht61}"
-PC=45; ACTION=jump; return
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht60}\""
+ARGC=1
+CALLEE=mexpand
+RPC=44; ACTION=call; return
+;;
+42)
+sht58="${R}"
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht58}\""
+ARGC=1
+CALLEE=list_zzGcons
+RPC=43; ACTION=call; return
+;;
+43)
+sht59="${R}"
+R="${sht59}"; ACTION=ret; return
 ;;
 44)
-sht59="NIL"
-PC=45; ACTION=jump; return
+sht61="${R}"
+sht62="${sht61}"
+hp_cdr "${p0}"
+sht63="${R}"
+eval "F$((FP+NP+0))=\"\${sht62}\""
+NFP=$FTOP
+eval "F$((NFP+0))=\"\${sht63}\""
+ARGC=1
+CALLEE=map_mexpand
+RPC=45; ACTION=call; return
 ;;
 45)
-if [ "${sht59}" != NIL ]; then PC=46; else PC=47; fi
+eval "sht62=\"\$F$((FP+NP+0))\""
+sht64="${R}"
+sht65="${sht64}"
+hp_car "${p0}"
+sht66="${R}"
+if [ "${sht62}" = "${sht66}" ]; then PC=46; else PC=47; fi
 ACTION=jump; return
 ;;
 46)
-R="${p0}"; ACTION=ret; return
+hp_cdr "${p0}"
+sht68="${R}"
+if [ "${sht65}" = "${sht68}" ]; then
+sht69="S:t"
+else
+sht69="NIL"
+fi
+sht67="${sht69}"
+PC=48; ACTION=jump; return
 ;;
 47)
-eval "F$((FP+NP+0))=\"\${sht57}\""
-eval "F$((FP+NP+1))=\"\${sht54}\""
-hp_cons "${sht54}" "${sht57}"
-eval "sht57=\"\$F$((FP+NP+0))\""
-eval "sht54=\"\$F$((FP+NP+1))\""
-sht62="${R}"
-R="${sht62}"; ACTION=ret; return
+sht67="NIL"
+PC=48; ACTION=jump; return
+;;
+48)
+if [ "${sht67}" != NIL ]; then PC=49; else PC=50; fi
+ACTION=jump; return
+;;
+49)
+R="${p0}"; ACTION=ret; return
+;;
+50)
+eval "F$((FP+NP+0))=\"\${sht65}\""
+eval "F$((FP+NP+1))=\"\${sht62}\""
+hp_cons "${sht62}" "${sht65}"
+eval "sht65=\"\$F$((FP+NP+0))\""
+eval "sht62=\"\$F$((FP+NP+1))\""
+sht70="${R}"
+R="${sht70}"; ACTION=ret; return
 ;;
 esac; }
 SIZE_mexpand_program=1

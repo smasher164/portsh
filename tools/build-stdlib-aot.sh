@@ -5,9 +5,9 @@
 #
 # SKIPS (compiled code doesn't need them / comp can't compile them):
 #   - vau forms (and/or/when/unless/cond/let/let*/case/apply) -> comp-derived (or deferred: apply)
-#   - variadic lambdas (begin/str) -> (lambda args ...) is uncompilable (comp is fixed-arity); also
-#     `begin`/`str` are comp special forms anyway
-#   - the comp-inlined type predicates (number?/string?/symbol?/pair?)
+#   - the comp-inlined type predicates (number?/string?/symbol?/pair?) -> __p_ wrappers cover values
+# Variadic lambdas (begin/str) ARE compiled now (variadic landed b0dd24b): call-position (str ...)
+# / (begin ...) stay comp special forms, so the AOT fns serve VALUE position only.
 # Note: comp-sh-compiled.sh is the sh-EMITTER's core (self-contained, DEPS=""), so it does NOT
 # provide caar/cadr/.../reverse/assoc -- the stdlib must. (`append` self-defined there too is a
 # harmless identical re-def.)
@@ -54,8 +54,6 @@ for f in forms(open(src_path).read()):
     name, body = m.group(1), m.group(2).lstrip()
     if name in skip_names: continue
     if body.startswith('(vau'): continue                 # vau operative -> comp-derived / deferred
-    lm=re.match(r'\(lambda\s+(\S)', body)                 # variadic (lambda args ...) -> uncompilable
-    if lm and lm.group(1) != '(': continue
     keep.append(f)
 open(out,'w').write('('+'\n'.join(keep)+'\n)')
 # G_ registrations: a stdlib fn referenced from a SEPARATE compile unit (any user program) is an
