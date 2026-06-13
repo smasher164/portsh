@@ -75,15 +75,20 @@ rm -f "$out/.compile.wrapped.lisp"
 nfn=$(ls "$out"/*.cmd | grep -vc '_consts.cmd')
 echo "comp(comp): $nfn compiled fn .cmd files + _consts.cmd"
 
-# 2. Split the baked runtime (portsh-runtime.cmd: labels :rdfield :write-lines :append-lines :gc)
-#    into one file per entry. `call X.cmd` runs from line 1, so each file just `goto`s its entry
-#    then falls through the full runtime body (all the internal :wl_emit_c/:al_loop_c labels are
-#    present for the same-file `call :helper`/`goto` to resolve). No setlocal -> R reaches caller,
-#    and delayed expansion + !HD!/!BANG!/!LT!/G_* are inherited in-process from comp.cmd.
+# 2. The baked runtime (portsh-runtime.cmd: labels :rdfield :write-lines :append-lines :gc :print ...)
+#    is shipped ONCE as _rt.cmd and dispatched by %RTENTRY%; each entry X.cmd is a tiny stub that
+#    sets RTENTRY=X and `call`s _rt.cmd, forwarding its args. (Previously every entry embedded a full
+#    ~17KB copy of the runtime -> ~300KB of duplication across the 19 prims, in portsh.cmd AND every
+#    packed app.) The entry name travels via the env var, NOT as %1, so the runtime's positional args
+#    (rdfield's %1=car|cdr/%2=index, write-lines' %~1=file, ...) reach the body unshifted. No setlocal
+#    anywhere -> R reaches the caller; !HD!/!BANG!/!LT!/G_* inherit in-process; internal `call :helper`
+#    stays within _rt.cmd. RTENTRY is read once at _rt.cmd's top, so a prim calling another prim's file
+#    can't clobber an in-flight dispatch.
+{ printf 'goto %%RTENTRY%%\r\n'; cat portsh-runtime.cmd; } > "$out/_rt.cmd"
 for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture read type-of split argv getenv setenv exit make-dir delete-file copy-file; do
-  { printf 'goto :%s\r\n' "$entry"; cat portsh-runtime.cmd; } > "$out/$entry.cmd"
+  printf '@set "RTENTRY=%s" & call _rt.cmd %%*\r\n' "$entry" > "$out/$entry.cmd"
 done
-echo "runtime: rdfield/write-lines/append-lines/gc/print/read-lines/file-existszzQ/run_cmd/run_capture/read/type-of .cmd"
+echo "runtime: _rt.cmd (shared) + 19 entry stubs (rdfield/write-lines/.../copy-file)"
 
 # 3. Driver comp.cmd = the BARE cmd kernel (portsh-kernel.cmd, NOT portsh-full.cmd) + `call _consts.cmd`.
 #    Crucially NO stdlib: the native comp needs only the reader + eval dispatch + heap, and comp's
