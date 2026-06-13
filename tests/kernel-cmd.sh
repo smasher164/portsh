@@ -12,9 +12,12 @@ set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(dirname "$here")
 
-# ship the kernel once, converted to CRLF (cmd needs it for label lookup)
-perl -pe 's/\n/\r\n/' "$root/src/kernel.cmd" > /tmp/portsh-kernel.cmd
-scp -q /tmp/portsh-kernel.cmd "$PORTSH_WIN_SSH:portsh-kernel.cmd"
+# ship the BUILT kernel: src/kernel.cmd is a template -- build.sh bakes its @B1@/@B7@/@B8@ sentinels
+# into literal 0x01/0x07/0x08 bytes (the reader matches '"' as the 0x08 byte BANG8, set at runtime via
+# forfiles). Shipping the raw template leaves @B8@ as a 3-char placeholder that never matches BANG8, so
+# every string literal mis-reads as a symbol (@B8@hello). portsh-kernel.cmd is already baked + CRLF.
+[ -f "$root/portsh-kernel.cmd" ] || sh "$root/build.sh" >/dev/null
+scp -q "$root/portsh-kernel.cmd" "$PORTSH_WIN_SSH:portsh-kernel.cmd"
 
 pass=0 fail=0
 for prog in "$here"/lisp/*.lisp; do
