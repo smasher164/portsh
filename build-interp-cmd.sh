@@ -468,6 +468,15 @@ anchor = '\n:hp_setcar\n'
 i = s_lf.index(anchor)
 s = s_lf[:i] + hot + s_lf[i:]
 machine_cmd = '@goto interp\n' + hp_dup + '\n' + rt_machine + '\n'
+# PERF: cmd `call :label` costs ~O(the label's byte offset) -- measured ~0.6ms near this file's top vs
+# ~4ms near the end of a ~24KB machine. The DEEP hot block (imangle/iresolve + iprim and all the prim
+# arms) is called for every variable reference and every primitive, so hoist it ABOVE :interp: those
+# calls then scan only a short prefix. It's a CONTIGUOUS range (imangle..EOF) with clean boundaries,
+# so internal fall-throughs are intact and it's correctness-neutral; :interp is entered once per
+# chunk (by fall-through, not call) so its new position barely matters. ~1.3x on a recursion bench.
+_ra = machine_cmd.index('\n:interp\n')
+_rb = machine_cmd.index('\n:imangle\n')
+machine_cmd = machine_cmd[:_ra] + machine_cmd[_rb:] + machine_cmd[_ra:_rb] + '\n'
 open('comp-cmd/interp-machine.cmd','wb').write(machine_cmd.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
 
 # ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
