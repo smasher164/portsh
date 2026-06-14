@@ -467,7 +467,25 @@ s_lf = s_lf[:j] + hp_dup + s_lf[j:]
 anchor = '\n:hp_setcar\n'
 i = s_lf.index(anchor)
 s = s_lf[:i] + hot + s_lf[i:]
-machine_cmd = '@goto interp\n' + hp_dup + '\n' + rt_machine + '\n'
+# HEAP HELPERS -> POSITION-INDEPENDENT SIDE FILES (perf). cmd `call :label` scans FORWARD from the
+# caller, wrapping at EOF -- so a call from a mid/end handler to hp_cons/hp_car/hp_cdr pinned at the
+# machine's top pays a ~2.5ms near-full-file forward scan EVERY heap op (and these are the hottest
+# ops in the interpreter -- every cons/car/cdr). `call hp_cons.cmd` is POSITION-INDEPENDENT at a
+# flat ~0.40ms (measured), regardless of where the caller sits. So instead of front-dup'ing the
+# helpers into the machine, split each into its own side file and retarget the machine's calls.
+# Each block is call-only (never goto'd) and self-contained (no sub-calls, ends `goto :eof`), so the
+# extraction is correctness-neutral -- a `call file.cmd` shares the process env (HD/HN/heap/R) and
+# `goto :eof` returns to the caller. Validated 1.63x on a recursion bench vs the front-dup baseline.
+_ca = hp_dup.index('\n:hp_car\n')
+_cd = hp_dup.index('\n:hp_cdr\n')
+for _name, _blk in (('hp_cons', hp_dup[:_ca]), ('hp_car', hp_dup[_ca:_cd]), ('hp_cdr', hp_dup[_cd:])):
+    _body = _blk.lstrip('\n') + '\n'
+    open('comp-cmd/%s.cmd' % _name, 'wb').write(_body.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
+machine_cmd = '@goto interp\n' + rt_machine + '\n'
+for _name in ('hp_cons', 'hp_car', 'hp_cdr'):
+    machine_cmd = machine_cmd.replace('call :%s ' % _name, 'call %s.cmd ' % _name)
+    machine_cmd = machine_cmd.replace('call :%s\n' % _name, 'call %s.cmd\n' % _name)
+assert '\n:hp_cons\n' not in machine_cmd and 'call :hp_' not in machine_cmd, 'heap-helper extraction incomplete'
 # PERF: cmd `call :label` costs ~O(the label's byte offset) -- measured ~0.6ms near this file's top vs
 # ~4ms near the end of a ~24KB machine. The DEEP hot block (imangle/iresolve + iprim and all the prim
 # arms) is called for every variable reference and every primitive, so hoist it ABOVE :interp: those
