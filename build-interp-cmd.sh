@@ -495,6 +495,37 @@ assert '\n:hp_cons\n' not in machine_cmd and 'call :hp_' not in machine_cmd, 'he
 _ra = machine_cmd.index('\n:interp\n')
 _rb = machine_cmd.index('\n:imangle\n')
 machine_cmd = machine_cmd[:_ra] + machine_cmd[_rb:] + machine_cmd[_ra:_rb] + '\n'
+# LEAF/CLOSURE HELPER EXTRACTION (perf) -- the same position-independence trick as the heap helpers,
+# applied to the next tier of hot call-only helpers. Each is reached ONLY by `call :H` (never goto'd)
+# and is a CLOSED group (the line before its label is an unconditional goto/exit, so removing it can't
+# strand a fall-through), and depends only on intra-group labels or the hp_*.cmd side files. So slicing
+# each into its own .cmd and retargeting `call :H` -> `call H.cmd` is correctness-neutral, and the call
+# drops from an O(offset) forward-wrap label scan (~2.5ms from a mid/end handler) to a flat ~0.40ms.
+# iresolve (per variable reference) drags its PRIVATE imangle+iprimwrap -- contiguous, called only from
+# iresolve -- into one iresolve.cmd entered via `@goto iresolve`. ips is the hottest single op (value
+# push). iprim is NOT extractable: it's entered by a backward `goto iprim` and its arms exit via
+# `goto itk_push`/`goto itk_loop`, so it's goto-welded to the in-file task loop -- left in place.
+def _cut(s, start_lbl, end_lbl):
+    a = s.index('\n:%s\n' % start_lbl); b = s.index('\n:%s\n' % end_lbl)
+    return s[:a] + s[b:], s[a+1:b]  # body starts at ':start' (drop the leading '\n'); '\n:end' stays
+def _emit(fn, body, entry=None):
+    hdr = ('@goto %s\n' % entry) if entry else ''
+    txt = hdr + body + ('' if body.endswith('\n') else '\n')
+    open('comp-cmd/%s.cmd' % fn, 'wb').write(txt.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
+# (start, end, side-file, @goto-entry) -- end label is the next top-level group, NOT extracted
+for _sl, _el, _fn, _entry in (('imangle','isprim','iresolve','iresolve'),  # imangle+iresolve+iprimwrap
+                              ('isprim','iprim','isprim',None),
+                              ('ips','itk_eval','ips',None),
+                              ('ilen','ipush_args','ilen',None),
+                              ('ipush_args','ipop_n','ipush_args',None)):
+    machine_cmd, _b = _cut(machine_cmd, _sl, _el); _emit(_fn, _b, _entry)
+_a = machine_cmd.index('\n:ipop_n\n')  # ipop_n is the final group -> runs to EOF
+_emit('ipop_n', machine_cmd[_a+1:]); machine_cmd = machine_cmd[:_a] + '\n'
+for _fn in ('iresolve','isprim','ips','ilen','ipush_args','ipop_n'):
+    machine_cmd = machine_cmd.replace('call :%s ' % _fn, 'call %s.cmd ' % _fn)
+    machine_cmd = machine_cmd.replace('call :%s\n' % _fn, 'call %s.cmd\n' % _fn)
+    assert ('\n:%s\n' % _fn) not in machine_cmd and ('call :%s' % _fn) not in machine_cmd, 'extract %s' % _fn
+assert '\n:imangle\n' not in machine_cmd and '\n:iprimwrap\n' not in machine_cmd, 'iresolve closure leak'
 open('comp-cmd/interp-machine.cmd','wb').write(machine_cmd.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
 
 # ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
