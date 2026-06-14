@@ -549,6 +549,17 @@ machine_cmd, _ipb = _cut(machine_cmd, 'iprim', 'interp'); _emit('iprim', _ipb)
 assert machine_cmd.count('goto iprim') == 1, 'expected exactly one goto iprim, found %d' % machine_cmd.count('goto iprim')
 machine_cmd = machine_cmd.replace('goto iprim', 'call iprim.cmd & goto :eof')
 assert '\n:iprim\n' not in machine_cmd and 'goto iprim' not in machine_cmd, 'iprim extraction incomplete'
+# EVAL-WEB -> SIDE FILE. itk_eval (the S:EVAL dispatch target -- the most frequent task by far) gotos
+# through the whole form-eval machine: itk_var/itk_compound + every per-form handler (quote/if/let/
+# begin/make-closure/run/run-capture/prim-setup/apply/call) and their sub-labels. After the itk_push
+# conversion this web is fully goto-CLOSED: every path returns via `goto :eof` or `call ips.cmd & goto
+# :eof`, nothing gotos out of it, nothing outside gotos into it, and its only external calls are side
+# files. So extract the contiguous block [itk_eval..itk_ifk) into itk_eval.cmd (entered at its top) and
+# convert the dispatch's `call :itk_eval` -> `call itk_eval.cmd`. This makes the hottest per-task call
+# position-independent and shrinks the machine a further ~235 lines (cheapening every remaining scan).
+machine_cmd, _evb = _cut(machine_cmd, 'itk_eval', 'itk_ifk'); _emit('itk_eval', _evb)
+machine_cmd = machine_cmd.replace('call :itk_eval)', 'call itk_eval.cmd)')
+assert '\n:itk_eval\n' not in machine_cmd and 'call :itk_eval' not in machine_cmd, 'eval-web extraction incomplete'
 open('comp-cmd/interp-machine.cmd','wb').write(machine_cmd.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
 
 # ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
