@@ -537,6 +537,18 @@ assert '\n:imangle\n' not in machine_cmd and '\n:iprimwrap\n' not in machine_cmd
 _ngp = machine_cmd.count('goto itk_push')
 assert _ngp >= 40, 'expected ~50 goto itk_push, found %d (structure changed?)' % _ngp
 machine_cmd = machine_cmd.replace('goto itk_push', 'call ips.cmd & goto :eof')
+# iprim -> SIDE FILE. With every prim arm now ending in `call ips.cmd & goto :eof` (the itk_push
+# substitution above), iprim no longer goto-escapes to the task loop -- every exit is `goto :eof`
+# (return) or an internal `goto ipr_*`, deps only on side files (hp_*.cmd, ips.cmd, the I/O prim
+# runtimes). So iprim is finally callable: extract the whole prim-dispatch block (the single largest
+# block, ~265 lines of arms) into iprim.cmd and convert its one backward `goto iprim` -- a full-file
+# label scan on EVERY primitive call -- into `call iprim.cmd & goto :eof`. This also shrinks the
+# machine by ~265 lines, cheapening every remaining in-file label/goto scan. (The now-stale "must
+# goto not call" note in :itk_primk is exactly why this was impossible before the itk_push conversion.)
+machine_cmd, _ipb = _cut(machine_cmd, 'iprim', 'interp'); _emit('iprim', _ipb)
+assert machine_cmd.count('goto iprim') == 1, 'expected exactly one goto iprim, found %d' % machine_cmd.count('goto iprim')
+machine_cmd = machine_cmd.replace('goto iprim', 'call iprim.cmd & goto :eof')
+assert '\n:iprim\n' not in machine_cmd and 'goto iprim' not in machine_cmd, 'iprim extraction incomplete'
 open('comp-cmd/interp-machine.cmd','wb').write(machine_cmd.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
 
 # ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
