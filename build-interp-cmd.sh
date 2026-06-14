@@ -526,6 +526,17 @@ for _fn in ('iresolve','isprim','ips','ilen','ipush_args','ipop_n'):
     machine_cmd = machine_cmd.replace('call :%s\n' % _fn, 'call %s.cmd\n' % _fn)
     assert ('\n:%s\n' % _fn) not in machine_cmd and ('call :%s' % _fn) not in machine_cmd, 'extract %s' % _fn
 assert '\n:imangle\n' not in machine_cmd and '\n:iprimwrap\n' not in machine_cmd, 'iresolve closure leak'
+# HOT-GOTO -> POSITION-INDEPENDENT CALL: `:itk_push` is exactly `call ips.cmd` + `goto :eof` (push a
+# value, return to the task loop), reached by ~50 `goto itk_push` jumps -- one per value/prim-result
+# push, the single most frequent control transfer in the machine (every literal, var, quote, and the
+# car/cdr/cons/arith/string prim arms all end this way). Most are BACKWARD gotos (target above the
+# jump), and a cmd backward `goto` is a FULL-FILE label scan -- so each push paid that scan. The jump
+# is semantically identical to `call ips.cmd & goto :eof` inlined, and ips.cmd is a side file at a flat
+# ~0.40ms, so the substitution trades the hottest backward goto for a position-independent call. The
+# `:itk_push` label stays for its one fall-through entry (itk_eval's self-evaluating tail).
+_ngp = machine_cmd.count('goto itk_push')
+assert _ngp >= 40, 'expected ~50 goto itk_push, found %d (structure changed?)' % _ngp
+machine_cmd = machine_cmd.replace('goto itk_push', 'call ips.cmd & goto :eof')
 open('comp-cmd/interp-machine.cmd','wb').write(machine_cmd.replace('\r\n','\n').replace('\n','\r\n').encode('latin-1'))
 
 # ---- READER EXTRACTION (perf): the reader is a per-CHARACTER backward-goto machine, and a cmd
