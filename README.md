@@ -107,7 +107,8 @@ element reaches the child as exactly one argument, spaces preserved), `argv`,
 `host` (which host layer is executing: the symbol `sh` or `cmd` — a baked
 constant per engine, not environment sniffing),
 `getenv`/`setenv`, `file-exists?`, `make-dir`/`delete-file`/`copy-file` for the
-host (file paths use forward slashes everywhere — normalized per host); `string-append`/`string-length`/`substring`/`split` plus the
+host (file paths use forward slashes everywhere — normalized per host); `string-append`/`string-length`/`substring`/`split`/
+`string-downcase`/`string-upcase` (ASCII) plus the
 `symbol`/`number`/`string` converters; `read-lines`/`write-lines`/
 `append-lines`. The stdlib (`map`, `filter`, `foldl`, …) is ordinary Lisp on
 top.
@@ -133,6 +134,20 @@ on both hosts. Packed once with `./portsh.cmd pack`, it becomes a single
 ```sh
 ./portsh.cmd pack examples/gradlew.lisp gradlew.cmd
 ```
+
+## Another: an installer bootstrap
+
+The other place the "one file, both hosts" niche shows up is tool installers,
+where the convention today is a `curl | sh` script for unix and a separate
+PowerShell one-liner or `.exe` for Windows.
+[`examples/install-jq.lisp`](examples/install-jq.lisp) is one file doing that
+whole job: it detects the OS and architecture (`(host)` plus `uname` /
+`PROCESSOR_ARCHITECTURE`), downloads the right jq release binary with `curl`
+(which Windows 10+ ships), fetches the release's published `sha256sum.txt`,
+verifies the download (`sha256sum`/`shasum` on unix, `certutil` on Windows —
+digests case-normalized with `string-downcase`), and installs the verified
+binary. Refuses to install on a hash mismatch. Packed, it is a standalone
+installer a Windows user can double-click.
 
 ## The polyglot trick
 

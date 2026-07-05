@@ -217,6 +217,24 @@ call :rl_cons "T:!spH!" "!spAcc!"
 set "spAcc=!R!"
 call :rl_reverse "!spAcc!"
 goto :eof
+rem :string-downcase / :string-upcase -- A1 = T:string; ASCII case fold. Batch substitution is
+rem case-INSENSITIVE, so one pass per letter folds BOTH cases to the target case. The @B<n>@
+rem sentinel tokens (for ! % ^ ") contain a letter -- downcasing would corrupt @B1@ to @b1@, so
+rem restore the four sentinels afterwards (upcase cannot create @b..@ and needs no restore;
+rem literal "@b1@" text upcased DOES become a sentinel -- the usual cmd best-effort class).
+:string-downcase
+set "scS=!A1:~2!"
+if not defined scS (set "R=T:" & goto :eof)
+for %%p in ("A=a" "B=b" "C=c" "D=d" "E=e" "F=f" "G=g" "H=h" "I=i" "J=j" "K=k" "L=l" "M=m" "N=n" "O=o" "P=p" "Q=q" "R=r" "S=s" "T=t" "U=u" "V=v" "W=w" "X=x" "Y=y" "Z=z") do set "scS=!scS:%%~p!"
+for %%p in ("@b1@=@B1@" "@b2@=@B2@" "@b7@=@B7@" "@b8@=@B8@") do set "scS=!scS:%%~p!"
+set "R=T:!scS!"
+goto :eof
+:string-upcase
+set "scS=!A1:~2!"
+if not defined scS (set "R=T:" & goto :eof)
+for %%p in ("a=A" "b=B" "c=C" "d=D" "e=E" "f=F" "g=G" "h=H" "i=I" "j=J" "k=K" "l=L" "m=M" "n=N" "o=O" "p=P" "q=Q" "r=R" "s=S" "t=T" "u=U" "v=V" "w=W" "x=X" "y=Y" "z=Z") do set "scS=!scS:%%~p!"
+set "R=T:!scS!"
+goto :eof
 rem :type-of -- A1 = a tagged value. R = its type symbol (mirrors the kernel/interp type-of). Pure (no
 rem The comp emits this as a builtin call (call type-of.cmd) for (type-of x).
 :type-of

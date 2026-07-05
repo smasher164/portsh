@@ -36,6 +36,8 @@ file_existszzQ() { [ -e "${1#T:}" ] && R="S:t" || R=NIL; }
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
 run_cmd()     { sh -c "$1"; R="I:$?"; }
 host()        { R="S:sh"; }
+string_downcase() { R="T:$(printf '%s' "${1#??}" | tr '[:upper:]' '[:lower:]')"; }
+string_upcase()   { R="T:$(printf '%s' "${1#??}" | tr '[:lower:]' '[:upper:]')"; }
 # run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
 # argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run
 # operative's joined literal tokens: spaces in tokens survive.

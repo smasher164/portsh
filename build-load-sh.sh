@@ -54,6 +54,8 @@ split()          { _sp_s=${1#T:}; _sp_sep=${2#T:}; _sp_acc=NIL
                    fi
                    _sp_rev=NIL; while [ "$_sp_acc" != NIL ]; do hp_car "$_sp_acc"; _sp_v=$R; hp_cdr "$_sp_acc"; _sp_acc=$R; hp_cons "$_sp_v" "$_sp_rev"; _sp_rev=$R; done; R=$_sp_rev; }
 type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }  # pure: a kernel prim the comp now emits as a builtin call
+string_downcase() { R="T:$(printf '%s' "${1#??}" | tr '[:upper:]' '[:lower:]')"; }
+string_upcase()   { R="T:$(printf '%s' "${1#??}" | tr '[:lower:]' '[:upper:]')"; }
 # argv/getenv. The entry dispatch captures user args (after the program path) into PORTSH_ARGV_<n> /
 # PORTSH_ARGC env vars -- front-ends may pre-set them, and child processes inherit them, so no arg
 # re-quoting is ever needed. (argv) builds the list PER CALL (a boot-time list would need gc rooting).

@@ -85,10 +85,10 @@ echo "comp(comp): $nfn compiled fn .cmd files + _consts.cmd"
 #    stays within _rt.cmd. RTENTRY is read once at _rt.cmd's top, so a prim calling another prim's file
 #    can't clobber an in-flight dispatch.
 { printf 'goto %%RTENTRY%%\r\n'; cat portsh-runtime.cmd; } > "$out/_rt.cmd"
-for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture run-argv run-capture-argv read type-of split argv argv0 host getenv setenv exit make-dir delete-file copy-file; do
+for entry in rdfield write-lines append-lines gc print read-lines file-existszzQ run_cmd run_capture run-argv run-capture-argv read type-of split string-downcase string-upcase argv argv0 host getenv setenv exit make-dir delete-file copy-file; do
   printf '@set "RTENTRY=%s" & call _rt.cmd %%*\r\n' "$entry" > "$out/$entry.cmd"
 done
-echo "runtime: _rt.cmd (shared) + 23 entry stubs (rdfield/write-lines/.../copy-file)"
+echo "runtime: _rt.cmd (shared) + 25 entry stubs (rdfield/write-lines/.../copy-file)"
 
 # 3. Driver comp.cmd = the BARE cmd kernel (portsh-kernel.cmd, NOT portsh-full.cmd) + `call _consts.cmd`.
 #    Crucially NO stdlib: the native comp needs only the reader + eval dispatch + heap, and comp's

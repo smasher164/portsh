@@ -109,7 +109,7 @@ prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not 
     *) R="" ;;
   esac
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:argv0|S:host|S:run-argv|S:run-capture-argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|'S:>'|'S:>='|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:string-downcase|S:string-upcase|S:print|S:argv|S:argv0|S:host|S:run-argv|S:run-capture-argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|'S:>'|'S:>='|S:eq?) return 0 ;; *) return 1 ;; esac; }
 # run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
 # argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run operative.
 ra_build() { _ra_c=""; _ra_l=$1
@@ -146,6 +146,8 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
               while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; ips "$_av" ;;
     S:argv0)  if [ -n "${PORTSH_ARGV0:-}" ]; then ips "T:$PORTSH_ARGV0"; else ips NIL; fi ;;
     S:host)   ips "S:sh" ;;
+    S:string-downcase) ips "T:$(printf '%s' "${ipa#??}" | tr '[:upper:]' '[:lower:]')" ;;
+    S:string-upcase)   ips "T:$(printf '%s' "${ipa#??}" | tr '[:lower:]' '[:upper:]')" ;;
     S:run-argv) ra_build "$ipa"; sh -c "$_ra_c"; ips "I:$?" ;;
     S:run-capture-argv) ra_build "$ipa"; _rca_out=$(sh -c "$_ra_c"); _rca_acc=NIL
               while IFS= read -r _rca_ln || [ -n "$_rca_ln" ]; do hp_cons "T:$_rca_ln" "$_rca_acc"; _rca_acc=$R; done <<IRCA_EOF

@@ -7,3 +7,7 @@
 (print (split "a,,b" ","))
 (print (split "abc" ","))
 (print (split "aXXbXXc" "XX"))
+(print (string-downcase "MiXeD-42_OK"))
+(print (string-upcase "MiXeD-42_ok"))
+(print (string-downcase ""))
+(print (eq? (string-downcase "ABC0DEF") "abc0def"))

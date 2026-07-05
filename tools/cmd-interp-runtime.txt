@@ -679,6 +679,8 @@ if "!IPO!"=="S:string-length" set "R=1"
 if "!IPO!"=="S:string-append" set "R=1"
 if "!IPO!"=="S:substring" set "R=1"
 if "!IPO!"=="S:split" set "R=1"
+if "!IPO!"=="S:string-downcase" set "R=1"
+if "!IPO!"=="S:string-upcase" set "R=1"
 if "!IPO!"=="S:print" set "R=1"
 if "!IPO!"=="S:file-exists?" set "R=1"
 if "!IPO!"=="S:read" set "R=1"
@@ -718,6 +720,8 @@ if "!IPO!"=="S:string-length" goto ipr_slen
 if "!IPO!"=="S:string-append" goto ipr_sapp
 if "!IPO!"=="S:substring" goto ipr_substr
 if "!IPO!"=="S:split" goto ipr_split
+if "!IPO!"=="S:string-downcase" goto ipr_sdown
+if "!IPO!"=="S:string-upcase" goto ipr_supc
 if "!IPO!"=="S:print" goto ipr_print
 if "!IPO!"=="S:file-exists?" goto ipr_fex
 if "!IPO!"=="S:read" goto ipr_read
@@ -789,6 +793,16 @@ goto itk_push
 :ipr_runargv
 set "A1=!ipa!"
 call run-argv.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_sdown
+set "A1=!ipa!"
+call string-downcase.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_supc
+set "A1=!ipa!"
+call string-upcase.cmd
 set "IPV=!R!"
 goto itk_push
 :ipr_runcapargv

@@ -503,6 +503,8 @@ prim_app() {
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
     'argv0') if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi ;;
     'host')  R="S:sh" ;;   # baked constant: this kernel executes on the sh host layer
+    'string-downcase') arg1 "$args"; R="T:$(printf '%s' "${ARG1#??}" | tr '[:upper:]' '[:lower:]')" ;;
+    'string-upcase')   arg1 "$args"; R="T:$(printf '%s' "${ARG1#??}" | tr '[:lower:]' '[:upper:]')" ;;
     'run-argv') arg1 "$args"; ra_build "$ARG1"; sh -c "$_ra_c"; R="I:$?" ;;
     'run-capture-argv') arg1 "$args"; ra_build "$ARG1"
              po_out=$(sh -c "$_ra_c"); po_acc=NIL; po_b=$RSP; RSP=$((po_b + 1))
@@ -583,7 +585,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 host 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'string-downcase' 'string-upcase' 'read' 'type-of' argv argv0 host 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -2725,83 +2727,97 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 18)
-if [ "${p0}" = "S:argv" ]; then PC=19; else PC=20; fi
+if [ "${p0}" = "S:string-downcase" ]; then PC=19; else PC=20; fi
 ACTION=jump; return
 ;;
 19)
 R="S:t"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:argv0" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:string-upcase" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
 R="S:t"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:host" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:argv" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
 R="S:t"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:run-argv" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:argv0" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
 R="S:t"; ACTION=ret; return
 ;;
 26)
-if [ "${p0}" = "S:run-capture-argv" ]; then PC=27; else PC=28; fi
+if [ "${p0}" = "S:host" ]; then PC=27; else PC=28; fi
 ACTION=jump; return
 ;;
 27)
 R="S:t"; ACTION=ret; return
 ;;
 28)
-if [ "${p0}" = "S:getenv" ]; then PC=29; else PC=30; fi
+if [ "${p0}" = "S:run-argv" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
 29)
 R="S:t"; ACTION=ret; return
 ;;
 30)
-if [ "${p0}" = "S:setenv" ]; then PC=31; else PC=32; fi
+if [ "${p0}" = "S:run-capture-argv" ]; then PC=31; else PC=32; fi
 ACTION=jump; return
 ;;
 31)
 R="S:t"; ACTION=ret; return
 ;;
 32)
-if [ "${p0}" = "S:exit" ]; then PC=33; else PC=34; fi
+if [ "${p0}" = "S:getenv" ]; then PC=33; else PC=34; fi
 ACTION=jump; return
 ;;
 33)
 R="S:t"; ACTION=ret; return
 ;;
 34)
-if [ "${p0}" = "S:make-dir" ]; then PC=35; else PC=36; fi
+if [ "${p0}" = "S:setenv" ]; then PC=35; else PC=36; fi
 ACTION=jump; return
 ;;
 35)
 R="S:t"; ACTION=ret; return
 ;;
 36)
-if [ "${p0}" = "S:delete-file" ]; then PC=37; else PC=38; fi
+if [ "${p0}" = "S:exit" ]; then PC=37; else PC=38; fi
 ACTION=jump; return
 ;;
 37)
 R="S:t"; ACTION=ret; return
 ;;
 38)
-if [ "${p0}" = "S:copy-file" ]; then PC=39; else PC=40; fi
+if [ "${p0}" = "S:make-dir" ]; then PC=39; else PC=40; fi
 ACTION=jump; return
 ;;
 39)
 R="S:t"; ACTION=ret; return
 ;;
 40)
+if [ "${p0}" = "S:delete-file" ]; then PC=41; else PC=42; fi
+ACTION=jump; return
+;;
+41)
+R="S:t"; ACTION=ret; return
+;;
+42)
+if [ "${p0}" = "S:copy-file" ]; then PC=43; else PC=44; fi
+ACTION=jump; return
+;;
+43)
+R="S:t"; ACTION=ret; return
+;;
+44)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -17311,6 +17327,8 @@ split()          { _sp_s=${1#T:}; _sp_sep=${2#T:}; _sp_acc=NIL
                    fi
                    _sp_rev=NIL; while [ "$_sp_acc" != NIL ]; do hp_car "$_sp_acc"; _sp_v=$R; hp_cdr "$_sp_acc"; _sp_acc=$R; hp_cons "$_sp_v" "$_sp_rev"; _sp_rev=$R; done; R=$_sp_rev; }
 type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:symbol" ;; T:*) R="S:string" ;; P:*) R="S:pair" ;; *) R="S:unknown" ;; esac; }  # pure: a kernel prim the comp now emits as a builtin call
+string_downcase() { R="T:$(printf '%s' "${1#??}" | tr '[:upper:]' '[:lower:]')"; }
+string_upcase()   { R="T:$(printf '%s' "${1#??}" | tr '[:lower:]' '[:upper:]')"; }
 # argv/getenv. The entry dispatch captures user args (after the program path) into PORTSH_ARGV_<n> /
 # PORTSH_ARGC env vars -- front-ends may pre-set them, and child processes inherit them, so no arg
 # re-quoting is ever needed. (argv) builds the list PER CALL (a boot-time list would need gc rooting).
@@ -17601,11 +17619,11 @@ rm -f "$_tmp"
 exit $?
 :CMDSTART
 @echo off
-rem ============ portsh cmd OSR front-end (build 2f0427446d35) -- generated by build-polyglot.sh ============
+rem ============ portsh cmd OSR front-end (build 856d3728af7e) -- generated by build-polyglot.sh ============
 if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__warm" goto :PWARM
 setlocal enabledelayedexpansion
-set "CACHE=%LOCALAPPDATA%\portsh\2f0427446d35"
+set "CACHE=%LOCALAPPDATA%\portsh\856d3728af7e"
 if exist "%CACHE%\.ok" goto pcache_ok
 rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomic: tmp -> move -> .ok)
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
@@ -17747,7 +17765,7 @@ set "WPROG=%~2"
 set "WPUB=%~3"
 set "WSTG=%~4"
 set "WTASK=%~5"
-set "PATH=%LOCALAPPDATA%\portsh\2f0427446d35;!PATH!"
+set "PATH=%LOCALAPPDATA%\portsh\856d3728af7e;!PATH!"
 if exist "!WSTG!" rmdir /s /q "!WSTG!"
 mkdir "!WSTG!"
 if not exist "!WPUB!" mkdir "!WPUB!"
@@ -18697,6 +18715,24 @@ echo(:sp_last
 echo(call :rl_cons "T:!spH!" "!spAcc!"
 echo(set "spAcc=!R!"
 echo(call :rl_reverse "!spAcc!"
+echo(goto :eof
+echo(rem :string-downcase / :string-upcase -- A1 = T:string; ASCII case fold. Batch substitution is
+echo(rem case-INSENSITIVE, so one pass per letter folds BOTH cases to the target case. The @B^<n^>@
+echo(rem sentinel tokens ^(for ! %% ^^ ") contain a letter -- downcasing would corrupt  to @b1@, so
+echo(rem restore the four sentinels afterwards ^(upcase cannot create @b..@ and needs no restore;
+echo(rem literal "@b1@" text upcased DOES become a sentinel -- the usual cmd best-effort class^).
+echo(:string-downcase
+echo(set "scS=!A1:~2!"
+echo(if not defined scS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("A=a" "B=b" "C=c" "D=d" "E=e" "F=f" "G=g" "H=h" "I=i" "J=j" "K=k" "L=l" "M=m" "N=n" "O=o" "P=p" "Q=q" "R=r" "S=s" "T=t" "U=u" "V=v" "W=w" "X=x" "Y=y" "Z=z"^) do set "scS=!scS:%%%%~p!"
+echo(for %%%%p in ^("@b1@=" "@b2@=" "@b7@=" "@b8@="^) do set "scS=!scS:%%%%~p!"
+echo(set "R=T:!scS!"
+echo(goto :eof
+echo(:string-upcase
+echo(set "scS=!A1:~2!"
+echo(if not defined scS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("a=A" "b=B" "c=C" "d=D" "e=E" "f=F" "g=G" "h=H" "i=I" "j=J" "k=K" "l=L" "m=M" "n=N" "o=O" "p=P" "q=Q" "r=R" "s=S" "t=T" "u=U" "v=V" "w=W" "x=X" "y=Y" "z=Z"^) do set "scS=!scS:%%%%~p!"
+echo(set "R=T:!scS!"
 echo(goto :eof
 echo(rem :type-of -- A1 = a tagged value. R = its type symbol ^(mirrors the kernel/interp type-of^). Pure ^(no
 echo(rem The comp emits this as a builtin call ^(call type-of.cmd^) for ^(type-of x^).
@@ -20562,7 +20598,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:argv" ^(set "PC=19" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:string-downcase" ^(set "PC=19" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=20" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc19.cmd" (
@@ -20582,7 +20618,7 @@ echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:argv0" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:string-upcase" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=22" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc21.cmd" (
@@ -20595,7 +20631,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:host" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:argv" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc23.cmd" (
@@ -20608,7 +20644,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:run-argv" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:argv0" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=26" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc25.cmd" (
@@ -20621,7 +20657,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:run-capture-argv" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:host" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=28" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc27.cmd" (
@@ -20634,7 +20670,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:getenv" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:run-argv" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=30" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc29.cmd" (
@@ -20653,7 +20689,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:setenv" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:run-capture-argv" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=32" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc31.cmd" (
@@ -20666,7 +20702,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:exit" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:getenv" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc33.cmd" (
@@ -20679,7 +20715,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:make-dir" ^(set "PC=35" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:setenv" ^(set "PC=35" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=36" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc35.cmd" (
@@ -20692,7 +20728,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:delete-file" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:exit" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=38" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc37.cmd" (
@@ -20705,7 +20741,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:copy-file" ^(set "PC=39" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:make-dir" ^(set "PC=39" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=40" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc39.cmd" (
@@ -20722,6 +20758,32 @@ echo(if "!p0!"=="S:gc" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc40.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:delete-file" ^(set "PC=41" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=42" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc41.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc42.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:copy-file" ^(set "PC=43" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=44" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc43.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc44.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
@@ -22852,6 +22914,8 @@ echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
 echo(if "!paN!"=="argv0" goto pa_argv0
 echo(if "!paN!"=="host" goto pa_host
+echo(if "!paN!"=="string-downcase" goto pa_sdown
+echo(if "!paN!"=="string-upcase" goto pa_supc
 echo(if "!paN!"=="run-argv" goto pa_runargv
 echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
@@ -22927,6 +22991,22 @@ echo(goto :eof
 echo(:pa_host
 echo(rem baked constant: this kernel executes on the cmd host layer ^(not detection -- see kernel.sh^)
 echo(set "R=S:cmd"
+echo(goto :eof
+echo(:pa_sdown
+echo(rem ASCII case fold; batch substitution is case-insensitive so one pass per letter folds both.
+echo(rem Kernel string sentinels are control BYTES ^(not @B^<n^>@ text^), untouched by letter substitution.
+echo(call :hp_car "%%~3"
+echo(set "pcS=!R:~2!"
+echo(if not defined pcS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("A=a" "B=b" "C=c" "D=d" "E=e" "F=f" "G=g" "H=h" "I=i" "J=j" "K=k" "L=l" "M=m" "N=n" "O=o" "P=p" "Q=q" "R=r" "S=s" "T=t" "U=u" "V=v" "W=w" "X=x" "Y=y" "Z=z"^) do set "pcS=!pcS:%%%%~p!"
+echo(set "R=T:!pcS!"
+echo(goto :eof
+echo(:pa_supc
+echo(call :hp_car "%%~3"
+echo(set "pcS=!R:~2!"
+echo(if not defined pcS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("a=A" "b=B" "c=C" "d=D" "e=E" "f=F" "g=G" "h=H" "i=I" "j=J" "k=K" "l=L" "m=M" "n=N" "o=O" "p=P" "q=Q" "r=R" "s=S" "t=T" "u=U" "v=V" "w=W" "x=X" "y=Y" "z=Z"^) do set "pcS=!pcS:%%%%~p!"
+echo(set "R=T:!pcS!"
 echo(goto :eof
 echo(:pa_runargv
 echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
@@ -23430,6 +23510,8 @@ echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
 echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
 echo(call :env_define "!GLOBAL!" "S:host" "R:host"
+echo(call :env_define "!GLOBAL!" "S:string-downcase" "R:string-downcase"
+echo(call :env_define "!GLOBAL!" "S:string-upcase" "R:string-upcase"
 echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
@@ -30350,6 +30432,8 @@ echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
 echo(if "!paN!"=="argv0" goto pa_argv0
 echo(if "!paN!"=="host" goto pa_host
+echo(if "!paN!"=="string-downcase" goto pa_sdown
+echo(if "!paN!"=="string-upcase" goto pa_supc
 echo(if "!paN!"=="run-argv" goto pa_runargv
 echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
@@ -30425,6 +30509,22 @@ echo(goto :eof
 echo(:pa_host
 echo(rem baked constant: this kernel executes on the cmd host layer ^(not detection -- see kernel.sh^)
 echo(set "R=S:cmd"
+echo(goto :eof
+echo(:pa_sdown
+echo(rem ASCII case fold; batch substitution is case-insensitive so one pass per letter folds both.
+echo(rem Kernel string sentinels are control BYTES ^(not @B^<n^>@ text^), untouched by letter substitution.
+echo(call :hp_car "%%~3"
+echo(set "pcS=!R:~2!"
+echo(if not defined pcS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("A=a" "B=b" "C=c" "D=d" "E=e" "F=f" "G=g" "H=h" "I=i" "J=j" "K=k" "L=l" "M=m" "N=n" "O=o" "P=p" "Q=q" "R=r" "S=s" "T=t" "U=u" "V=v" "W=w" "X=x" "Y=y" "Z=z"^) do set "pcS=!pcS:%%%%~p!"
+echo(set "R=T:!pcS!"
+echo(goto :eof
+echo(:pa_supc
+echo(call :hp_car "%%~3"
+echo(set "pcS=!R:~2!"
+echo(if not defined pcS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("a=A" "b=B" "c=C" "d=D" "e=E" "f=F" "g=G" "h=H" "i=I" "j=J" "k=K" "l=L" "m=M" "n=N" "o=O" "p=P" "q=Q" "r=R" "s=S" "t=T" "u=U" "v=V" "w=W" "x=X" "y=Y" "z=Z"^) do set "pcS=!pcS:%%%%~p!"
+echo(set "R=T:!pcS!"
 echo(goto :eof
 echo(:pa_runargv
 echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
@@ -30928,6 +31028,8 @@ echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
 echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
 echo(call :env_define "!GLOBAL!" "S:host" "R:host"
+echo(call :env_define "!GLOBAL!" "S:string-downcase" "R:string-downcase"
+echo(call :env_define "!GLOBAL!" "S:string-upcase" "R:string-upcase"
 echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
@@ -31198,6 +31300,8 @@ echo(if "!IPO!"=="S:string-length" goto ipr_slen
 echo(if "!IPO!"=="S:string-append" goto ipr_sapp
 echo(if "!IPO!"=="S:substring" goto ipr_substr
 echo(if "!IPO!"=="S:split" goto ipr_split
+echo(if "!IPO!"=="S:string-downcase" goto ipr_sdown
+echo(if "!IPO!"=="S:string-upcase" goto ipr_supc
 echo(if "!IPO!"=="S:print" goto ipr_print
 echo(if "!IPO!"=="S:file-exists?" goto ipr_fex
 echo(if "!IPO!"=="S:read" goto ipr_read
@@ -31269,6 +31373,16 @@ echo(call ips.cmd ^& goto :eof
 echo(:ipr_runargv
 echo(set "A1=!ipa!"
 echo(call run-argv.cmd
+echo(set "IPV=!R!"
+echo(call ips.cmd ^& goto :eof
+echo(:ipr_sdown
+echo(set "A1=!ipa!"
+echo(call string-downcase.cmd
+echo(set "IPV=!R!"
+echo(call ips.cmd ^& goto :eof
+echo(:ipr_supc
+echo(set "A1=!ipa!"
+echo(call string-upcase.cmd
 echo(set "IPV=!R!"
 echo(call ips.cmd ^& goto :eof
 echo(:ipr_runcapargv
@@ -31678,6 +31792,8 @@ echo(if "!IPO!"=="S:string-length" set "R=1"
 echo(if "!IPO!"=="S:string-append" set "R=1"
 echo(if "!IPO!"=="S:substring" set "R=1"
 echo(if "!IPO!"=="S:split" set "R=1"
+echo(if "!IPO!"=="S:string-downcase" set "R=1"
+echo(if "!IPO!"=="S:string-upcase" set "R=1"
 echo(if "!IPO!"=="S:print" set "R=1"
 echo(if "!IPO!"=="S:file-exists?" set "R=1"
 echo(if "!IPO!"=="S:read" set "R=1"
@@ -36633,6 +36749,8 @@ echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
 echo(if "!paN!"=="argv0" goto pa_argv0
 echo(if "!paN!"=="host" goto pa_host
+echo(if "!paN!"=="string-downcase" goto pa_sdown
+echo(if "!paN!"=="string-upcase" goto pa_supc
 echo(if "!paN!"=="run-argv" goto pa_runargv
 echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
@@ -36708,6 +36826,22 @@ echo(goto :eof
 echo(:pa_host
 echo(rem baked constant: this kernel executes on the cmd host layer ^(not detection -- see kernel.sh^)
 echo(set "R=S:cmd"
+echo(goto :eof
+echo(:pa_sdown
+echo(rem ASCII case fold; batch substitution is case-insensitive so one pass per letter folds both.
+echo(rem Kernel string sentinels are control BYTES ^(not @B^<n^>@ text^), untouched by letter substitution.
+echo(call :hp_car "%%~3"
+echo(set "pcS=!R:~2!"
+echo(if not defined pcS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("A=a" "B=b" "C=c" "D=d" "E=e" "F=f" "G=g" "H=h" "I=i" "J=j" "K=k" "L=l" "M=m" "N=n" "O=o" "P=p" "Q=q" "R=r" "S=s" "T=t" "U=u" "V=v" "W=w" "X=x" "Y=y" "Z=z"^) do set "pcS=!pcS:%%%%~p!"
+echo(set "R=T:!pcS!"
+echo(goto :eof
+echo(:pa_supc
+echo(call :hp_car "%%~3"
+echo(set "pcS=!R:~2!"
+echo(if not defined pcS ^(set "R=T:" ^& goto :eof^)
+echo(for %%%%p in ^("a=A" "b=B" "c=C" "d=D" "e=E" "f=F" "g=G" "h=H" "i=I" "j=J" "k=K" "l=L" "m=M" "n=N" "o=O" "p=P" "q=Q" "r=R" "s=S" "t=T" "u=U" "v=V" "w=W" "x=X" "y=Y" "z=Z"^) do set "pcS=!pcS:%%%%~p!"
+echo(set "R=T:!pcS!"
 echo(goto :eof
 echo(:pa_runargv
 echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
@@ -37211,6 +37345,8 @@ echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
 echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
 echo(call :env_define "!GLOBAL!" "S:host" "R:host"
+echo(call :env_define "!GLOBAL!" "S:string-downcase" "R:string-downcase"
+echo(call :env_define "!GLOBAL!" "S:string-upcase" "R:string-upcase"
 echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
@@ -50074,6 +50210,12 @@ echo(set "NP=1"
 echo(set "zt2=!R!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\string-downcase.cmd" (
+echo(@set "RTENTRY=string-downcase" ^& call _rt.cmd %%*
+)
+>"%PSDIR%\string-upcase.cmd" (
+echo(@set "RTENTRY=string-upcase" ^& call _rt.cmd %%*
+)
 >"%PSDIR%\subst_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a _i=!FP!+1 ^& call set "p1=%%%%F!_i!%%%%"
@@ -51201,6 +51343,6 @@ echo(set "NP=2"
 echo(set "zt2=!R!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
->"%PSDIR%\.ok" echo 2f0427446d35
+>"%PSDIR%\.ok" echo 856d3728af7e
 endlocal
 exit /b 0

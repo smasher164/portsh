@@ -495,6 +495,8 @@ prim_app() {
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
     'argv0') if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi ;;
     'host')  R="S:sh" ;;   # baked constant: this kernel executes on the sh host layer
+    'string-downcase') arg1 "$args"; R="T:$(printf '%s' "${ARG1#??}" | tr '[:upper:]' '[:lower:]')" ;;
+    'string-upcase')   arg1 "$args"; R="T:$(printf '%s' "${ARG1#??}" | tr '[:lower:]' '[:upper:]')" ;;
     'run-argv') arg1 "$args"; ra_build "$ARG1"; sh -c "$_ra_c"; R="I:$?" ;;
     'run-capture-argv') arg1 "$args"; ra_build "$ARG1"
              po_out=$(sh -c "$_ra_c"); po_acc=NIL; po_b=$RSP; RSP=$((po_b + 1))
@@ -575,7 +577,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 host 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'string-downcase' 'string-upcase' 'read' 'type-of' argv argv0 host 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
