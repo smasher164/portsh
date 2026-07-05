@@ -497,6 +497,7 @@ prim_app() {
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
     'argv0') if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi ;;
+    'host')  R="S:sh" ;;   # baked constant: this kernel executes on the sh host layer
     'run-argv') arg1 "$args"; ra_build "$ARG1"; sh -c "$_ra_c"; R="I:$?" ;;
     'run-capture-argv') arg1 "$args"; ra_build "$ARG1"
              po_out=$(sh -c "$_ra_c"); po_acc=NIL; po_b=$RSP; RSP=$((po_b + 1))
@@ -577,7 +578,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 host 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -608,14 +609,19 @@ main() {
   # the self-scan would match the kernel before the real, baked-in marker).
   SRC=$PRELUDE
   _mark="__PORTSH""_PAYLOAD__"
+  # the cook guard must not leak into run children (a nested polyglot inheriting PORTSH_COOKED=1
+  # would skip its own cooking and execute its raw CRLF file); keep SELF as a private var.
+  _pself=${PORTSH_SELF-}; unset PORTSH_COOKED PORTSH_SELF
   _ran=0; _a0=""
-  if [ -n "${PORTSH_SELF-}" ]; then
-    _payload=$(awk -v m="$_mark" 'p;$0~m{p=1}' "$PORTSH_SELF" | tr -d '\r')
-    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; _a0=$PORTSH_SELF; }
+  if [ -n "$_pself" ]; then
+    _payload=$(awk -v m="$_mark" 'p;$0~m{p=1}' "$_pself" | tr -d '\r')
+    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; _a0=$_pself; }
   fi
-  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; [ -n "$_a0" ] || _a0=$1; fi
-  [ "$_ran" = 0 ] && [ -z "${PORTSH_SELF-}" ] && SRC="$SRC $(cat)"
-  # (argv0): the invoked program -- a concat app = the app itself, else the file arg. Absolutized.
+  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; _a0=$1; fi
+  [ "$_ran" = 0 ] && [ -z "$_pself" ] && SRC="$SRC $(cat)"
+  # (argv0): the invoked program. An explicit file arg wins (portsh-full.cmd ALWAYS has a payload --
+  # the bundled stdlib -- so payload presence alone can't mean "concat app"); with no file arg, a
+  # payload-carrying self IS the app (concat apps). Absolutized.
   if [ -z "${PORTSH_ARGV0:-}" ] && [ -n "$_a0" ]; then
     case $_a0 in /*) PORTSH_ARGV0=$_a0 ;; ./*) PORTSH_ARGV0=$PWD/${_a0#./} ;; *) PORTSH_ARGV0=$PWD/$_a0 ;; esac
     export PORTSH_ARGV0
@@ -2728,62 +2734,69 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:run-argv" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:host" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
 R="S:t"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:run-capture-argv" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:run-argv" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
 R="S:t"; ACTION=ret; return
 ;;
 26)
-if [ "${p0}" = "S:getenv" ]; then PC=27; else PC=28; fi
+if [ "${p0}" = "S:run-capture-argv" ]; then PC=27; else PC=28; fi
 ACTION=jump; return
 ;;
 27)
 R="S:t"; ACTION=ret; return
 ;;
 28)
-if [ "${p0}" = "S:setenv" ]; then PC=29; else PC=30; fi
+if [ "${p0}" = "S:getenv" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
 29)
 R="S:t"; ACTION=ret; return
 ;;
 30)
-if [ "${p0}" = "S:exit" ]; then PC=31; else PC=32; fi
+if [ "${p0}" = "S:setenv" ]; then PC=31; else PC=32; fi
 ACTION=jump; return
 ;;
 31)
 R="S:t"; ACTION=ret; return
 ;;
 32)
-if [ "${p0}" = "S:make-dir" ]; then PC=33; else PC=34; fi
+if [ "${p0}" = "S:exit" ]; then PC=33; else PC=34; fi
 ACTION=jump; return
 ;;
 33)
 R="S:t"; ACTION=ret; return
 ;;
 34)
-if [ "${p0}" = "S:delete-file" ]; then PC=35; else PC=36; fi
+if [ "${p0}" = "S:make-dir" ]; then PC=35; else PC=36; fi
 ACTION=jump; return
 ;;
 35)
 R="S:t"; ACTION=ret; return
 ;;
 36)
-if [ "${p0}" = "S:copy-file" ]; then PC=37; else PC=38; fi
+if [ "${p0}" = "S:delete-file" ]; then PC=37; else PC=38; fi
 ACTION=jump; return
 ;;
 37)
 R="S:t"; ACTION=ret; return
 ;;
 38)
+if [ "${p0}" = "S:copy-file" ]; then PC=39; else PC=40; fi
+ACTION=jump; return
+;;
+39)
+R="S:t"; ACTION=ret; return
+;;
+40)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -17300,6 +17313,10 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# host: which host layer this engine executes on -- a baked CONSTANT, not detection (env
+# sniffing like OS=Windows_NT misfires under Git Bash/MSYS, where portsh runs its sh half).
+# The ONE primitive whose value differs across hosts by design.
+host()   { R="S:sh"; }
 # argv0: the path of the program the user invoked (a packed app = the app file itself; portsh.cmd
 # PROG.lisp = the program file, absolutized). Set by the front-end / entry dispatch into
 # PORTSH_ARGV0; forward slashes on both hosts. REPL / unset -> nil.

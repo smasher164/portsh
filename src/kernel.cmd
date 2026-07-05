@@ -806,6 +806,7 @@ if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
 if "!paN!"=="argv" goto pa_argv
 if "!paN!"=="argv0" goto pa_argv0
+if "!paN!"=="host" goto pa_host
 if "!paN!"=="run-argv" goto pa_runargv
 if "!paN!"=="run-capture-argv" goto pa_runcapargv
 if "!paN!"=="getenv" goto pa_getenv
@@ -877,6 +878,10 @@ goto pa_av_loop
 rem R = T:<program path> (a concat app = the app itself), from PORTSH_ARGV0 (captured at boot)
 if not defined PORTSH_ARGV0 (set "R=NIL" & goto :eof)
 set "R=T:!PORTSH_ARGV0!"
+goto :eof
+:pa_host
+rem baked constant: this kernel executes on the cmd host layer (not detection -- see kernel.sh)
+set "R=S:cmd"
 goto :eof
 :pa_runargv
 rem (run-argv LIST): each element EXACTLY ONE double-quoted child argument (a portsh string cannot
@@ -1379,6 +1384,7 @@ call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 call :env_define "!GLOBAL!" "S:argv" "R:argv"
 call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+call :env_define "!GLOBAL!" "S:host" "R:host"
 call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 call :env_define "!GLOBAL!" "S:getenv" "R:getenv"

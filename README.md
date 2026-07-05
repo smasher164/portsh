@@ -84,6 +84,14 @@ prog.lisp > app.cmd` — see "The bootstrap kernel".)
 (define me (car (run-capture whoami)))   ; capture stdout as a list of lines
 (write-lines "hello.txt"
   (list (str "hello, " me)))             ; compute strings, line-oriented file I/O
+
+(run-argv (list tool "--in" my-file))    ; run a COMPUTED command: each element is exactly
+                                         ; one child argument, spaces preserved, quoted per host
+(define here                             ; the directory containing this program (argv0 is
+  (join "/" (reverse (cdr (reverse      ;  absolute; a packed app sees the app file itself)
+    (split (argv0) "/"))))))
+(define exe (if (eq? (host) (quote cmd)) ; (host) = the executing host layer, sh or cmd --
+              "tool.exe" "tool"))        ;  a baked constant, not environment sniffing
 ```
 
 Special forms: `define`, `lambda` (fixed-arity or variadic — `(lambda args
@@ -96,6 +104,8 @@ arithmetic `+ - *` (n-ary, left fold; `(- x)` negates) and comparisons
 tokens), `run-argv`/`run-capture-argv` (a *computed* list of tokens — each
 element reaches the child as exactly one argument, spaces preserved), `argv`,
 `argv0` (the invoked program's path — a packed app sees itself),
+`host` (which host layer is executing: the symbol `sh` or `cmd` — a baked
+constant per engine, not environment sniffing),
 `getenv`/`setenv`, `file-exists?`, `make-dir`/`delete-file`/`copy-file` for the
 host (file paths use forward slashes everywhere — normalized per host); `string-append`/`string-length`/`substring`/`split` plus the
 `symbol`/`number`/`string` converters; `read-lines`/`write-lines`/
@@ -107,6 +117,22 @@ line** (a batch variable can't hold a newline), so multi-line text is a *list
 of line-strings* and file/command I/O is line-oriented; and functions are
 values (`(map double xs)`, closures, `(define f (compose g h))`) compiled the
 same way on both hosts.
+
+## A real example: the Gradle wrapper
+
+The Gradle wrapper ships as a *pair* — `gradlew` plus `gradlew.bat` — checked
+into millions of repositories, and the two halves are maintained (and drift)
+separately. [`examples/gradlew.lisp`](examples/gradlew.lisp) is that wrapper as
+one ~35-line portsh program: it resolves its own directory from `(argv0)`
+(works from any cwd), locates `java` via `JAVA_HOME` — with the binary's name
+as host data, the program's only host-sensitive line — and hands the user's
+arguments through `run-argv`, so paths and arguments containing spaces survive
+on both hosts. Packed once with `./portsh.cmd pack`, it becomes a single
+`gradlew.cmd` replacing the pair.
+
+```sh
+./portsh.cmd pack examples/gradlew.lisp gradlew.cmd
+```
 
 ## The polyglot trick
 

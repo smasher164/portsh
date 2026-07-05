@@ -662,6 +662,7 @@ if "!IPO!"=="S:!GT!=" set "R=1"
 if "!IPO!"=="S:type-of" set "R=1"
 if "!IPO!"=="S:argv" set "R=1"
 if "!IPO!"=="S:argv0" set "R=1"
+if "!IPO!"=="S:host" set "R=1"
 if "!IPO!"=="S:run-argv" set "R=1"
 if "!IPO!"=="S:run-capture-argv" set "R=1"
 if "!IPO!"=="S:getenv" set "R=1"
@@ -700,6 +701,7 @@ if "!IPO!"=="S:not" goto ipr_null
 if "!IPO!"=="S:type-of" goto ipr_typeof
 if "!IPO!"=="S:argv" goto ipr_argv
 if "!IPO!"=="S:argv0" goto ipr_argv0
+if "!IPO!"=="S:host" (set "IPV=S:cmd" & goto itk_push)
 if "!IPO!"=="S:run-argv" goto ipr_runargv
 if "!IPO!"=="S:run-capture-argv" goto ipr_runcapargv
 if "!IPO!"=="S:getenv" goto ipr_getenv

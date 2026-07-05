@@ -35,6 +35,7 @@ file_existszzQ() { [ -e "${1#T:}" ] && R="S:t" || R=NIL; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
 run_cmd()     { sh -c "$1"; R="I:$?"; }
+host()        { R="S:sh"; }
 # run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
 # argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run
 # operative's joined literal tokens: spaces in tokens survive.

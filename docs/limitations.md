@@ -16,6 +16,12 @@ the `run`/`run-capture` operatives — the single argument is a computed list of
 tokens, and each element reaches the child as exactly one argument (quoted per
 host, so spaces survive; `!`/`%` remain best-effort on cmd, and a portsh string
 cannot contain `"` so quote-escaping never arises);
+`(host)` returns the symbol `sh` or `cmd` — which host layer the engine
+executes on, baked into each engine as a constant rather than detected (env
+sniffing like `OS=Windows_NT` misfires under Git Bash/MSYS, where portsh runs
+its sh half). It is deliberately the one primitive whose value differs across
+hosts: its purpose is host adaptation, e.g.
+`(define windows? (eq? (host) (quote cmd)))`;
 `(getenv "NAME")`/`(setenv "NAME" "v")` read and write the
 process environment (inherited by `run` children); `(exit n)` sets the script's
 exit code; `make-dir`/`delete-file`/`copy-file` are the portable file ops

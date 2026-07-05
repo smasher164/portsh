@@ -61,6 +61,10 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# host: which host layer this engine executes on -- a baked CONSTANT, not detection (env
+# sniffing like OS=Windows_NT misfires under Git Bash/MSYS, where portsh runs its sh half).
+# The ONE primitive whose value differs across hosts by design.
+host()   { R="S:sh"; }
 # argv0: the path of the program the user invoked (a packed app = the app file itself; portsh.cmd
 # PROG.lisp = the program file, absolutized). Set by the front-end / entry dispatch into
 # PORTSH_ARGV0; forward slashes on both hosts. REPL / unset -> nil.

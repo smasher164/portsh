@@ -502,6 +502,7 @@ prim_app() {
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
     'argv0') if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi ;;
+    'host')  R="S:sh" ;;   # baked constant: this kernel executes on the sh host layer
     'run-argv') arg1 "$args"; ra_build "$ARG1"; sh -c "$_ra_c"; R="I:$?" ;;
     'run-capture-argv') arg1 "$args"; ra_build "$ARG1"
              po_out=$(sh -c "$_ra_c"); po_acc=NIL; po_b=$RSP; RSP=$((po_b + 1))
@@ -582,7 +583,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 host 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -613,14 +614,19 @@ main() {
   # the self-scan would match the kernel before the real, baked-in marker).
   SRC=$PRELUDE
   _mark="__PORTSH""_PAYLOAD__"
+  # the cook guard must not leak into run children (a nested polyglot inheriting PORTSH_COOKED=1
+  # would skip its own cooking and execute its raw CRLF file); keep SELF as a private var.
+  _pself=${PORTSH_SELF-}; unset PORTSH_COOKED PORTSH_SELF
   _ran=0; _a0=""
-  if [ -n "${PORTSH_SELF-}" ]; then
-    _payload=$(awk -v m="$_mark" 'p;$0~m{p=1}' "$PORTSH_SELF" | tr -d '\r')
-    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; _a0=$PORTSH_SELF; }
+  if [ -n "$_pself" ]; then
+    _payload=$(awk -v m="$_mark" 'p;$0~m{p=1}' "$_pself" | tr -d '\r')
+    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; _a0=$_pself; }
   fi
-  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; [ -n "$_a0" ] || _a0=$1; fi
-  [ "$_ran" = 0 ] && [ -z "${PORTSH_SELF-}" ] && SRC="$SRC $(cat)"
-  # (argv0): the invoked program -- a concat app = the app itself, else the file arg. Absolutized.
+  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; _a0=$1; fi
+  [ "$_ran" = 0 ] && [ -z "$_pself" ] && SRC="$SRC $(cat)"
+  # (argv0): the invoked program. An explicit file arg wins (portsh-full.cmd ALWAYS has a payload --
+  # the bundled stdlib -- so payload presence alone can't mean "concat app"); with no file arg, a
+  # payload-carrying self IS the app (concat apps). Absolutized.
   if [ -z "${PORTSH_ARGV0:-}" ] && [ -n "$_a0" ]; then
     case $_a0 in /*) PORTSH_ARGV0=$_a0 ;; ./*) PORTSH_ARGV0=$PWD/${_a0#./} ;; *) PORTSH_ARGV0=$PWD/$_a0 ;; esac
     export PORTSH_ARGV0
@@ -2733,62 +2739,69 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:run-argv" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:host" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
 R="S:t"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:run-capture-argv" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:run-argv" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
 R="S:t"; ACTION=ret; return
 ;;
 26)
-if [ "${p0}" = "S:getenv" ]; then PC=27; else PC=28; fi
+if [ "${p0}" = "S:run-capture-argv" ]; then PC=27; else PC=28; fi
 ACTION=jump; return
 ;;
 27)
 R="S:t"; ACTION=ret; return
 ;;
 28)
-if [ "${p0}" = "S:setenv" ]; then PC=29; else PC=30; fi
+if [ "${p0}" = "S:getenv" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
 29)
 R="S:t"; ACTION=ret; return
 ;;
 30)
-if [ "${p0}" = "S:exit" ]; then PC=31; else PC=32; fi
+if [ "${p0}" = "S:setenv" ]; then PC=31; else PC=32; fi
 ACTION=jump; return
 ;;
 31)
 R="S:t"; ACTION=ret; return
 ;;
 32)
-if [ "${p0}" = "S:make-dir" ]; then PC=33; else PC=34; fi
+if [ "${p0}" = "S:exit" ]; then PC=33; else PC=34; fi
 ACTION=jump; return
 ;;
 33)
 R="S:t"; ACTION=ret; return
 ;;
 34)
-if [ "${p0}" = "S:delete-file" ]; then PC=35; else PC=36; fi
+if [ "${p0}" = "S:make-dir" ]; then PC=35; else PC=36; fi
 ACTION=jump; return
 ;;
 35)
 R="S:t"; ACTION=ret; return
 ;;
 36)
-if [ "${p0}" = "S:copy-file" ]; then PC=37; else PC=38; fi
+if [ "${p0}" = "S:delete-file" ]; then PC=37; else PC=38; fi
 ACTION=jump; return
 ;;
 37)
 R="S:t"; ACTION=ret; return
 ;;
 38)
+if [ "${p0}" = "S:copy-file" ]; then PC=39; else PC=40; fi
+ACTION=jump; return
+;;
+39)
+R="S:t"; ACTION=ret; return
+;;
+40)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -17305,6 +17318,10 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# host: which host layer this engine executes on -- a baked CONSTANT, not detection (env
+# sniffing like OS=Windows_NT misfires under Git Bash/MSYS, where portsh runs its sh half).
+# The ONE primitive whose value differs across hosts by design.
+host()   { R="S:sh"; }
 # argv0: the path of the program the user invoked (a packed app = the app file itself; portsh.cmd
 # PROG.lisp = the program file, absolutized). Set by the front-end / entry dispatch into
 # PORTSH_ARGV0; forward slashes on both hosts. REPL / unset -> nil.
@@ -17584,11 +17601,11 @@ rm -f "$_tmp"
 exit $?
 :CMDSTART
 @echo off
-rem ============ portsh cmd OSR front-end (build 744204043004) -- generated by build-polyglot.sh ============
+rem ============ portsh cmd OSR front-end (build 2f0427446d35) -- generated by build-polyglot.sh ============
 if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__warm" goto :PWARM
 setlocal enabledelayedexpansion
-set "CACHE=%LOCALAPPDATA%\portsh\744204043004"
+set "CACHE=%LOCALAPPDATA%\portsh\2f0427446d35"
 if exist "%CACHE%\.ok" goto pcache_ok
 rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomic: tmp -> move -> .ok)
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
@@ -17730,7 +17747,7 @@ set "WPROG=%~2"
 set "WPUB=%~3"
 set "WSTG=%~4"
 set "WTASK=%~5"
-set "PATH=%LOCALAPPDATA%\portsh\744204043004;!PATH!"
+set "PATH=%LOCALAPPDATA%\portsh\2f0427446d35;!PATH!"
 if exist "!WSTG!" rmdir /s /q "!WSTG!"
 mkdir "!WSTG!"
 if not exist "!WPUB!" mkdir "!WPUB!"
@@ -18765,6 +18782,12 @@ echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
 echo(call :rl_cons "T:!avV!" "!avL!"
 echo(set "avL=!R!"
 echo(goto av_loop
+echo(rem :host -- R = S:cmd, a baked CONSTANT: this runtime executes on the cmd host layer. Not
+echo(rem detection ^(env sniffing like OS=Windows_NT misfires under Git Bash/MSYS, where portsh runs
+echo(rem its sh half^). The ONE primitive whose value differs across hosts by design.
+echo(:host
+echo(set "R=S:cmd"
+echo(goto :eof
 echo(rem :argv0 -- R = T:^<program path^> ^(the file the user invoked: a packed app = the app itself^). Set
 echo(rem by the front-end / engine arg capture into PORTSH_ARGV0, forward slashes. REPL/unset -^> NIL.
 echo(:argv0
@@ -20572,7 +20595,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:run-argv" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:host" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc23.cmd" (
@@ -20585,7 +20608,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:run-capture-argv" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:run-argv" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=26" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc25.cmd" (
@@ -20598,7 +20621,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:getenv" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:run-capture-argv" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=28" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc27.cmd" (
@@ -20611,7 +20634,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:setenv" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:getenv" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=30" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc29.cmd" (
@@ -20630,7 +20653,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:exit" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:setenv" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=32" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc31.cmd" (
@@ -20643,7 +20666,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:make-dir" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:exit" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc33.cmd" (
@@ -20656,7 +20679,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:delete-file" ^(set "PC=35" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:make-dir" ^(set "PC=35" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=36" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc35.cmd" (
@@ -20669,7 +20692,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:copy-file" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:delete-file" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=38" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc37.cmd" (
@@ -20682,7 +20705,14 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
+echo(if "!p0!"=="S:copy-file" ^(set "PC=39" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=40" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc39.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc4.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -20690,6 +20720,12 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(if "!p0!"=="S:gc" ^(set "PC=5" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=6" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc40.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc5.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -22815,6 +22851,7 @@ echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
 echo(if "!paN!"=="argv0" goto pa_argv0
+echo(if "!paN!"=="host" goto pa_host
 echo(if "!paN!"=="run-argv" goto pa_runargv
 echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
@@ -22886,6 +22923,10 @@ echo(:pa_argv0
 echo(rem R = T:^<program path^> ^(a concat app = the app itself^), from PORTSH_ARGV0 ^(captured at boot^)
 echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
 echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
+echo(:pa_host
+echo(rem baked constant: this kernel executes on the cmd host layer ^(not detection -- see kernel.sh^)
+echo(set "R=S:cmd"
 echo(goto :eof
 echo(:pa_runargv
 echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
@@ -23388,6 +23429,7 @@ echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
 echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+echo(call :env_define "!GLOBAL!" "S:host" "R:host"
 echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
@@ -28697,6 +28739,9 @@ echo(set "zt7=!zt7:~0,-1!"
 echo(if "!zt7!"=="S:define" ^(set "PC=10" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=11" ^& set "ACTION=jump" ^& goto :eof
 )
+>"%PSDIR%\host.cmd" (
+echo(@set "RTENTRY=host" ^& call _rt.cmd %%*
+)
 >"%PSDIR%\hp_car.cmd" (
 echo(:hp_car
 echo(set "hcp=%%~1"
@@ -30304,6 +30349,7 @@ echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
 echo(if "!paN!"=="argv0" goto pa_argv0
+echo(if "!paN!"=="host" goto pa_host
 echo(if "!paN!"=="run-argv" goto pa_runargv
 echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
@@ -30375,6 +30421,10 @@ echo(:pa_argv0
 echo(rem R = T:^<program path^> ^(a concat app = the app itself^), from PORTSH_ARGV0 ^(captured at boot^)
 echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
 echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
+echo(:pa_host
+echo(rem baked constant: this kernel executes on the cmd host layer ^(not detection -- see kernel.sh^)
+echo(set "R=S:cmd"
 echo(goto :eof
 echo(:pa_runargv
 echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
@@ -30877,6 +30927,7 @@ echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
 echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+echo(call :env_define "!GLOBAL!" "S:host" "R:host"
 echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
@@ -31130,6 +31181,7 @@ echo(if "!IPO!"=="S:not" goto ipr_null
 echo(if "!IPO!"=="S:type-of" goto ipr_typeof
 echo(if "!IPO!"=="S:argv" goto ipr_argv
 echo(if "!IPO!"=="S:argv0" goto ipr_argv0
+echo(if "!IPO!"=="S:host" ^(set "IPV=S:cmd" ^& call ips.cmd ^& goto :eof^)
 echo(if "!IPO!"=="S:run-argv" goto ipr_runargv
 echo(if "!IPO!"=="S:run-capture-argv" goto ipr_runcapargv
 echo(if "!IPO!"=="S:getenv" goto ipr_getenv
@@ -31609,6 +31661,7 @@ echo(if "!IPO!"=="S:!GT!=" set "R=1"
 echo(if "!IPO!"=="S:type-of" set "R=1"
 echo(if "!IPO!"=="S:argv" set "R=1"
 echo(if "!IPO!"=="S:argv0" set "R=1"
+echo(if "!IPO!"=="S:host" set "R=1"
 echo(if "!IPO!"=="S:run-argv" set "R=1"
 echo(if "!IPO!"=="S:run-capture-argv" set "R=1"
 echo(if "!IPO!"=="S:getenv" set "R=1"
@@ -36579,6 +36632,7 @@ echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
 echo(if "!paN!"=="argv0" goto pa_argv0
+echo(if "!paN!"=="host" goto pa_host
 echo(if "!paN!"=="run-argv" goto pa_runargv
 echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
@@ -36650,6 +36704,10 @@ echo(:pa_argv0
 echo(rem R = T:^<program path^> ^(a concat app = the app itself^), from PORTSH_ARGV0 ^(captured at boot^)
 echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
 echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
+echo(:pa_host
+echo(rem baked constant: this kernel executes on the cmd host layer ^(not detection -- see kernel.sh^)
+echo(set "R=S:cmd"
 echo(goto :eof
 echo(:pa_runargv
 echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
@@ -37152,6 +37210,7 @@ echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
 echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+echo(call :env_define "!GLOBAL!" "S:host" "R:host"
 echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
 echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
@@ -51142,6 +51201,6 @@ echo(set "NP=2"
 echo(set "zt2=!R!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
->"%PSDIR%\.ok" echo 744204043004
+>"%PSDIR%\.ok" echo 2f0427446d35
 endlocal
 exit /b 0

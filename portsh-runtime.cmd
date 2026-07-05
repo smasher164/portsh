@@ -301,6 +301,12 @@ call set "avV=%%PORTSH_ARGV_!avI!%%"
 call :rl_cons "T:!avV!" "!avL!"
 set "avL=!R!"
 goto av_loop
+rem :host -- R = S:cmd, a baked CONSTANT: this runtime executes on the cmd host layer. Not
+rem detection (env sniffing like OS=Windows_NT misfires under Git Bash/MSYS, where portsh runs
+rem its sh half). The ONE primitive whose value differs across hosts by design.
+:host
+set "R=S:cmd"
+goto :eof
 rem :argv0 -- R = T:<program path> (the file the user invoked: a packed app = the app itself). Set
 rem by the front-end / engine arg capture into PORTSH_ARGV0, forward slashes. REPL/unset -> NIL.
 :argv0

@@ -12,3 +12,7 @@
 (print (file-exists? "pk_t/sub/a.txt"))
 (print (delete-file "pk_t/sub/a.txt"))
 (print (delete-file "pk_t/sub/b.txt"))
+; (host) is the one host-DIVERGENT primitive (sh|cmd by design) -- pin it portably: it must be
+; one of the two symbols, and it must agree with itself as a value and across calls.
+(print (if (eq? (host) (quote sh)) (quote ok) (if (eq? (host) (quote cmd)) (quote ok) (quote bad))))
+(print (eq? (host) (host)))
