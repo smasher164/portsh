@@ -65,6 +65,8 @@ set /a PORTSH_ARGC+=1
 shift /2
 goto in_args
 :in_args_done
+rem (argv0): the program path, forward slashes -- unless a front-end already chose.
+if not defined PORTSH_ARGV0 (set "INA0=%~f1" & set "PORTSH_ARGV0=!INA0:\=/!")
 rem WARM FAST PATH: the program cache has the thunk run-list -> execute the program STRAIGHT from the
 rem cache (program consts + compiled thunks on el_drive). No reader, no mexpand, no lift, no register --
 rem the pipeline is pure waste when every fn is already compiled. Content-hash keying makes this safe

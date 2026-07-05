@@ -74,6 +74,16 @@ set /a PORTSH_ARGC+=1
 shift /2
 goto k_args
 :k_args_done
+rem (argv0): the invoked program. An explicit file arg wins (portsh-full.cmd ALWAYS carries a
+rem payload -- the bundled stdlib -- so payload presence alone can't mean "concat app"); with no
+rem file arg, a payload-carrying self IS the app. Forward slashes (matches the sh kernel). A
+rem front-end's pre-set value wins.
+if defined PORTSH_ARGV0 goto k_a0_done
+set "KA0="
+if not "%~1"=="" set "KA0=%~f1"
+if "!KA0!"=="" if not "%MLINE%"=="0" set "KA0=%~f0"
+if not "!KA0!"=="" set "PORTSH_ARGV0=!KA0:\=/!"
+:k_a0_done
 if not "%~1"=="" call :feedfile "%~1" 0
 :done_boot
 exit /b 0
@@ -795,6 +805,9 @@ if "!paN!"=="hreset" goto pa_hreset
 if "!paN!"=="read" goto pa_read
 if "!paN!"=="type-of" goto pa_typeof
 if "!paN!"=="argv" goto pa_argv
+if "!paN!"=="argv0" goto pa_argv0
+if "!paN!"=="run-argv" goto pa_runargv
+if "!paN!"=="run-capture-argv" goto pa_runcapargv
 if "!paN!"=="getenv" goto pa_getenv
 if "!paN!"=="setenv" goto pa_setenv
 if "!paN!"=="exit" goto pa_exit
@@ -860,6 +873,54 @@ call set "paAvV=%%PORTSH_ARGV_!paAi!%%"
 call :hp_cons "T:!paAvV!" "!paAv!"
 set "paAv=!R!"
 goto pa_av_loop
+:pa_argv0
+rem R = T:<program path> (a concat app = the app itself), from PORTSH_ARGV0 (captured at boot)
+if not defined PORTSH_ARGV0 (set "R=NIL" & goto :eof)
+set "R=T:!PORTSH_ARGV0!"
+goto :eof
+:pa_runargv
+rem (run-argv LIST): each element EXACTLY ONE double-quoted child argument (a portsh string cannot
+rem contain a quote) -- the execv-style counterpart of po_run's joined tokens. !/% best-effort.
+call :hp_car "%~3"
+set "paRAL=!R!"
+call :pa_rabuild
+cmd /c "!paRAC!"
+set "R=I:!errorlevel!"
+goto :eof
+:pa_rabuild
+set "paRAC="
+set "paRAF=1"
+:pa_ra_loop
+if "!paRAL!"=="NIL" goto :eof
+call :hp_car "!paRAL!"
+set "paRAT=!R:~2!"
+if not "!paRAF!"=="1" goto pa_ra_arg
+set "paRAF=0"
+rem command token: cmd internals are not recognized when quoted -- quote only if it contains a space
+if not "!paRAT: =!"=="!paRAT!" goto pa_ra_arg
+set "paRAC=!paRAT!"
+goto pa_ra_next
+:pa_ra_arg
+set "paRAC=!paRAC! "!paRAT!""
+:pa_ra_next
+call :hp_cdr "!paRAL!"
+set "paRAL=!R!"
+goto pa_ra_loop
+:pa_runcapargv
+rem (run-capture-argv LIST): pa_runargv's capture twin (tail mirrors po_runcap)
+call :hp_car "%~3"
+set "paRAL=!R!"
+call :pa_rabuild
+> "%TEMP%\portsh_rc1_!HD!.txt" 2>&1 cmd /c "!paRAC!"
+type "%TEMP%\portsh_rc1_!HD!.txt" | find /v /n "" > "%TEMP%\portsh_rc_!HD!.txt"
+set "rcAcc=NIL"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc_!HD!.txt") do (
+  set "rcLn=%%L" & set "rcLn=!rcLn:*]=!"
+  call :hp_cons "T:!rcLn!" "!rcAcc!"
+  set "rcAcc=!R!"
+)
+call :list_reverse "!rcAcc!"
+goto :eof
 :pa_exit
 call :hp_car "%~3"
 exit !R:~2!
@@ -1317,6 +1378,9 @@ call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 call :env_define "!GLOBAL!" "S:read" "R:read"
 call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 call :env_define "!GLOBAL!" "S:argv" "R:argv"
+call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
+call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 call :env_define "!GLOBAL!" "S:setenv" "R:setenv"
 call :env_define "!GLOBAL!" "S:exit" "R:exit"

@@ -25,3 +25,5 @@
 (print (null? z))
 (define w t)
 (print w)
+; print as a VALUE (__p_print): the map itself prints a/b/c, the outer print shows map's result
+(print (map print (quote (a b c))))

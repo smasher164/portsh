@@ -105,10 +105,22 @@ prim_wrap() {  # raw op -> AOT wrapper name (C:<this> as a value), or "" if not 
     +) R=__p_add ;; -) R=__p_sub ;; '*') R=__p_mul ;; '<') R=__p_lt ;; '<=') R=__p_le ;; =) R=__p_neq ;; '>') R=__p_gt ;; '>=') R=__p_ge ;;
     cons) R=__p_cons ;; car) R=__p_car ;; cdr) R=__p_cdr ;; null?) R=__p_null ;; eq?) R=__p_eq ;; pair?) R=__p_pair ;; not) R=__p_not ;;
     number?) R=__p_number ;; string?) R=__p_string ;; symbol?) R=__p_symbol ;;
+    print) R=__p_print ;;
     *) R="" ;;
   esac
 }
-isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|'S:>'|'S:>='|S:eq?) return 0 ;; *) return 1 ;; esac; }
+isprim() { case $1 in S:car|S:cdr|S:cons|S:null?|S:pair?|S:atom?|S:number?|S:not|S:type-of|'S:symbol->string'|'S:number->string'|'S:string->symbol'|'S:string->number'|S:string-length|S:string-append|S:substring|S:split|S:print|S:argv|S:argv0|S:run-argv|S:run-capture-argv|S:getenv|S:setenv|S:exit|S:make-dir|S:delete-file|S:copy-file|S:file-exists?|S:read|S:read-lines|S:write-lines|S:append-lines|S:+|S:-|'S:*'|'S:<'|'S:<='|S:=|'S:>'|'S:>='|S:eq?) return 0 ;; *) return 1 ;; esac; }
+# run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
+# argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run operative.
+ra_build() { _ra_c=""; _ra_l=$1
+             while [ "$_ra_l" != NIL ]; do
+               hp_car "$_ra_l"; _ra_s=${R#??}; _ra_q=""
+               while case $_ra_s in *\'*) true ;; *) false ;; esac; do
+                 _ra_q="$_ra_q${_ra_s%%\'*}'\\''"; _ra_s=${_ra_s#*\'}
+               done
+               _ra_c="$_ra_c '$_ra_q$_ra_s'"
+               hp_cdr "$_ra_l"; _ra_l=$R
+             done; }
 # push (S:EVAL arg) for each arg in REVERSE so leftmost is on top (eval'd first)
 ipush_args() {
   ia_rev=NIL; ia_l=$1
@@ -132,6 +144,13 @@ iprim() {  # apply prim $1 to ip_args (the arg-value list); push result. mirrors
     S:type-of) case $ipa in NIL) ips "S:nil" ;; I:*) ips "S:number" ;; S:*) ips "S:symbol" ;; T:*) ips "S:string" ;; P:*) ips "S:pair" ;; *) ips "S:unknown" ;; esac ;;
     S:argv)   _av=NIL; _ai=${PORTSH_ARGC:-0}
               while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; ips "$_av" ;;
+    S:argv0)  if [ -n "${PORTSH_ARGV0:-}" ]; then ips "T:$PORTSH_ARGV0"; else ips NIL; fi ;;
+    S:run-argv) ra_build "$ipa"; sh -c "$_ra_c"; ips "I:$?" ;;
+    S:run-capture-argv) ra_build "$ipa"; _rca_out=$(sh -c "$_ra_c"); _rca_acc=NIL
+              while IFS= read -r _rca_ln || [ -n "$_rca_ln" ]; do hp_cons "T:$_rca_ln" "$_rca_acc"; _rca_acc=$R; done <<IRCA_EOF
+$_rca_out
+IRCA_EOF
+              _rca_rev=NIL; while [ "$_rca_acc" != NIL ]; do hp_car "$_rca_acc"; _rca_v=$R; hp_cdr "$_rca_acc"; _rca_acc=$R; hp_cons "$_rca_v" "$_rca_rev"; _rca_rev=$R; done; ips "$_rca_rev" ;;
     S:setenv) _sn=${ipa#T:}; hp_cdr "$ip_args"; hp_car "$R"; _sv=${R#T:}
               case $_sn in *[!A-Za-z0-9_]*|"") ips NIL ;;
                 *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; ips "S:t" ;; esac ;;
@@ -408,6 +427,10 @@ ld_mkthunk() {  # $1 = body ref, $2 = action (S | G:name) -> prepend (define __e
 }
 _relem() { case $1 in NIL) printf "()" ;; I:*) printf %s "${1#I:}" ;; T:*) printf %s "${1#T:}" ;; S:*) printf %s "${1#S:}" ;; K:*) printf "<closure>" ;; C:*) printf "<fn:%s>" "${1#C:}" ;; P:*) printf "("; _rlist "$1"; printf ")" ;; *) printf %s "$1" ;; esac; }
 _rlist() { hp_car "$1"; _e=$R; _relem "$_e"; hp_cdr "$1"; _t=$R; case ${_t#P:} in "$_t") [ "$_t" = NIL ] || { printf " . "; _relem "$_t"; } ;; *) printf " "; _rlist "$_t" ;; esac; }
+# print as a SHELL FN: the AOT __p_print wrapper (print in value position) calls `print` -- without
+# this definition that resolves to mksh's BUILTIN print, which echoes the raw tagged cell. The
+# interp's own call-position print stays the inline iprim arm.
+print() { _relem "$1"; printf '\n'; R=NIL; }
 # --- OSR flip: compile a registered fn at runtime (via the embedded comp, on the shared driver), source it,
 # and mark COMPILED so route() dispatches the compiled version on the next call. PORTSH_OSR="f g ..." flips. ---
 str_to_symlist() { sl_o=NIL; for sl_w in $1; do hp_cons "S:$sl_w" "$sl_o"; sl_o=$R; done; R=$sl_o; }
@@ -515,6 +538,10 @@ if [ "$#" -ge 1 ]; then
       eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
     done
     PORTSH_ARGC=$_an; export PORTSH_ARGC
+  fi
+  if [ -z "${PORTSH_ARGV0:-}" ]; then
+    case $1 in /*) PORTSH_ARGV0=$1 ;; *) PORTSH_ARGV0=$PWD/$1 ;; esac
+    export PORTSH_ARGV0
   fi
   SRC="($(cat "$1"))"; rd_expr; process_forms "$R"
 else

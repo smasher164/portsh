@@ -44,8 +44,10 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   # representative fixtures for the (slow) cmd legs: cover stdlib, value-position, args, plain
   for b in numbers stdlib valuepos args hostops; do
     f="tests/engines/$b.lisp"; [ -f "$f" ] || continue
-    # cmd PACK on the VM, then run the resulting app
-    out=$(ssh -n -o ConnectTimeout=400 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & call portsh.cmd pack engines\\$b.lisp ${b}_c.cmd >nul 2>&1 & set PORTSH_TEST_VAR=hello& call ${b}_c.cmd alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')
+    # cmd PACK on the VM, then run the resulting app. Named ${b}.w.cmd (not ${b}_c.cmd): the
+    # args fixture prints the argv0 STEM (text before the first dot), which must equal the
+    # fixture stem on every leg -- and ${b}.cmd is taken by the sh-packed app in the same dir.
+    out=$(ssh -n -o ConnectTimeout=400 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & call portsh.cmd pack engines\\$b.lisp ${b}.w.cmd >nul 2>&1 & set PORTSH_TEST_VAR=hello& call ${b}.w.cmd alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')
     chk "cmdpack-cmd" "$f" "$out"
     # CROSS-HOST: the locally sh-packed app run on cmd
     out=$(ssh -n -o ConnectTimeout=400 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_TEST_VAR=hello& call $b.cmd alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')

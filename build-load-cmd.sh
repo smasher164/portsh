@@ -35,6 +35,8 @@ set /a PORTSH_ARGC+=1
 shift /2
 goto lc_args
 :lc_args_done
+rem (argv0): the program path, forward slashes -- unless a front-end already chose.
+if not defined PORTSH_ARGV0 (set "LCA0=%~f1" & set "PORTSH_ARGV0=!LCA0:\=/!")
 rem read ALL top-level forms into ONE list: pre-open an outer list on the parse stack so every
 rem top-level datum accumulates at DEPTH>=1 (never eval'd), then feed a closing ')' so emit_top at
 rem DEPTH 0 captures RDRESULT = (form1 form2 ...) in source order.

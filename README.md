@@ -92,7 +92,10 @@ body)` binds all arguments as a list), `if`, `quote`, `let`, `let*`, `cond`,
 `cons`/`car`/`cdr`, `eq?`/`null?`/`pair?`/`atom?`/`number?`/`not`, `apply`,
 arithmetic `+ - *` (n-ary, left fold; `(- x)` negates) and comparisons
 `< <= = > >=` (chained, each operand evaluated once: `(< 1 3 2)` is nil),
-`type-of`, `eval`, `read`, `print`, `exit`; `run`/`run-capture`, `argv`,
+`type-of`, `eval`, `read`, `print`, `exit`; `run`/`run-capture` (literal
+tokens), `run-argv`/`run-capture-argv` (a *computed* list of tokens — each
+element reaches the child as exactly one argument, spaces preserved), `argv`,
+`argv0` (the invoked program's path — a packed app sees itself),
 `getenv`/`setenv`, `file-exists?`, `make-dir`/`delete-file`/`copy-file` for the
 host (file paths use forward slashes everywhere — normalized per host); `string-append`/`string-length`/`substring`/`split` plus the
 `symbol`/`number`/`string` converters; `read-lines`/`write-lines`/

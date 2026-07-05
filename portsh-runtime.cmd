@@ -34,7 +34,7 @@ if !wll!==NIL (set R=S:t & goto :eof)
 set wli=!wll:~2!
 call :rdfield car !wli!
 set wlline=!R:~2!
-call :wl_emit_c !wlf!
+call :wl_emit_c "!wlf!"
 call :rdfield cdr !wli!
 set wll=!R!
 goto al_loop_c
@@ -45,13 +45,15 @@ rem cmd redirection needs backslashes; the codegen builds paths with '/' (sh-nat
 rem so normalise here. The line write (wl_emit_c) gets the already-normalised wlf.
 set "wlf=!wlf:/=\!"
 set wll=!A2!
-break > !wlf!
+rem QUOTED path everywhere below: an unquoted spacey path split at the redirect/call (the kernel's
+rem wl_emit always quoted; this compiled-path copy didn't -- latent until spacey filenames).
+break > "!wlf!"
 :wl_loop_c
 if !wll!==NIL (set R=S:t & goto :eof)
 set wli=!wll:~2!
 call :rdfield car !wli!
 set wlline=!R:~2!
-call :wl_emit_c !wlf!
+call :wl_emit_c "!wlf!"
 call :rdfield cdr !wli!
 set wll=!R!
 goto wl_loop_c
@@ -63,7 +65,7 @@ rem 0x01->!, 0x02->%, and 0x08->" inline at the set/p (an unquoted prompt takes 
 rem bare ", verified). No quoted prompt => a " in the line writes fine.
 :wl_emit_c
 if defined wlline goto wl_enc_c
->>%~1 echo(
+>>"%~1" echo(
 goto :eof
 :wl_enc_c
 setlocal enableDelayedExpansion
@@ -76,8 +78,8 @@ set "w=!w:=%%!"
 endlocal & set "wcar=%w%"
 setlocal disableDelayedExpansion
 set "wd=%wcar:=!%"
->>%~1 <nul set /p =%wd:="%
->>%~1 echo(
+>>"%~1" <nul set /p =%wd:="%
+>>"%~1" echo(
 endlocal
 goto :eof
 rem :print -- A1 = a tagged value. Render it (byte-identical to the interpreter's print /
@@ -299,6 +301,12 @@ call set "avV=%%PORTSH_ARGV_!avI!%%"
 call :rl_cons "T:!avV!" "!avL!"
 set "avL=!R!"
 goto av_loop
+rem :argv0 -- R = T:<program path> (the file the user invoked: a packed app = the app itself). Set
+rem by the front-end / engine arg capture into PORTSH_ARGV0, forward slashes. REPL/unset -> NIL.
+:argv0
+if not defined PORTSH_ARGV0 (set "R=NIL" & goto :eof)
+set "R=T:!PORTSH_ARGV0!"
+goto :eof
 rem :getenv -- A1 = T:name. R = T:value, or NIL when unset (cmd cannot store an empty env var, so
 rem empty == unset == nil -- the sh side matches). Name must be A-Za-z0-9_ (mirror sh). The value is
 rem read from `set <name>` output so & | < > survive; ! is best-effort (delayed expansion).
@@ -341,6 +349,51 @@ set "RCMD=!RCMD:^&=&!"
 set "RCMD=!RCMD:^|=|!"
 set "RCMD=!RCMD:^<=<!"
 set "RCMD=!RCMD:^>=>!"
+goto :eof
+rem :run-argv -- A1 = a LIST of tokens (T:/I:/S:). Each element becomes EXACTLY ONE child argument
+rem (double-quoted; a portsh string cannot contain a quote, so no escaping is needed) -- the
+rem execv-style counterpart of :run_cmd's joined literal string: spaces in tokens survive.
+rem ! and % remain best-effort on cmd (delayed expansion); see docs/limitations.md.
+:run-argv
+call :rav_build
+cmd /c "!RAC!"
+set "R=I:!errorlevel!"
+goto :eof
+:rav_build
+set "RAC="
+set "ravFIRST=1"
+set "ravL=!A1!"
+:rav_loop
+if "!ravL!"=="NIL" goto :eof
+set "rav_i=!ravL:~2!"
+call :rdfield car !rav_i!
+set "ravT=!R:~2!"
+if not "!ravFIRST!"=="1" goto rav_arg
+set "ravFIRST=0"
+rem the COMMAND token: cmd's INTERNAL commands (mkdir/rmdir/echo/...) are not recognized when
+rem quoted -- quote it only when it needs quoting (contains a space; an internal command never
+rem does). Arguments are always quoted (quoted args to internal commands are fine).
+if not "!ravT: =!"=="!ravT!" goto rav_arg
+set "RAC=!ravT!"
+goto rav_next
+:rav_arg
+set "RAC=!RAC! "!ravT!""
+:rav_next
+call :rdfield cdr !rav_i!
+set "ravL=!R!"
+goto rav_loop
+rem :run-capture-argv -- :run-argv's capture twin (tail mirrors :run_capture).
+:run-capture-argv
+call :rav_build
+> "%TEMP%\portsh_rc1_!HD!.txt" 2>&1 cmd /c "!RAC!"
+type "%TEMP%\portsh_rc1_!HD!.txt" | find /v /n "" > "%TEMP%\portsh_rc_!HD!.txt"
+set "rcAcc=NIL"
+for /f "usebackq delims=" %%L in ("%TEMP%\portsh_rc_!HD!.txt") do (
+  set "rcLn=%%L" & set "rcLn=!rcLn:*]=!"
+  call :rl_cons "T:!rcLn!" "!rcAcc!"
+  set "rcAcc=!R!"
+)
+call :rl_reverse "!rcAcc!"
 goto :eof
 rem :run_capture -- like :run_cmd but capture stdout+stderr as a line-list (mirrors po_runcap exactly:
 rem redirect-FIRST with 2>&1 so no trailing token absorbs into the command line; then prefix every line

@@ -21,3 +21,4 @@
 (define __p_number (lambda (x) (number? x)))
 (define __p_string (lambda (x) (string? x)))
 (define __p_symbol (lambda (x) (symbol? x)))
+(define __p_print (lambda (x) (print x)))

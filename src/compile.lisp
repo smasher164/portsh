@@ -215,7 +215,7 @@
                         (let ((b7 (emit b6 (str ":" tk))))
                           (let ((b8 (emit b7 (str "if defined " zc " if !" ztk "! gtr 0 (set " zr "=!" zr "!!" zc ":~0,1!& set " zc "=!" zc ":~1!& set /a " ztk "-=1& goto " tk ")"))))
                             (cons (bk+ (emit b8 (qset (str ztmp "=T:!" zr "!")))) (cons (quote val) ztmp)))))))))))))))))
-(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) ((eq? o (quote argv)) t) ((eq? o (quote getenv)) t) ((eq? o (quote setenv)) t) ((eq? o (quote exit)) t) ((eq? o (quote make-dir)) t) ((eq? o (quote delete-file)) t) ((eq? o (quote copy-file)) t) (t nil))))
+(define builtin? (lambda (o) (cond ((eq? o (quote write-lines)) t) ((eq? o (quote append-lines)) t) ((eq? o (quote gc)) t) ((eq? o (quote print)) t) ((eq? o (quote read-lines)) t) ((eq? o (quote file-exists?)) t) ((eq? o (quote read)) t) ((eq? o (quote type-of)) t) ((eq? o (quote split)) t) ((eq? o (quote argv)) t) ((eq? o (quote argv0)) t) ((eq? o (quote run-argv)) t) ((eq? o (quote run-capture-argv)) t) ((eq? o (quote getenv)) t) ((eq? o (quote setenv)) t) ((eq? o (quote exit)) t) ((eq? o (quote make-dir)) t) ((eq? o (quote delete-file)) t) ((eq? o (quote copy-file)) t) (t nil))))
 ;; run / run-capture are OPERATIVES: operands are unevaluated literal tokens joined into a host
 ;; command (matching prim_oper). fv/lift must SKIP their operands (like quote) -- runop? guards both.
 ;; The joined command is baked via enc-mc (the SAME sentinel encoding the reader applies to heap
@@ -233,6 +233,7 @@
         ((eq? s (quote null?)) "__p_null") ((eq? s (quote eq?)) "__p_eq") ((eq? s (quote pair?)) "__p_pair")
         ((eq? s (quote not)) "__p_not")
         ((eq? s (quote number?)) "__p_number") ((eq? s (quote string?)) "__p_string") ((eq? s (quote symbol?)) "__p_symbol")
+        ((eq? s (quote print)) "__p_print")
         (t nil))))
 (define aas (lambda (refs i) (if (null? refs) nil (cons (qset (str "A" (number->string i) "=" (vref (car refs)))) (aas (cdr refs) (+ i 1))))))
 (define emit-list (lambda (b lns) (if (null? lns) b (emit-list (emit b (car lns)) (cdr lns)))))

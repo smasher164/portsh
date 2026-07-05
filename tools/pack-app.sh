@@ -192,6 +192,12 @@ packed_block = (
   + progsrc.rstrip('\n') + '\n'
   + marker + '\n'
   'PORTSH_SCRIPT=${PORTSH_SCRIPT-1}\n'
+  '# (argv0) = the app itself (absolutized), NOT the temp-materialized program\n'
+  'case $PORTSH_SELF in /*) PORTSH_ARGV0=$PORTSH_SELF ;; ./*) PORTSH_ARGV0=$PWD/${PORTSH_SELF#./} ;; *) PORTSH_ARGV0=$PWD/$PORTSH_SELF ;; esac\n'
+  'export PORTSH_ARGV0\n'
+  '# the cook guard must not leak into run children (a nested portsh polyglot would skip its\n'
+  '# own cooking and execute its raw CRLF file); PORTSH_SELF has served its purpose.\n'
+  'unset PORTSH_COOKED PORTSH_SELF\n'
   'set -- "$_pk" "$@"\n'
 )
 sh_half = sh_half.replace(anchor, packed_block + anchor)
@@ -242,6 +248,8 @@ if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__pextract" goto :PPROG
 setlocal enabledelayedexpansion
 set "SELF=%~f0"
+rem (argv0) = the app itself, forward slashes (matches the sh half's packed arm)
+set "PORTSH_ARGV0=!SELF:\\=/!"
 rem ALL args are the program's (argv) -- capture into env (inherited by the interp child).
 rem shift /1 (NOT plain shift: that rotates %0 too, breaking the %~f0 self-extract calls).
 set "PORTSH_ARGC=0"

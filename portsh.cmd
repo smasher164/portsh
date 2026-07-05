@@ -440,6 +440,19 @@ RCEOF
 arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
+# run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
+# argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run operative.
+ra_build() { _ra_c=""; _ra_l=$1
+  while [ "$_ra_l" != NIL ]; do
+    hp_car "$_ra_l"; _ra_s=${R#??}; _ra_q=""
+    while case $_ra_s in *\'*) true ;; *) false ;; esac; do
+      _ra_q="$_ra_q${_ra_s%%\'*}'\\''"; _ra_s=${_ra_s#*\'}
+    done
+    _ra_c="$_ra_c '$_ra_q$_ra_s'"
+    hp_cdr "$_ra_l"; _ra_l=$R
+  done
+}
+
 prim_app() {
   # No locals (ksh93). name/args + scratch are globals; none is live across a prim_app
   # re-entry (only `eval`->ev and `read`->rd_expr re-enter, and neither needs them after).
@@ -488,6 +501,16 @@ prim_app() {
              fi ;;
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'argv0') if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi ;;
+    'run-argv') arg1 "$args"; ra_build "$ARG1"; sh -c "$_ra_c"; R="I:$?" ;;
+    'run-capture-argv') arg1 "$args"; ra_build "$ARG1"
+             po_out=$(sh -c "$_ra_c"); po_acc=NIL; po_b=$RSP; RSP=$((po_b + 1))
+             while IFS= read -r po_ln || [ -n "$po_ln" ]; do hp_cons "T:$po_ln" "$po_acc"; po_acc=$R; done <<RCAEOF
+$po_out
+RCAEOF
+             po_rev=NIL
+             while [ "$po_acc" != NIL ]; do hp_car "$po_acc"; po_v=$R; hp_cdr "$po_acc"; po_acc=$R; eval "ROOT$po_b=\"\$po_acc\""; hp_cons "$po_v" "$po_rev"; po_rev=$R; done
+             R=$po_rev; RSP=$po_b ;;
     'setenv') arg2 "$args"; _sn=${ARG1#T:}; _sv=${ARG2#T:}
              case $_sn in *[!A-Za-z0-9_]*|'') R=NIL ;;
                *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac ;;
@@ -559,7 +582,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -590,13 +613,18 @@ main() {
   # the self-scan would match the kernel before the real, baked-in marker).
   SRC=$PRELUDE
   _mark="__PORTSH""_PAYLOAD__"
-  _ran=0
+  _ran=0; _a0=""
   if [ -n "${PORTSH_SELF-}" ]; then
     _payload=$(awk -v m="$_mark" 'p;$0~m{p=1}' "$PORTSH_SELF" | tr -d '\r')
-    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; }
+    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; _a0=$PORTSH_SELF; }
   fi
-  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; fi
+  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; [ -n "$_a0" ] || _a0=$1; fi
   [ "$_ran" = 0 ] && [ -z "${PORTSH_SELF-}" ] && SRC="$SRC $(cat)"
+  # (argv0): the invoked program -- a concat app = the app itself, else the file arg. Absolutized.
+  if [ -z "${PORTSH_ARGV0:-}" ] && [ -n "$_a0" ]; then
+    case $_a0 in /*) PORTSH_ARGV0=$_a0 ;; ./*) PORTSH_ARGV0=$PWD/${_a0#./} ;; *) PORTSH_ARGV0=$PWD/$_a0 ;; esac
+    export PORTSH_ARGV0
+  fi
   run_forms
 }
 
@@ -2698,48 +2726,69 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:getenv" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:argv0" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
 R="S:t"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:setenv" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:run-argv" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
 R="S:t"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:exit" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:run-capture-argv" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
 R="S:t"; ACTION=ret; return
 ;;
 26)
-if [ "${p0}" = "S:make-dir" ]; then PC=27; else PC=28; fi
+if [ "${p0}" = "S:getenv" ]; then PC=27; else PC=28; fi
 ACTION=jump; return
 ;;
 27)
 R="S:t"; ACTION=ret; return
 ;;
 28)
-if [ "${p0}" = "S:delete-file" ]; then PC=29; else PC=30; fi
+if [ "${p0}" = "S:setenv" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
 29)
 R="S:t"; ACTION=ret; return
 ;;
 30)
-if [ "${p0}" = "S:copy-file" ]; then PC=31; else PC=32; fi
+if [ "${p0}" = "S:exit" ]; then PC=31; else PC=32; fi
 ACTION=jump; return
 ;;
 31)
 R="S:t"; ACTION=ret; return
 ;;
 32)
+if [ "${p0}" = "S:make-dir" ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+R="S:t"; ACTION=ret; return
+;;
+34)
+if [ "${p0}" = "S:delete-file" ]; then PC=35; else PC=36; fi
+ACTION=jump; return
+;;
+35)
+R="S:t"; ACTION=ret; return
+;;
+36)
+if [ "${p0}" = "S:copy-file" ]; then PC=37; else PC=38; fi
+ACTION=jump; return
+;;
+37)
+R="S:t"; ACTION=ret; return
+;;
+38)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2931,6 +2980,13 @@ ACTION=jump; return
 R="T:__p_symbol"; ACTION=ret; return
 ;;
 36)
+if [ "${p0}" = "S:print" ]; then PC=37; else PC=38; fi
+ACTION=jump; return
+;;
+37)
+R="T:__p_print"; ACTION=ret; return
+;;
+38)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -16064,6 +16120,18 @@ fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE___p_print=1
+__p_print() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_print))
+NP=1
+case $PC in
+0)
+print "${p0}"
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
 # src/stdlib-aot.sh -- AOT-compiled applicative stdlib (native sh), GENERATED by
 # tools/build-stdlib-aot.sh from src/stdlib.lisp via comp-sh.sh. Embedded in the eval/load runtimes.
 SIZE_not=1
@@ -17237,6 +17305,10 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# argv0: the path of the program the user invoked (a packed app = the app file itself; portsh.cmd
+# PROG.lisp = the program file, absolutized). Set by the front-end / entry dispatch into
+# PORTSH_ARGV0; forward slashes on both hosts. REPL / unset -> nil.
+argv0()  { if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi; }
 # setenv: ""-value UNSETS (cmd cannot store an empty env var -- mirror getenv's empty==unset==nil);
 # same name guard. Children of run/run-capture inherit. exit_prim: terminate with the given code
 # (the fn cannot be named `exit` in sh -- it would shadow the builtin and recurse; brt maps it).
@@ -17256,6 +17328,24 @@ getenv() { _gn=${1#T:}
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str). run/run-capture
 # EXECUTE a host command (live effects); read_str parses a source string.
 run_cmd()     { sh -c "$1"; R="I:$?"; }
+# run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
+# argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run
+# operative's joined literal tokens: spaces in tokens survive.
+ra_build() { _ra_c=""; _ra_l=$1
+             while [ "$_ra_l" != NIL ]; do
+               hp_car "$_ra_l"; _ra_s=${R#??}; _ra_q=""
+               while case $_ra_s in *\'*) true ;; *) false ;; esac; do
+                 _ra_q="$_ra_q${_ra_s%%\'*}'\\''"; _ra_s=${_ra_s#*\'}
+               done
+               _ra_c="$_ra_c '$_ra_q$_ra_s'"
+               hp_cdr "$_ra_l"; _ra_l=$R
+             done; }
+run_argv()         { ra_build "$1"; sh -c "$_ra_c"; R="I:$?"; }
+run_capture_argv() { ra_build "$1"; _rca_out=$(sh -c "$_ra_c"); _rca_acc=NIL
+while IFS= read -r _rca_ln || [ -n "$_rca_ln" ]; do hp_cons "T:$_rca_ln" "$_rca_acc"; _rca_acc=$R; done <<RCA_EOF
+$_rca_out
+RCA_EOF
+_rca_rev=NIL; while [ "$_rca_acc" != NIL ]; do hp_car "$_rca_acc"; _rca_v=$R; hp_cdr "$_rca_acc"; _rca_acc=$R; hp_cons "$_rca_v" "$_rca_rev"; _rca_rev=$R; done; R=$_rca_rev; }
 run_capture() { _rc_out=$(sh -c "$1"); _rc_acc=NIL
 while IFS= read -r _rc_ln || [ -n "$_rc_ln" ]; do hp_cons "T:$_rc_ln" "$_rc_acc"; _rc_acc=$R; done <<RC_EOF
 $_rc_out
@@ -17405,9 +17495,26 @@ if grep -q "^__PORTSH_PAYLOAD__$" "$0" 2>/dev/null; then
   _pd=$(mktemp -d); trap 'rm -rf "$_pd"' EXIT
   sed -n "/^$_pb/,/^$_pe/p" "$0" | sed '1d;$d' | base64 -d | tar xf - -C "$_pd" 2>/dev/null
   PORTSH_SCRIPT=${PORTSH_SCRIPT-1}; export PORTSH_SCRIPT
+  # (argv0) = the app itself (absolutized), NOT the temp-extracted prog.lisp
+  case $PORTSH_SELF in /*) PORTSH_ARGV0=$PORTSH_SELF ;; ./*) PORTSH_ARGV0=$PWD/${PORTSH_SELF#./} ;; *) PORTSH_ARGV0=$PWD/$PORTSH_SELF ;; esac
+  export PORTSH_ARGV0; _pkfe=1
   set -- "$_pd/prog.lisp" "$@"
 fi
+# the cook guard must not leak into run children: a NESTED portsh.cmd inheriting
+# PORTSH_COOKED=1 would skip its own cooking and execute its raw CRLF file. PORTSH_SELF
+# has served the pack/packed arms above; drop both before any user code can spawn.
+unset PORTSH_COOKED PORTSH_SELF
 if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi
+# file runs are script mode on both halves (cmd sets PORTSH_SCRIPT=1 at :prun)
+PORTSH_SCRIPT=${PORTSH_SCRIPT-1}; export PORTSH_SCRIPT
+# OUTER front end: recapture argv fresh, mirroring the cmd half (which always recaptures).
+# PORTSH_ARGC/PORTSH_ARGV_*/PORTSH_ARGV0 inherited from a PARENT portsh process (a nested
+# run) would otherwise satisfy the loader guards and leak the parent argv into this program.
+# The packed arm above sets the app argv0 itself (_pkfe=1). Bare load-sh.sh keeps the
+# guarded protocol for front-end delegation.
+unset PORTSH_ARGC
+[ -n "${_pkfe:-}" ] || unset PORTSH_ARGV0
+
 # capture user args (after the program path) for (argv), unless a front-end already did
 if [ -z "${PORTSH_ARGC:-}" ]; then
   _an=0; _askip=1
@@ -17416,6 +17523,12 @@ if [ -z "${PORTSH_ARGC:-}" ]; then
     eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
   done
   PORTSH_ARGC=$_an; export PORTSH_ARGC
+fi
+# (argv0): the program path, absolutized -- unless a front-end already chose (a packed app's argv0
+# is the app itself, not the temp-extracted prog.lisp).
+if [ -z "${PORTSH_ARGV0:-}" ]; then
+  case $1 in /*) PORTSH_ARGV0=$1 ;; *) PORTSH_ARGV0=$PWD/$1 ;; esac
+  export PORTSH_ARGV0
 fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms
@@ -17471,11 +17584,11 @@ rm -f "$_tmp"
 exit $?
 :CMDSTART
 @echo off
-rem ============ portsh cmd OSR front-end (build 8ec84e5cd378) -- generated by build-polyglot.sh ============
+rem ============ portsh cmd OSR front-end (build 744204043004) -- generated by build-polyglot.sh ============
 if "%~1"=="__extract" goto :PSELFX
 if "%~1"=="__warm" goto :PWARM
 setlocal enabledelayedexpansion
-set "CACHE=%LOCALAPPDATA%\portsh\8ec84e5cd378"
+set "CACHE=%LOCALAPPDATA%\portsh\744204043004"
 if exist "%CACHE%\.ok" goto pcache_ok
 rem tooling cold: self-extract the embedded comp-cmd tree, once per build (atomic: tmp -> move -> .ok)
 if exist "%CACHE%.tmp" rmdir /s /q "%CACHE%.tmp"
@@ -17490,6 +17603,8 @@ findstr /b /x /c:"__PORTSH_PAYLOAD__" "%~f0" >nul 2>&1 && goto :PPACKED
 if /i "%~1"=="pack" goto :PPACK
 if "%~1"=="" goto prepl
 set "PROG=%~f1"
+rem (argv0) = the program file, forward slashes (matches the sh half's loader default)
+set "PORTSH_ARGV0=!PROG:\=/!"
 rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv) -- env
 rem vars inherit into the interp child, so nothing needs re-quoting downstream.
 set "PORTSH_ARGC=0"
@@ -17575,6 +17690,9 @@ rem time -> set PORTSH_OSRDIR and interp-cmd takes the WARM fast path (in_warmru
 rem unix: source only) fall through to the normal cold->warm cache path. ALL args are the program's argv.
 set "PKD=%TEMP%\pk_run_!RANDOM!!RANDOM!"
 mkdir "!PKD!"
+rem (argv0) = the app itself, forward slashes (matches the sh half's packed arm)
+set "PKA0=%~f0"
+set "PORTSH_ARGV0=!PKA0:\=/!"
 certutil -decode "%~f0" "!PKD!\b.tar" >nul 2>&1
 pushd "!PKD!" & tar xf b.tar & del b.tar & popd
 set "PORTSH_ARGC=0"
@@ -17612,7 +17730,7 @@ set "WPROG=%~2"
 set "WPUB=%~3"
 set "WSTG=%~4"
 set "WTASK=%~5"
-set "PATH=%LOCALAPPDATA%\portsh\8ec84e5cd378;!PATH!"
+set "PATH=%LOCALAPPDATA%\portsh\744204043004;!PATH!"
 if exist "!WSTG!" rmdir /s /q "!WSTG!"
 mkdir "!WSTG!"
 if not exist "!WPUB!" mkdir "!WPUB!"
@@ -18071,6 +18189,15 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "R=!zt1!" ^& set "ACTION=ret" ^& goto :eof
 )
+>"%PSDIR%\__p_print_pc0.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "A1=!p0!"
+echo(call print.cmd
+echo(set "zt0=!R!"
+echo(set "R=!zt0!" ^& set "ACTION=ret" ^& goto :eof
+)
 >"%PSDIR%\__p_string_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
@@ -18371,7 +18498,7 @@ echo(if !wll!==NIL ^(set R=S:t ^& goto :eof^)
 echo(set wli=!wll:~2!
 echo(call :rdfield car !wli!
 echo(set wlline=!R:~2!
-echo(call :wl_emit_c !wlf!
+echo(call :wl_emit_c "!wlf!"
 echo(call :rdfield cdr !wli!
 echo(set wll=!R!
 echo(goto al_loop_c
@@ -18382,13 +18509,15 @@ echo(rem cmd redirection needs backslashes; the codegen builds paths with '/' ^(
 echo(rem so normalise here. The line write ^(wl_emit_c^) gets the already-normalised wlf.
 echo(set "wlf=!wlf:/=\!"
 echo(set wll=!A2!
-echo(break ^> !wlf!
+echo(rem QUOTED path everywhere below: an unquoted spacey path split at the redirect/call ^(the kernel's
+echo(rem wl_emit always quoted; this compiled-path copy didn't -- latent until spacey filenames^).
+echo(break ^> "!wlf!"
 echo(:wl_loop_c
 echo(if !wll!==NIL ^(set R=S:t ^& goto :eof^)
 echo(set wli=!wll:~2!
 echo(call :rdfield car !wli!
 echo(set wlline=!R:~2!
-echo(call :wl_emit_c !wlf!
+echo(call :wl_emit_c "!wlf!"
 echo(call :rdfield cdr !wli!
 echo(set wll=!R!
 echo(goto wl_loop_c
@@ -18400,7 +18529,7 @@ echo(rem 0x01-^>!, 0x02-^>%%, and 0x08-^>" inline at the set/p (an unquoted prom
 echo(rem bare ", verified). No quoted prompt => a " in the line writes fine.
 echo(:wl_emit_c
 echo(if defined wlline goto wl_enc_c
-echo(^>^>%%~1 echo^(
+echo(^>^>"%%~1" echo^(
 echo(goto :eof
 echo(:wl_enc_c
 echo(setlocal enableDelayedExpansion
@@ -18413,8 +18542,8 @@ echo(set "w=!w:=%%%%!"
 echo(endlocal ^& set "wcar=%%w%%"
 echo(setlocal disableDelayedExpansion
 echo(set "wd=%%wcar:=!%%"
-echo(^>^>%%~1 ^<nul set /p =%%wd:="%%
-echo(^>^>%%~1 echo^(
+echo(^>^>"%%~1" ^<nul set /p =%%wd:="%%
+echo(^>^>"%%~1" echo^(
 echo(endlocal
 echo(goto :eof
 echo(rem :print -- A1 = a tagged value. Render it ^(byte-identical to the interpreter's print /
@@ -18636,6 +18765,12 @@ echo(call set "avV=%%%%PORTSH_ARGV_!avI!%%%%"
 echo(call :rl_cons "T:!avV!" "!avL!"
 echo(set "avL=!R!"
 echo(goto av_loop
+echo(rem :argv0 -- R = T:^<program path^> ^(the file the user invoked: a packed app = the app itself^). Set
+echo(rem by the front-end / engine arg capture into PORTSH_ARGV0, forward slashes. REPL/unset -^> NIL.
+echo(:argv0
+echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
 echo(rem :getenv -- A1 = T:name. R = T:value, or NIL when unset ^(cmd cannot store an empty env var, so
 echo(rem empty == unset == nil -- the sh side matches^). Name must be A-Za-z0-9_ ^(mirror sh^). The value is
 echo(rem read from `set ^<name^>` output so ^& ^| ^< ^> survive; ! is best-effort ^(delayed expansion^).
@@ -18678,6 +18813,51 @@ echo(set "RCMD=!RCMD:^&=&!"
 echo(set "RCMD=!RCMD:^|=|!"
 echo(set "RCMD=!RCMD:^<=<!"
 echo(set "RCMD=!RCMD:^>=>!"
+echo(goto :eof
+echo(rem :run-argv -- A1 = a LIST of tokens ^(T:/I:/S:^). Each element becomes EXACTLY ONE child argument
+echo(rem ^(double-quoted; a portsh string cannot contain a quote, so no escaping is needed^) -- the
+echo(rem execv-style counterpart of :run_cmd's joined literal string: spaces in tokens survive.
+echo(rem ! and %% remain best-effort on cmd ^(delayed expansion^); see docs/limitations.md.
+echo(:run-argv
+echo(call :rav_build
+echo(cmd /c "!RAC!"
+echo(set "R=I:!errorlevel!"
+echo(goto :eof
+echo(:rav_build
+echo(set "RAC="
+echo(set "ravFIRST=1"
+echo(set "ravL=!A1!"
+echo(:rav_loop
+echo(if "!ravL!"=="NIL" goto :eof
+echo(set "rav_i=!ravL:~2!"
+echo(call :rdfield car !rav_i!
+echo(set "ravT=!R:~2!"
+echo(if not "!ravFIRST!"=="1" goto rav_arg
+echo(set "ravFIRST=0"
+echo(rem the COMMAND token: cmd's INTERNAL commands ^(mkdir/rmdir/echo/...^) are not recognized when
+echo(rem quoted -- quote it only when it needs quoting ^(contains a space; an internal command never
+echo(rem does^). Arguments are always quoted ^(quoted args to internal commands are fine^).
+echo(if not "!ravT: =!"=="!ravT!" goto rav_arg
+echo(set "RAC=!ravT!"
+echo(goto rav_next
+echo(:rav_arg
+echo(set "RAC=!RAC! "!ravT!""
+echo(:rav_next
+echo(call :rdfield cdr !rav_i!
+echo(set "ravL=!R!"
+echo(goto rav_loop
+echo(rem :run-capture-argv -- :run-argv's capture twin ^(tail mirrors :run_capture^).
+echo(:run-capture-argv
+echo(call :rav_build
+echo(^> "%%TEMP%%\portsh_rc1_!HD!.txt" 2^>^&1 cmd /c "!RAC!"
+echo(type "%%TEMP%%\portsh_rc1_!HD!.txt" ^| find /v /n "" ^> "%%TEMP%%\portsh_rc_!HD!.txt"
+echo(set "rcAcc=NIL"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rc_!HD!.txt"^) do ^(
+echo(  set "rcLn=%%%%L" ^& set "rcLn=!rcLn:*]=!"
+echo(  call :rl_cons "T:!rcLn!" "!rcAcc!"
+echo(  set "rcAcc=!R!"
+echo(^)
+echo(call :rl_reverse "!rcAcc!"
 echo(goto :eof
 echo(rem :run_capture -- like :run_cmd but capture stdout+stderr as a line-list ^(mirrors po_runcap exactly:
 echo(rem redirect-FIRST with 2^>^&1 so no trailing token absorbs into the command line; then prefix every line
@@ -19194,6 +19374,9 @@ echo(set "R=!zt8!" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\argv.cmd" (
 echo(@set "RTENTRY=argv" ^& call _rt.cmd %%*
+)
+>"%PSDIR%\argv0.cmd" (
+echo(@set "RTENTRY=argv0" ^& call _rt.cmd %%*
 )
 >"%PSDIR%\arith-opzzQ_pc0.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
@@ -20376,7 +20559,7 @@ echo(set "PC=4" ^& set "ACTION=jump" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:getenv" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:argv0" ^(set "PC=21" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=22" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc21.cmd" (
@@ -20389,7 +20572,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:setenv" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:run-argv" ^(set "PC=23" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=24" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc23.cmd" (
@@ -20402,7 +20585,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:exit" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:run-capture-argv" ^(set "PC=25" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=26" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc25.cmd" (
@@ -20415,7 +20598,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:make-dir" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:getenv" ^(set "PC=27" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=28" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc27.cmd" (
@@ -20428,7 +20611,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:delete-file" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:setenv" ^(set "PC=29" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=30" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc29.cmd" (
@@ -20447,7 +20630,7 @@ echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
-echo(if "!p0!"=="S:copy-file" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
+echo(if "!p0!"=="S:exit" ^(set "PC=31" ^& set "ACTION=jump" ^& goto :eof^)
 echo(set "PC=32" ^& set "ACTION=jump" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc31.cmd" (
@@ -20457,6 +20640,45 @@ echo(set "NP=1"
 echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\builtinzzQ_pc32.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:make-dir" ^(set "PC=33" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=34" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc33.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc34.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:delete-file" ^(set "PC=35" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=36" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc35.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc36.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(if "!p0!"=="S:copy-file" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=38" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc37.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=S:t" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\builtinzzQ_pc38.cmd" (
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
@@ -21861,6 +22083,16 @@ echo(set /a PORTSH_ARGC+=1
 echo(shift /2
 echo(goto k_args
 echo(:k_args_done
+echo(rem ^(argv0^): the invoked program. An explicit file arg wins ^(portsh-full.cmd ALWAYS carries a
+echo(rem payload -- the bundled stdlib -- so payload presence alone can't mean "concat app"^); with no
+echo(rem file arg, a payload-carrying self IS the app. Forward slashes ^(matches the sh kernel^). A
+echo(rem front-end's pre-set value wins.
+echo(if defined PORTSH_ARGV0 goto k_a0_done
+echo(set "KA0="
+echo(if not "%%~1"=="" set "KA0=%%~f1"
+echo(if "!KA0!"=="" if not "%%MLINE%%"=="0" set "KA0=%%~f0"
+echo(if not "!KA0!"=="" set "PORTSH_ARGV0=!KA0:\=/!"
+echo(:k_a0_done
 echo(if not "%%~1"=="" call :feedfile "%%~1" 0
 echo(:done_boot
 echo(exit /b 0
@@ -22582,6 +22814,9 @@ echo(if "!paN!"=="hreset" goto pa_hreset
 echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
+echo(if "!paN!"=="argv0" goto pa_argv0
+echo(if "!paN!"=="run-argv" goto pa_runargv
+echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
 echo(if "!paN!"=="setenv" goto pa_setenv
 echo(if "!paN!"=="exit" goto pa_exit
@@ -22647,6 +22882,54 @@ echo(call set "paAvV=%%%%PORTSH_ARGV_!paAi!%%%%"
 echo(call :hp_cons "T:!paAvV!" "!paAv!"
 echo(set "paAv=!R!"
 echo(goto pa_av_loop
+echo(:pa_argv0
+echo(rem R = T:^<program path^> ^(a concat app = the app itself^), from PORTSH_ARGV0 ^(captured at boot^)
+echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
+echo(:pa_runargv
+echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
+echo(rem contain a quote^) -- the execv-style counterpart of po_run's joined tokens. !/%% best-effort.
+echo(call :hp_car "%%~3"
+echo(set "paRAL=!R!"
+echo(call :pa_rabuild
+echo(cmd /c "!paRAC!"
+echo(set "R=I:!errorlevel!"
+echo(goto :eof
+echo(:pa_rabuild
+echo(set "paRAC="
+echo(set "paRAF=1"
+echo(:pa_ra_loop
+echo(if "!paRAL!"=="NIL" goto :eof
+echo(call :hp_car "!paRAL!"
+echo(set "paRAT=!R:~2!"
+echo(if not "!paRAF!"=="1" goto pa_ra_arg
+echo(set "paRAF=0"
+echo(rem command token: cmd internals are not recognized when quoted -- quote only if it contains a space
+echo(if not "!paRAT: =!"=="!paRAT!" goto pa_ra_arg
+echo(set "paRAC=!paRAT!"
+echo(goto pa_ra_next
+echo(:pa_ra_arg
+echo(set "paRAC=!paRAC! "!paRAT!""
+echo(:pa_ra_next
+echo(call :hp_cdr "!paRAL!"
+echo(set "paRAL=!R!"
+echo(goto pa_ra_loop
+echo(:pa_runcapargv
+echo(rem ^(run-capture-argv LIST^): pa_runargv's capture twin ^(tail mirrors po_runcap^)
+echo(call :hp_car "%%~3"
+echo(set "paRAL=!R!"
+echo(call :pa_rabuild
+echo(^> "%%TEMP%%\portsh_rc1_!HD!.txt" 2^>^&1 cmd /c "!paRAC!"
+echo(type "%%TEMP%%\portsh_rc1_!HD!.txt" ^| find /v /n "" ^> "%%TEMP%%\portsh_rc_!HD!.txt"
+echo(set "rcAcc=NIL"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rc_!HD!.txt"^) do ^(
+echo(  set "rcLn=%%%%L" ^& set "rcLn=!rcLn:*]=!"
+echo(  call :hp_cons "T:!rcLn!" "!rcAcc!"
+echo(  set "rcAcc=!R!"
+echo(^)
+echo(call :list_reverse "!rcAcc!"
+echo(goto :eof
 echo(:pa_exit
 echo(call :hp_car "%%~3"
 echo(exit !R:~2!
@@ -23104,6 +23387,9 @@ echo(call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
+echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
+echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 echo(call :env_define "!GLOBAL!" "S:setenv" "R:setenv"
 echo(call :env_define "!GLOBAL!" "S:exit" "R:exit"
@@ -28900,6 +29186,16 @@ echo(set /a PORTSH_ARGC+=1
 echo(shift /2
 echo(goto k_args
 echo(:k_args_done
+echo(rem ^(argv0^): the invoked program. An explicit file arg wins ^(portsh-full.cmd ALWAYS carries a
+echo(rem payload -- the bundled stdlib -- so payload presence alone can't mean "concat app"^); with no
+echo(rem file arg, a payload-carrying self IS the app. Forward slashes ^(matches the sh kernel^). A
+echo(rem front-end's pre-set value wins.
+echo(if defined PORTSH_ARGV0 goto k_a0_done
+echo(set "KA0="
+echo(if not "%%~1"=="" set "KA0=%%~f1"
+echo(if "!KA0!"=="" if not "%%MLINE%%"=="0" set "KA0=%%~f0"
+echo(if not "!KA0!"=="" set "PORTSH_ARGV0=!KA0:\=/!"
+echo(:k_a0_done
 echo(goto :in_main
 echo(:hp_cons
 echo(set "hca=%%~1" ^& set "hcd=%%~2"
@@ -29090,6 +29386,8 @@ echo(set /a PORTSH_ARGC+=1
 echo(shift /2
 echo(goto in_args
 echo(:in_args_done
+echo(rem ^(argv0^): the program path, forward slashes -- unless a front-end already chose.
+echo(if not defined PORTSH_ARGV0 ^(set "INA0=%%~f1" ^& set "PORTSH_ARGV0=!INA0:\=/!"^)
 echo(rem WARM FAST PATH: the program cache has the thunk run-list -^> execute the program STRAIGHT from the
 echo(rem cache ^(program consts + compiled thunks on el_drive^). No reader, no mexpand, no lift, no register --
 echo(rem the pipeline is pure waste when every fn is already compiled. Content-hash keying makes this safe
@@ -30005,6 +30303,9 @@ echo(if "!paN!"=="hreset" goto pa_hreset
 echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
+echo(if "!paN!"=="argv0" goto pa_argv0
+echo(if "!paN!"=="run-argv" goto pa_runargv
+echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
 echo(if "!paN!"=="setenv" goto pa_setenv
 echo(if "!paN!"=="exit" goto pa_exit
@@ -30070,6 +30371,54 @@ echo(call set "paAvV=%%%%PORTSH_ARGV_!paAi!%%%%"
 echo(call :hp_cons "T:!paAvV!" "!paAv!"
 echo(set "paAv=!R!"
 echo(goto pa_av_loop
+echo(:pa_argv0
+echo(rem R = T:^<program path^> ^(a concat app = the app itself^), from PORTSH_ARGV0 ^(captured at boot^)
+echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
+echo(:pa_runargv
+echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
+echo(rem contain a quote^) -- the execv-style counterpart of po_run's joined tokens. !/%% best-effort.
+echo(call :hp_car "%%~3"
+echo(set "paRAL=!R!"
+echo(call :pa_rabuild
+echo(cmd /c "!paRAC!"
+echo(set "R=I:!errorlevel!"
+echo(goto :eof
+echo(:pa_rabuild
+echo(set "paRAC="
+echo(set "paRAF=1"
+echo(:pa_ra_loop
+echo(if "!paRAL!"=="NIL" goto :eof
+echo(call :hp_car "!paRAL!"
+echo(set "paRAT=!R:~2!"
+echo(if not "!paRAF!"=="1" goto pa_ra_arg
+echo(set "paRAF=0"
+echo(rem command token: cmd internals are not recognized when quoted -- quote only if it contains a space
+echo(if not "!paRAT: =!"=="!paRAT!" goto pa_ra_arg
+echo(set "paRAC=!paRAT!"
+echo(goto pa_ra_next
+echo(:pa_ra_arg
+echo(set "paRAC=!paRAC! "!paRAT!""
+echo(:pa_ra_next
+echo(call :hp_cdr "!paRAL!"
+echo(set "paRAL=!R!"
+echo(goto pa_ra_loop
+echo(:pa_runcapargv
+echo(rem ^(run-capture-argv LIST^): pa_runargv's capture twin ^(tail mirrors po_runcap^)
+echo(call :hp_car "%%~3"
+echo(set "paRAL=!R!"
+echo(call :pa_rabuild
+echo(^> "%%TEMP%%\portsh_rc1_!HD!.txt" 2^>^&1 cmd /c "!paRAC!"
+echo(type "%%TEMP%%\portsh_rc1_!HD!.txt" ^| find /v /n "" ^> "%%TEMP%%\portsh_rc_!HD!.txt"
+echo(set "rcAcc=NIL"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rc_!HD!.txt"^) do ^(
+echo(  set "rcLn=%%%%L" ^& set "rcLn=!rcLn:*]=!"
+echo(  call :hp_cons "T:!rcLn!" "!rcAcc!"
+echo(  set "rcAcc=!R!"
+echo(^)
+echo(call :list_reverse "!rcAcc!"
+echo(goto :eof
 echo(:pa_exit
 echo(call :hp_car "%%~3"
 echo(exit !R:~2!
@@ -30527,6 +30876,9 @@ echo(call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
+echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
+echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 echo(call :env_define "!GLOBAL!" "S:setenv" "R:setenv"
 echo(call :env_define "!GLOBAL!" "S:exit" "R:exit"
@@ -30777,6 +31129,9 @@ echo(if "!IPO!"=="S:number?" goto ipr_num
 echo(if "!IPO!"=="S:not" goto ipr_null
 echo(if "!IPO!"=="S:type-of" goto ipr_typeof
 echo(if "!IPO!"=="S:argv" goto ipr_argv
+echo(if "!IPO!"=="S:argv0" goto ipr_argv0
+echo(if "!IPO!"=="S:run-argv" goto ipr_runargv
+echo(if "!IPO!"=="S:run-capture-argv" goto ipr_runcapargv
 echo(if "!IPO!"=="S:getenv" goto ipr_getenv
 echo(if "!IPO!"=="S:setenv" goto ipr_setenv
 echo(if "!IPO!"=="S:exit" goto ipr_exit
@@ -30853,6 +31208,20 @@ echo(set "IPV=!R!"
 echo(call ips.cmd ^& goto :eof
 echo(:ipr_argv
 echo(call argv.cmd
+echo(set "IPV=!R!"
+echo(call ips.cmd ^& goto :eof
+echo(:ipr_argv0
+echo(call argv0.cmd
+echo(set "IPV=!R!"
+echo(call ips.cmd ^& goto :eof
+echo(:ipr_runargv
+echo(set "A1=!ipa!"
+echo(call run-argv.cmd
+echo(set "IPV=!R!"
+echo(call ips.cmd ^& goto :eof
+echo(:ipr_runcapargv
+echo(set "A1=!ipa!"
+echo(call run-capture-argv.cmd
 echo(set "IPV=!R!"
 echo(call ips.cmd ^& goto :eof
 echo(:ipr_getenv
@@ -31213,6 +31582,7 @@ echo(if "!IRV!"=="not" set "R=__p_not"
 echo(if "!IRV!"=="number?" set "R=__p_number"
 echo(if "!IRV!"=="string?" set "R=__p_string"
 echo(if "!IRV!"=="symbol?" set "R=__p_symbol"
+echo(if "!IRV!"=="print" set "R=__p_print"
 echo(goto :eof
 )
 >"%PSDIR%\isprim.cmd" (
@@ -31238,6 +31608,9 @@ echo(if "!IPO!"=="S:!GT!" set "R=1"
 echo(if "!IPO!"=="S:!GT!=" set "R=1"
 echo(if "!IPO!"=="S:type-of" set "R=1"
 echo(if "!IPO!"=="S:argv" set "R=1"
+echo(if "!IPO!"=="S:argv0" set "R=1"
+echo(if "!IPO!"=="S:run-argv" set "R=1"
+echo(if "!IPO!"=="S:run-capture-argv" set "R=1"
 echo(if "!IPO!"=="S:getenv" set "R=1"
 echo(if "!IPO!"=="S:setenv" set "R=1"
 echo(if "!IPO!"=="S:exit" set "R=1"
@@ -35474,6 +35847,16 @@ echo(set /a PORTSH_ARGC+=1
 echo(shift /2
 echo(goto k_args
 echo(:k_args_done
+echo(rem ^(argv0^): the invoked program. An explicit file arg wins ^(portsh-full.cmd ALWAYS carries a
+echo(rem payload -- the bundled stdlib -- so payload presence alone can't mean "concat app"^); with no
+echo(rem file arg, a payload-carrying self IS the app. Forward slashes ^(matches the sh kernel^). A
+echo(rem front-end's pre-set value wins.
+echo(if defined PORTSH_ARGV0 goto k_a0_done
+echo(set "KA0="
+echo(if not "%%~1"=="" set "KA0=%%~f1"
+echo(if "!KA0!"=="" if not "%%MLINE%%"=="0" set "KA0=%%~f0"
+echo(if not "!KA0!"=="" set "PORTSH_ARGV0=!KA0:\=/!"
+echo(:k_a0_done
 echo(goto :load_main
 echo(:done_boot
 echo(exit /b 0
@@ -36195,6 +36578,9 @@ echo(if "!paN!"=="hreset" goto pa_hreset
 echo(if "!paN!"=="read" goto pa_read
 echo(if "!paN!"=="type-of" goto pa_typeof
 echo(if "!paN!"=="argv" goto pa_argv
+echo(if "!paN!"=="argv0" goto pa_argv0
+echo(if "!paN!"=="run-argv" goto pa_runargv
+echo(if "!paN!"=="run-capture-argv" goto pa_runcapargv
 echo(if "!paN!"=="getenv" goto pa_getenv
 echo(if "!paN!"=="setenv" goto pa_setenv
 echo(if "!paN!"=="exit" goto pa_exit
@@ -36260,6 +36646,54 @@ echo(call set "paAvV=%%%%PORTSH_ARGV_!paAi!%%%%"
 echo(call :hp_cons "T:!paAvV!" "!paAv!"
 echo(set "paAv=!R!"
 echo(goto pa_av_loop
+echo(:pa_argv0
+echo(rem R = T:^<program path^> ^(a concat app = the app itself^), from PORTSH_ARGV0 ^(captured at boot^)
+echo(if not defined PORTSH_ARGV0 ^(set "R=NIL" ^& goto :eof^)
+echo(set "R=T:!PORTSH_ARGV0!"
+echo(goto :eof
+echo(:pa_runargv
+echo(rem ^(run-argv LIST^): each element EXACTLY ONE double-quoted child argument ^(a portsh string cannot
+echo(rem contain a quote^) -- the execv-style counterpart of po_run's joined tokens. !/%% best-effort.
+echo(call :hp_car "%%~3"
+echo(set "paRAL=!R!"
+echo(call :pa_rabuild
+echo(cmd /c "!paRAC!"
+echo(set "R=I:!errorlevel!"
+echo(goto :eof
+echo(:pa_rabuild
+echo(set "paRAC="
+echo(set "paRAF=1"
+echo(:pa_ra_loop
+echo(if "!paRAL!"=="NIL" goto :eof
+echo(call :hp_car "!paRAL!"
+echo(set "paRAT=!R:~2!"
+echo(if not "!paRAF!"=="1" goto pa_ra_arg
+echo(set "paRAF=0"
+echo(rem command token: cmd internals are not recognized when quoted -- quote only if it contains a space
+echo(if not "!paRAT: =!"=="!paRAT!" goto pa_ra_arg
+echo(set "paRAC=!paRAT!"
+echo(goto pa_ra_next
+echo(:pa_ra_arg
+echo(set "paRAC=!paRAC! "!paRAT!""
+echo(:pa_ra_next
+echo(call :hp_cdr "!paRAL!"
+echo(set "paRAL=!R!"
+echo(goto pa_ra_loop
+echo(:pa_runcapargv
+echo(rem ^(run-capture-argv LIST^): pa_runargv's capture twin ^(tail mirrors po_runcap^)
+echo(call :hp_car "%%~3"
+echo(set "paRAL=!R!"
+echo(call :pa_rabuild
+echo(^> "%%TEMP%%\portsh_rc1_!HD!.txt" 2^>^&1 cmd /c "!paRAC!"
+echo(type "%%TEMP%%\portsh_rc1_!HD!.txt" ^| find /v /n "" ^> "%%TEMP%%\portsh_rc_!HD!.txt"
+echo(set "rcAcc=NIL"
+echo(for /f "usebackq delims=" %%%%L in ^("%%TEMP%%\portsh_rc_!HD!.txt"^) do ^(
+echo(  set "rcLn=%%%%L" ^& set "rcLn=!rcLn:*]=!"
+echo(  call :hp_cons "T:!rcLn!" "!rcAcc!"
+echo(  set "rcAcc=!R!"
+echo(^)
+echo(call :list_reverse "!rcAcc!"
+echo(goto :eof
 echo(:pa_exit
 echo(call :hp_car "%%~3"
 echo(exit !R:~2!
@@ -36717,6 +37151,9 @@ echo(call :env_define "!GLOBAL!" "S:hreset" "R:hreset"
 echo(call :env_define "!GLOBAL!" "S:read" "R:read"
 echo(call :env_define "!GLOBAL!" "S:type-of" "R:type-of"
 echo(call :env_define "!GLOBAL!" "S:argv" "R:argv"
+echo(call :env_define "!GLOBAL!" "S:argv0" "R:argv0"
+echo(call :env_define "!GLOBAL!" "S:run-argv" "R:run-argv"
+echo(call :env_define "!GLOBAL!" "S:run-capture-argv" "R:run-capture-argv"
 echo(call :env_define "!GLOBAL!" "S:getenv" "R:getenv"
 echo(call :env_define "!GLOBAL!" "S:setenv" "R:setenv"
 echo(call :env_define "!GLOBAL!" "S:exit" "R:exit"
@@ -36747,6 +37184,8 @@ echo(set /a PORTSH_ARGC+=1
 echo(shift /2
 echo(goto lc_args
 echo(:lc_args_done
+echo(rem ^(argv0^): the program path, forward slashes -- unless a front-end already chose.
+echo(if not defined PORTSH_ARGV0 ^(set "LCA0=%%~f1" ^& set "PORTSH_ARGV0=!LCA0:\=/!"^)
 echo(rem read ALL top-level forms into ONE list: pre-open an outer list on the parse stack so every
 echo(rem top-level datum accumulates at DEPTH^>=1 ^(never eval'd^), then feed a closing '^)' so emit_top at
 echo(rem DEPTH 0 captures RDRESULT = ^(form1 form2 ...^) in source order.
@@ -48224,6 +48663,19 @@ echo(set "R=T:__p_symbol" ^& set "ACTION=ret" ^& goto :eof
 echo(call set "p0=%%%%F!FP!%%%%"
 echo(set /a FT=!FP!+1
 echo(set "NP=1"
+echo(if "!p0!"=="S:print" ^(set "PC=37" ^& set "ACTION=jump" ^& goto :eof^)
+echo(set "PC=38" ^& set "ACTION=jump" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc37.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
+echo(set "R=T:__p_print" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\prim-wrap_pc38.cmd" (
+echo(call set "p0=%%%%F!FP!%%%%"
+echo(set /a FT=!FP!+1
+echo(set "NP=1"
 echo(set "R=NIL" ^& set "ACTION=ret" ^& goto :eof
 )
 >"%PSDIR%\prim-wrap_pc4.cmd" (
@@ -48694,6 +49146,12 @@ echo(set /a FT=!FP!+1
 echo(set "NP=1"
 echo(set "zt4=!R!"
 echo(set "R=!zt4!" ^& set "ACTION=ret" ^& goto :eof
+)
+>"%PSDIR%\run-argv.cmd" (
+echo(@set "RTENTRY=run-argv" ^& call _rt.cmd %%*
+)
+>"%PSDIR%\run-capture-argv.cmd" (
+echo(@set "RTENTRY=run-capture-argv" ^& call _rt.cmd %%*
 )
 >"%PSDIR%\run_capture.cmd" (
 echo(@set "RTENTRY=run_capture" ^& call _rt.cmd %%*
@@ -50684,6 +51142,6 @@ echo(set "NP=2"
 echo(set "zt2=!R!"
 echo(set "R=!zt2!" ^& set "ACTION=ret" ^& goto :eof
 )
->"%PSDIR%\.ok" echo 8ec84e5cd378
+>"%PSDIR%\.ok" echo 744204043004
 endlocal
 exit /b 0

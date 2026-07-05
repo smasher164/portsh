@@ -2096,48 +2096,69 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:getenv" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:argv0" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
 R="S:t"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:setenv" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:run-argv" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
 R="S:t"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:exit" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:run-capture-argv" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
 R="S:t"; ACTION=ret; return
 ;;
 26)
-if [ "${p0}" = "S:make-dir" ]; then PC=27; else PC=28; fi
+if [ "${p0}" = "S:getenv" ]; then PC=27; else PC=28; fi
 ACTION=jump; return
 ;;
 27)
 R="S:t"; ACTION=ret; return
 ;;
 28)
-if [ "${p0}" = "S:delete-file" ]; then PC=29; else PC=30; fi
+if [ "${p0}" = "S:setenv" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
 29)
 R="S:t"; ACTION=ret; return
 ;;
 30)
-if [ "${p0}" = "S:copy-file" ]; then PC=31; else PC=32; fi
+if [ "${p0}" = "S:exit" ]; then PC=31; else PC=32; fi
 ACTION=jump; return
 ;;
 31)
 R="S:t"; ACTION=ret; return
 ;;
 32)
+if [ "${p0}" = "S:make-dir" ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+R="S:t"; ACTION=ret; return
+;;
+34)
+if [ "${p0}" = "S:delete-file" ]; then PC=35; else PC=36; fi
+ACTION=jump; return
+;;
+35)
+R="S:t"; ACTION=ret; return
+;;
+36)
+if [ "${p0}" = "S:copy-file" ]; then PC=37; else PC=38; fi
+ACTION=jump; return
+;;
+37)
+R="S:t"; ACTION=ret; return
+;;
+38)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2329,6 +2350,13 @@ ACTION=jump; return
 R="T:__p_symbol"; ACTION=ret; return
 ;;
 36)
+if [ "${p0}" = "S:print" ]; then PC=37; else PC=38; fi
+ACTION=jump; return
+;;
+37)
+R="T:__p_print"; ACTION=ret; return
+;;
+38)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }

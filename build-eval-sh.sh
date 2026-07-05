@@ -35,6 +35,24 @@ file_existszzQ() { [ -e "${1#T:}" ] && R="S:t" || R=NIL; }
 # run / run-capture / read primitives (mirror the interpreter's prim_oper run/run-capture + prim_app
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str).
 run_cmd()     { sh -c "$1"; R="I:$?"; }
+# run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
+# argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run
+# operative's joined literal tokens: spaces in tokens survive.
+ra_build() { _ra_c=""; _ra_l=$1
+             while [ "$_ra_l" != NIL ]; do
+               hp_car "$_ra_l"; _ra_s=${R#??}; _ra_q=""
+               while case $_ra_s in *\'*) true ;; *) false ;; esac; do
+                 _ra_q="$_ra_q${_ra_s%%\'*}'\\''"; _ra_s=${_ra_s#*\'}
+               done
+               _ra_c="$_ra_c '$_ra_q$_ra_s'"
+               hp_cdr "$_ra_l"; _ra_l=$R
+             done; }
+run_argv()         { ra_build "$1"; sh -c "$_ra_c"; R="I:$?"; }
+run_capture_argv() { ra_build "$1"; _rca_out=$(sh -c "$_ra_c"); _rca_acc=NIL
+while IFS= read -r _rca_ln || [ -n "$_rca_ln" ]; do hp_cons "T:$_rca_ln" "$_rca_acc"; _rca_acc=$R; done <<RCA_EOF
+$_rca_out
+RCA_EOF
+_rca_rev=NIL; while [ "$_rca_acc" != NIL ]; do hp_car "$_rca_acc"; _rca_v=$R; hp_cdr "$_rca_acc"; _rca_acc=$R; hp_cons "$_rca_v" "$_rca_rev"; _rca_rev=$R; done; R=$_rca_rev; }
 run_capture() { _rc_out=$(sh -c "$1"); _rc_acc=NIL
 while IFS= read -r _rc_ln || [ -n "$_rc_ln" ]; do hp_cons "T:$_rc_ln" "$_rc_acc"; _rc_acc=$R; done <<RC_EOF
 $_rc_out

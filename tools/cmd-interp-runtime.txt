@@ -637,6 +637,7 @@ if "!IRV!"=="not" set "R=__p_not"
 if "!IRV!"=="number?" set "R=__p_number"
 if "!IRV!"=="string?" set "R=__p_string"
 if "!IRV!"=="symbol?" set "R=__p_symbol"
+if "!IRV!"=="print" set "R=__p_print"
 goto :eof
 :isprim
 rem IPO = S:<op> -> R=1 if a call-position prim, else 0
@@ -660,6 +661,9 @@ if "!IPO!"=="S:!GT!" set "R=1"
 if "!IPO!"=="S:!GT!=" set "R=1"
 if "!IPO!"=="S:type-of" set "R=1"
 if "!IPO!"=="S:argv" set "R=1"
+if "!IPO!"=="S:argv0" set "R=1"
+if "!IPO!"=="S:run-argv" set "R=1"
+if "!IPO!"=="S:run-capture-argv" set "R=1"
 if "!IPO!"=="S:getenv" set "R=1"
 if "!IPO!"=="S:setenv" set "R=1"
 if "!IPO!"=="S:exit" set "R=1"
@@ -695,6 +699,9 @@ if "!IPO!"=="S:number?" goto ipr_num
 if "!IPO!"=="S:not" goto ipr_null
 if "!IPO!"=="S:type-of" goto ipr_typeof
 if "!IPO!"=="S:argv" goto ipr_argv
+if "!IPO!"=="S:argv0" goto ipr_argv0
+if "!IPO!"=="S:run-argv" goto ipr_runargv
+if "!IPO!"=="S:run-capture-argv" goto ipr_runcapargv
 if "!IPO!"=="S:getenv" goto ipr_getenv
 if "!IPO!"=="S:setenv" goto ipr_setenv
 if "!IPO!"=="S:exit" goto ipr_exit
@@ -771,6 +778,20 @@ set "IPV=!R!"
 goto itk_push
 :ipr_argv
 call argv.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_argv0
+call argv0.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_runargv
+set "A1=!ipa!"
+call run-argv.cmd
+set "IPV=!R!"
+goto itk_push
+:ipr_runcapargv
+set "A1=!ipa!"
+call run-capture-argv.cmd
 set "IPV=!R!"
 goto itk_push
 :ipr_getenv

@@ -263,3 +263,15 @@ fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE___p_print=1
+__p_print() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_print))
+NP=1
+case $PC in
+0)
+print "${p0}"
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }

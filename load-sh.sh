@@ -435,6 +435,19 @@ RCEOF
 arg1() { hp_car "$1"; ARG1=$R; }
 arg2() { hp_car "$1"; ARG1=$R; hp_cdr "$1"; hp_car "$R"; ARG2=$R; }
 
+# run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
+# argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run operative.
+ra_build() { _ra_c=""; _ra_l=$1
+  while [ "$_ra_l" != NIL ]; do
+    hp_car "$_ra_l"; _ra_s=${R#??}; _ra_q=""
+    while case $_ra_s in *\'*) true ;; *) false ;; esac; do
+      _ra_q="$_ra_q${_ra_s%%\'*}'\\''"; _ra_s=${_ra_s#*\'}
+    done
+    _ra_c="$_ra_c '$_ra_q$_ra_s'"
+    hp_cdr "$_ra_l"; _ra_l=$R
+  done
+}
+
 prim_app() {
   # No locals (ksh93). name/args + scratch are globals; none is live across a prim_app
   # re-entry (only `eval`->ev and `read`->rd_expr re-enter, and neither needs them after).
@@ -483,6 +496,16 @@ prim_app() {
              fi ;;
     'argv')  _av=NIL; _ai=${PORTSH_ARGC:-0}
              while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av ;;
+    'argv0') if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi ;;
+    'run-argv') arg1 "$args"; ra_build "$ARG1"; sh -c "$_ra_c"; R="I:$?" ;;
+    'run-capture-argv') arg1 "$args"; ra_build "$ARG1"
+             po_out=$(sh -c "$_ra_c"); po_acc=NIL; po_b=$RSP; RSP=$((po_b + 1))
+             while IFS= read -r po_ln || [ -n "$po_ln" ]; do hp_cons "T:$po_ln" "$po_acc"; po_acc=$R; done <<RCAEOF
+$po_out
+RCAEOF
+             po_rev=NIL
+             while [ "$po_acc" != NIL ]; do hp_car "$po_acc"; po_v=$R; hp_cdr "$po_acc"; po_acc=$R; eval "ROOT$po_b=\"\$po_acc\""; hp_cons "$po_v" "$po_rev"; po_rev=$R; done
+             R=$po_rev; RSP=$po_b ;;
     'setenv') arg2 "$args"; _sn=${ARG1#T:}; _sv=${ARG2#T:}
              case $_sn in *[!A-Za-z0-9_]*|'') R=NIL ;;
                *) if [ -n "$_sv" ]; then eval "export $_sn=\$_sv"; else eval "unset $_sn"; fi; R="S:t" ;; esac ;;
@@ -554,7 +577,7 @@ PRELUDE=""
 setup_global() {
   env_new NIL; GLOBAL=$R
   for p in vau define if run 'run-capture' quote lambda gc; do env_define "$GLOBAL" "S:$p" "F:$p"; done
-  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
+  for p in cons car cdr 'eq?' 'null?' 'atom?' '+' '-' '*' '<' '<=' '=' '>' '>=' 'file-exists?' 'string-append' 'string-length' substring 'symbol->string' 'string->symbol' 'number->string' 'string->number' split 'read' 'type-of' argv argv0 'run-argv' 'run-capture-argv' getenv setenv exit 'make-dir' 'delete-file' 'copy-file' 'read-lines' 'write-lines' 'append-lines' hmark hreset list wrap unwrap eval print dq; do
     env_define "$GLOBAL" "S:$p" "R:$p"
   done
   env_define "$GLOBAL" "S:t"   "S:t"
@@ -585,13 +608,18 @@ main() {
   # the self-scan would match the kernel before the real, baked-in marker).
   SRC=$PRELUDE
   _mark="__PORTSH""_PAYLOAD__"
-  _ran=0
+  _ran=0; _a0=""
   if [ -n "${PORTSH_SELF-}" ]; then
     _payload=$(awk -v m="$_mark" 'p;$0~m{p=1}' "$PORTSH_SELF" | tr -d '\r')
-    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; }
+    [ -n "$_payload" ] && { SRC="$SRC $_payload"; _ran=1; _a0=$PORTSH_SELF; }
   fi
-  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; fi
+  if [ "$#" -ge 1 ]; then SRC="$SRC $(cat "$1")"; _ran=1; [ -n "$_a0" ] || _a0=$1; fi
   [ "$_ran" = 0 ] && [ -z "${PORTSH_SELF-}" ] && SRC="$SRC $(cat)"
+  # (argv0): the invoked program -- a concat app = the app itself, else the file arg. Absolutized.
+  if [ -z "${PORTSH_ARGV0:-}" ] && [ -n "$_a0" ]; then
+    case $_a0 in /*) PORTSH_ARGV0=$_a0 ;; ./*) PORTSH_ARGV0=$PWD/${_a0#./} ;; *) PORTSH_ARGV0=$PWD/$_a0 ;; esac
+    export PORTSH_ARGV0
+  fi
   run_forms
 }
 
@@ -2693,48 +2721,69 @@ ACTION=jump; return
 R="S:t"; ACTION=ret; return
 ;;
 20)
-if [ "${p0}" = "S:getenv" ]; then PC=21; else PC=22; fi
+if [ "${p0}" = "S:argv0" ]; then PC=21; else PC=22; fi
 ACTION=jump; return
 ;;
 21)
 R="S:t"; ACTION=ret; return
 ;;
 22)
-if [ "${p0}" = "S:setenv" ]; then PC=23; else PC=24; fi
+if [ "${p0}" = "S:run-argv" ]; then PC=23; else PC=24; fi
 ACTION=jump; return
 ;;
 23)
 R="S:t"; ACTION=ret; return
 ;;
 24)
-if [ "${p0}" = "S:exit" ]; then PC=25; else PC=26; fi
+if [ "${p0}" = "S:run-capture-argv" ]; then PC=25; else PC=26; fi
 ACTION=jump; return
 ;;
 25)
 R="S:t"; ACTION=ret; return
 ;;
 26)
-if [ "${p0}" = "S:make-dir" ]; then PC=27; else PC=28; fi
+if [ "${p0}" = "S:getenv" ]; then PC=27; else PC=28; fi
 ACTION=jump; return
 ;;
 27)
 R="S:t"; ACTION=ret; return
 ;;
 28)
-if [ "${p0}" = "S:delete-file" ]; then PC=29; else PC=30; fi
+if [ "${p0}" = "S:setenv" ]; then PC=29; else PC=30; fi
 ACTION=jump; return
 ;;
 29)
 R="S:t"; ACTION=ret; return
 ;;
 30)
-if [ "${p0}" = "S:copy-file" ]; then PC=31; else PC=32; fi
+if [ "${p0}" = "S:exit" ]; then PC=31; else PC=32; fi
 ACTION=jump; return
 ;;
 31)
 R="S:t"; ACTION=ret; return
 ;;
 32)
+if [ "${p0}" = "S:make-dir" ]; then PC=33; else PC=34; fi
+ACTION=jump; return
+;;
+33)
+R="S:t"; ACTION=ret; return
+;;
+34)
+if [ "${p0}" = "S:delete-file" ]; then PC=35; else PC=36; fi
+ACTION=jump; return
+;;
+35)
+R="S:t"; ACTION=ret; return
+;;
+36)
+if [ "${p0}" = "S:copy-file" ]; then PC=37; else PC=38; fi
+ACTION=jump; return
+;;
+37)
+R="S:t"; ACTION=ret; return
+;;
+38)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -2926,6 +2975,13 @@ ACTION=jump; return
 R="T:__p_symbol"; ACTION=ret; return
 ;;
 36)
+if [ "${p0}" = "S:print" ]; then PC=37; else PC=38; fi
+ACTION=jump; return
+;;
+37)
+R="T:__p_print"; ACTION=ret; return
+;;
+38)
 R="NIL"; ACTION=ret; return
 ;;
 esac; }
@@ -16059,6 +16115,18 @@ fi
 R="${sht0}"; ACTION=ret; return
 ;;
 esac; }
+SIZE___p_print=1
+__p_print() {
+eval "p0=\"\$F$((FP+0))\""
+FTOP=$((FP + SIZE___p_print))
+NP=1
+case $PC in
+0)
+print "${p0}"
+sht0="${R}"
+R="${sht0}"; ACTION=ret; return
+;;
+esac; }
 # src/stdlib-aot.sh -- AOT-compiled applicative stdlib (native sh), GENERATED by
 # tools/build-stdlib-aot.sh from src/stdlib.lisp via comp-sh.sh. Embedded in the eval/load runtimes.
 SIZE_not=1
@@ -17232,6 +17300,10 @@ type_of()        { case $1 in NIL) R="S:nil" ;; I:*) R="S:number" ;; S:*) R="S:s
 # consistency); non-identifier names return nil (also keeps the eval safe).
 argv()   { _av=NIL; _ai=${PORTSH_ARGC:-0}
            while [ "$_ai" -gt 0 ]; do _ai=$((_ai-1)); eval "_avv=\${PORTSH_ARGV_$_ai-}"; hp_cons "T:$_avv" "$_av"; _av=$R; done; R=$_av; }
+# argv0: the path of the program the user invoked (a packed app = the app file itself; portsh.cmd
+# PROG.lisp = the program file, absolutized). Set by the front-end / entry dispatch into
+# PORTSH_ARGV0; forward slashes on both hosts. REPL / unset -> nil.
+argv0()  { if [ -n "${PORTSH_ARGV0:-}" ]; then R="T:$PORTSH_ARGV0"; else R=NIL; fi; }
 # setenv: ""-value UNSETS (cmd cannot store an empty env var -- mirror getenv's empty==unset==nil);
 # same name guard. Children of run/run-capture inherit. exit_prim: terminate with the given code
 # (the fn cannot be named `exit` in sh -- it would shadow the builtin and recurse; brt maps it).
@@ -17251,6 +17323,24 @@ getenv() { _gn=${1#T:}
 # read). $1 is the joined host command (run/run-capture) or the source string (read_str). run/run-capture
 # EXECUTE a host command (live effects); read_str parses a source string.
 run_cmd()     { sh -c "$1"; R="I:$?"; }
+# run-argv / run-capture-argv: $1 = a LIST of tokens; each element becomes EXACTLY ONE child
+# argument (single-quoted; embedded ' as '\'') -- the execv-style counterpart of the run
+# operative's joined literal tokens: spaces in tokens survive.
+ra_build() { _ra_c=""; _ra_l=$1
+             while [ "$_ra_l" != NIL ]; do
+               hp_car "$_ra_l"; _ra_s=${R#??}; _ra_q=""
+               while case $_ra_s in *\'*) true ;; *) false ;; esac; do
+                 _ra_q="$_ra_q${_ra_s%%\'*}'\\''"; _ra_s=${_ra_s#*\'}
+               done
+               _ra_c="$_ra_c '$_ra_q$_ra_s'"
+               hp_cdr "$_ra_l"; _ra_l=$R
+             done; }
+run_argv()         { ra_build "$1"; sh -c "$_ra_c"; R="I:$?"; }
+run_capture_argv() { ra_build "$1"; _rca_out=$(sh -c "$_ra_c"); _rca_acc=NIL
+while IFS= read -r _rca_ln || [ -n "$_rca_ln" ]; do hp_cons "T:$_rca_ln" "$_rca_acc"; _rca_acc=$R; done <<RCA_EOF
+$_rca_out
+RCA_EOF
+_rca_rev=NIL; while [ "$_rca_acc" != NIL ]; do hp_car "$_rca_acc"; _rca_v=$R; hp_cdr "$_rca_acc"; _rca_acc=$R; hp_cons "$_rca_v" "$_rca_rev"; _rca_rev=$R; done; R=$_rca_rev; }
 run_capture() { _rc_out=$(sh -c "$1"); _rc_acc=NIL
 while IFS= read -r _rc_ln || [ -n "$_rc_ln" ]; do hp_cons "T:$_rc_ln" "$_rc_acc"; _rc_acc=$R; done <<RC_EOF
 $_rc_out
@@ -17382,6 +17472,12 @@ if [ -z "${PORTSH_ARGC:-}" ]; then
     eval "PORTSH_ARGV_$_an=\$_aa"; export "PORTSH_ARGV_$_an"; _an=$((_an+1))
   done
   PORTSH_ARGC=$_an; export PORTSH_ARGC
+fi
+# (argv0): the program path, absolutized -- unless a front-end already chose (a packed app's argv0
+# is the app itself, not the temp-extracted prog.lisp).
+if [ -z "${PORTSH_ARGV0:-}" ]; then
+  case $1 in /*) PORTSH_ARGV0=$1 ;; *) PORTSH_ARGV0=$PWD/$1 ;; esac
+  export PORTSH_ARGV0
 fi
 SRC="($(cat "$1"))"; rd_expr; _forms=$R
 _xf=NIL; _thunks=""; _n=0; _cur=$_forms

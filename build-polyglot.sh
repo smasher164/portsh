@@ -85,12 +85,35 @@ sh_pack = (
   '  _pd=$(mktemp -d); trap \'rm -rf "$_pd"\' EXIT\n'
   '  sed -n "/^$_pb/,/^$_pe/p" "$0" | sed \'1d;$d\' | base64 -d | tar xf - -C "$_pd" 2>/dev/null\n'
   '  PORTSH_SCRIPT=${PORTSH_SCRIPT-1}; export PORTSH_SCRIPT\n'
+  '  # (argv0) = the app itself (absolutized), NOT the temp-extracted prog.lisp\n'
+  '  case $PORTSH_SELF in /*) PORTSH_ARGV0=$PORTSH_SELF ;; ./*) PORTSH_ARGV0=$PWD/${PORTSH_SELF#./} ;; *) PORTSH_ARGV0=$PWD/$PORTSH_SELF ;; esac\n'
+  '  export PORTSH_ARGV0; _pkfe=1\n'
   '  set -- "$_pd/prog.lisp" "$@"\n'
   'fi\n'
+  '# the cook guard must not leak into run children: a NESTED portsh.cmd inheriting\n'
+  '# PORTSH_COOKED=1 would skip its own cooking and execute its raw CRLF file. PORTSH_SELF\n'
+  '# has served the pack/packed arms above; drop both before any user code can spawn.\n'
+  'unset PORTSH_COOKED PORTSH_SELF\n'
 )
 anchor = 'if [ "$#" -lt 1 ]; then jit_repl; exit $?; fi'
+# cmd-front-end parity (shipped polyglot ONLY -- plain load-sh.sh keeps the auto-echo the parity
+# tests rely on): a FILE run is script mode on BOTH halves (the cmd half sets PORTSH_SCRIPT=1 at
+# :prun, so without this the sh half echoed toplevel values the cmd half didn't -- a byte-identity
+# violation). The REPL (handled by the anchor line above this insert) still echoes. Opt out by
+# pre-setting PORTSH_SCRIPT to empty.
+sh_script_mode = (
+  '# file runs are script mode on both halves (cmd sets PORTSH_SCRIPT=1 at :prun)\n'
+  'PORTSH_SCRIPT=${PORTSH_SCRIPT-1}; export PORTSH_SCRIPT\n'
+  '# OUTER front end: recapture argv fresh, mirroring the cmd half (which always recaptures).\n'
+  '# PORTSH_ARGC/PORTSH_ARGV_*/PORTSH_ARGV0 inherited from a PARENT portsh process (a nested\n'
+  '# run) would otherwise satisfy the loader guards and leak the parent argv into this program.\n'
+  '# The packed arm above sets the app argv0 itself (_pkfe=1). Bare load-sh.sh keeps the\n'
+  '# guarded protocol for front-end delegation.\n'
+  'unset PORTSH_ARGC\n'
+  '[ -n "${_pkfe:-}" ] || unset PORTSH_ARGV0\n'
+)
 assert sh_half.count(anchor) == 1, "sh dispatch anchor not found"
-sh_half = sh_half.replace(anchor, sh_pack + anchor, 1)
+sh_half = sh_half.replace(anchor, sh_pack + anchor + '\n' + sh_script_mode, 1)
 
 # the embedded self-extractor: take the selfx body from its `setlocal disableDelayedExpansion` line on,
 # rebinding PSDIR to %~2 (the __extract dispatch passes the dest as arg 2). Drop its usage check.
@@ -127,6 +150,8 @@ findstr /b /x /c:"__PORTSH_PAYLOAD__" "%~f0" >nul 2>&1 && goto :PPACKED
 if /i "%~1"=="pack" goto :PPACK
 if "%~1"=="" goto prepl
 set "PROG=%~f1"
+rem (argv0) = the program file, forward slashes (matches the sh half's loader default)
+set "PORTSH_ARGV0=!PROG:\\=/!"
 rem capture user args (after the program path) into PORTSH_ARGV_<n>/PORTSH_ARGC for (argv) -- env
 rem vars inherit into the interp child, so nothing needs re-quoting downstream.
 set "PORTSH_ARGC=0"
@@ -212,6 +237,9 @@ rem time -> set PORTSH_OSRDIR and interp-cmd takes the WARM fast path (in_warmru
 rem unix: source only) fall through to the normal cold->warm cache path. ALL args are the program's argv.
 set "PKD=%TEMP%\\pk_run_!RANDOM!!RANDOM!"
 mkdir "!PKD!"
+rem (argv0) = the app itself, forward slashes (matches the sh half's packed arm)
+set "PKA0=%~f0"
+set "PORTSH_ARGV0=!PKA0:\\=/!"
 certutil -decode "%~f0" "!PKD!\\b.tar" >nul 2>&1
 pushd "!PKD!" & tar xf b.tar & del b.tar & popd
 set "PORTSH_ARGC=0"

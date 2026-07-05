@@ -7,7 +7,16 @@ demanding programs.
 ## The host layer carries host caveats
 
 `(argv)` returns the arguments after the program path (a packed app sees all of
-its arguments); `(getenv "NAME")`/`(setenv "NAME" "v")` read and write the
+its arguments); `(argv0)` returns the invoked program's path, absolute with
+forward slashes on both hosts — for a packed or concat app that is the app file
+itself (the temp-extracted program is an implementation detail), for
+`portsh.cmd PROG.lisp` it is PROG.lisp, and in the REPL it is nil;
+`(run-argv LIST)`/`(run-capture-argv LIST)` are the applicative counterparts of
+the `run`/`run-capture` operatives — the single argument is a computed list of
+tokens, and each element reaches the child as exactly one argument (quoted per
+host, so spaces survive; `!`/`%` remain best-effort on cmd, and a portsh string
+cannot contain `"` so quote-escaping never arises);
+`(getenv "NAME")`/`(setenv "NAME" "v")` read and write the
 process environment (inherited by `run` children); `(exit n)` sets the script's
 exit code; `make-dir`/`delete-file`/`copy-file` are the portable file ops
 (mkdir -p / rm -f / overwrite semantics, t/nil results, forward-slash paths
