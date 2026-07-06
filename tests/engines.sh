@@ -8,6 +8,16 @@
 #   VM   (optional): cmd JIT (load-cmd.cmd)       cmd interpreter (interp-cmd.cmd)
 #                    PORTSH_WIN_SSH=user@host sh tests/engines.sh
 #
+# The VM legs run through generated DRIVER scripts: the comp-cmd tree is uploaded once per content
+# hash (t_<hash>, persistent across runs), the fixtures are partitioned across PENG_PAR parallel ssh
+# sessions, and each session loops its fixtures VM-side (one round-trip instead of ~40). Outputs come
+# back as one tarball and are diffed locally.
+#
+# PORTSH_FAST=1: per-fixture compiled artifacts persist on the VM keyed by fixture hash; a populated
+# cache re-runs via the warm PORTSH_OSRDIR path instead of recompiling. This is the fast DEV loop --
+# it skips the compile path for unchanged fixtures, so the FULL (default) mode remains the
+# conformance bar and must be what gates a release.
+#
 # Fixtures are deliberately SMALL: the cmd interpreter runs each in seconds.
 set -u
 cd "$(dirname "$0")/.."
@@ -34,7 +44,9 @@ PORTSH_SCRIPT=1 $SH load-sh.sh tests/engines/exitcode.lisp >/dev/null 2>&1; xchk
 PORTSH_SCRIPT=1 $SH interp-sh.sh tests/engines/exitcode.lisp >/dev/null 2>&1; xchk "sh-interp" "$?"
 PORTSH_SCRIPT=1 sh portsh.cmd tests/engines/exitcode.lisp >/dev/null 2>&1; xchk "polyglot" "$?"
 if [ -n "${PORTSH_WIN_SSH:-}" ]; then
-  VM=$PORTSH_WIN_SSH; DIR="eng$$"
+  VM=$PORTSH_WIN_SSH
+  PAR=${PENG_PAR:-4}
+  t0=$(date +%s)
   # build-comp-cmd.sh regenerates comp-cmd/ with rm -rf, dropping the loader and interp; rebuild
   # whichever is missing (load-cmd.cmd is deliberately NOT in the selfx pack -- it exists for these
   # engine-differential legs).
@@ -43,26 +55,125 @@ if [ -n "${PORTSH_WIN_SSH:-}" ]; then
   [ -f comp-cmd/map_pc0.cmd ]    || sh tools/build-stdlib-aot-cmd.sh >/dev/null
   [ -f comp-cmd/__p_add_pc0.cmd ] || sh tools/build-prims-aot-cmd.sh >/dev/null
   work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
-  tar czf "$work/t.tgz" -C comp-cmd . -C "$root/tests" engines
+  # content key of the shipped toolchain: upload once per hash, reuse forever after
+  TREEH=$(find comp-cmd -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -c1-16)
+  RUN="o_$$"
+  TDIR="%USERPROFILE%\\peng\\t_$TREEH"
+  crlf() { perl -pe 's/\r?\n/\r\n/'; }
+  # ---- setup.cmd: prune stale trees/outputs, extract the tree if this hash is new, fresh fixtures --
+  {
+    echo '@echo off'
+    echo 'setlocal enabledelayedexpansion'
+    echo 'if not exist "%USERPROFILE%\peng" mkdir "%USERPROFILE%\peng"'
+    echo 'cd /d %USERPROFILE%\peng'
+    echo "for /d %%d in (t_*) do if not \"%%d\"==\"t_$TREEH\" rmdir /s /q \"%%d\""
+    echo "if not exist t_$TREEH\\.ok ("
+    echo "  rmdir /s /q t_$TREEH 2>nul"
+    echo "  mkdir t_$TREEH"
+    echo "  cd t_$TREEH"
+    echo '  tar -xzf %USERPROFILE%\engt.tgz'
+    echo '  break>.ok'
+    echo "  cd .."
+    echo ')'
+    echo "cd t_$TREEH"
+    echo 'for /d %%d in (o_*) do rmdir /s /q "%%d"'
+    echo "mkdir $RUN"
+    echo 'rmdir /s /q fx 2>nul'
+    echo 'mkdir fx'
+    echo 'cd fx'
+    echo 'tar -xzf %USERPROFILE%\engfx.tgz'
+    echo 'exit /b 0'
+  } | crlf > "$work/setup.cmd"
+  # ---- driver partitions: each loops its fixtures VM-side (interp leg FIRST so a warm-mode
+  # PORTSH_OSRDIR can never leak into an interpretation run) ----
+  i=0
+  while [ $i -lt "$PAR" ]; do
+    {
+      echo '@echo off'
+      echo 'setlocal enabledelayedexpansion'
+      echo "cd /d $TDIR"
+      echo 'set "PATH=%CD%;%PATH%"'
+      echo 'set "PORTSH_SCRIPT=1"'
+      echo 'set "PORTSH_TEST_VAR=hello"'
+    } > "$work/d$i.raw"
+    i=$((i+1))
+  done
+  n=0
+  for f in tests/engines/*.lisp; do
+    b=$(basename "$f" .lisp)
+    fh=$(shasum -a 256 "$f" | cut -c1-16)
+    d="$work/d$((n % PAR)).raw"
+    {
+      echo "> $RUN\\$b.itp.txt 2>&1 cmd /c \"call interp-cmd.cmd fx\\$b.lisp alpha beta-42\""
+      echo "> $RUN\\$b.itp.rc echo !errorlevel!"
+      if [ -n "${PORTSH_FAST:-}" ]; then
+        # populate on miss with a PACKCOMPILE (compile-only) pass into a CLEAN dir -- normal
+        # load-cmd runs emit no _thunks, and recompiling into a dirty dir lets the stale fixture
+        # _consts.cmd shadow the comp's own constant pool at boot (nulled sentinels -> unmangled
+        # names). Then ALWAYS run warm off the cache (the same path packed apps use).
+        echo "if exist c_$fh\\_thunks goto warm_$b"
+        echo "rmdir /s /q c_$fh 2>nul"
+        echo "mkdir c_$fh"
+        echo "cd c_$fh"
+        echo 'set "PORTSH_PACKCOMPILE=1"'
+        echo ">nul 2>&1 cmd /c \"call load-cmd.cmd ..\\fx\\$b.lisp\""
+        echo 'set "PORTSH_PACKCOMPILE="'
+        echo "cd .."
+        echo ":warm_$b"
+        echo "set \"PORTSH_OSRDIR=%CD%\\c_$fh\""
+        echo "> $RUN\\$b.jit.txt 2>&1 cmd /c \"call interp-cmd.cmd fx\\$b.lisp alpha beta-42\""
+        echo "> $RUN\\$b.jit.rc echo !errorlevel!"
+        echo "set \"PORTSH_OSRDIR=\""
+      else
+        echo "rmdir /s /q c_$fh 2>nul"
+        echo "mkdir c_$fh"
+        echo "cd c_$fh"
+        echo "> ..\\$RUN\\$b.jit.txt 2>&1 cmd /c \"call load-cmd.cmd ..\\fx\\$b.lisp alpha beta-42\""
+        echo "> ..\\$RUN\\$b.jit.rc echo !errorlevel!"
+        echo "cd .."
+      fi
+    } >> "$d"
+    n=$((n+1))
+  done
+  i=0
+  while [ $i -lt "$PAR" ]; do
+    { cat "$work/d$i.raw"; echo 'exit /b 0'; } | crlf > "$work/d$i.cmd"
+    i=$((i+1))
+  done
+  # ---- ship: tree (only if the VM doesn't have this hash yet), fixtures, setup, drivers ----
+  tar czf "$work/engfx.tgz" -C tests/engines .
+  if ! ssh -n "$VM" "cmd /c \"if exist $TDIR\\.ok (exit /b 0) else exit /b 1\"" >/dev/null 2>&1; then
+    tar czf "$work/engt.tgz" -C comp-cmd .
+    scp -q "$work/engt.tgz" "${VM}:engt.tgz"
+  fi
   ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true
   sleep 2
-  scp -q "$work/t.tgz" "${VM}:eng.tgz"
-  ssh -n "$VM" "cmd /c \"mkdir %USERPROFILE%\\$DIR & cd /d %USERPROFILE%\\$DIR & tar -xzf %USERPROFILE%\\eng.tgz\"" >/dev/null 2>&1
-  # Each cmd-JIT leg gets its OWN work subdir: load-cmd compiles into cwd, and in a shared dir a
-  # fixture's artifacts CLOBBER the AOT tooling (compile-program truncates _consts.cmd -- killing the
-  # comp's mangle constants -- and a fixture defining a stdlib-named fn overwrites its AOT files).
-  # The tooling stays at the tree root, resolved via PATH; the interp legs don't write, so they run
-  # from the root directly.
+  DRVS=""; i=0
+  while [ $i -lt "$PAR" ]; do DRVS="$DRVS $work/d$i.cmd"; i=$((i+1)); done
+  scp -q "$work/engfx.tgz" "$work/setup.cmd" $DRVS "${VM}:"
+  ssh -n "$VM" 'cmd /c call %USERPROFILE%\setup.cmd' >/dev/null 2>&1
+  # ---- run the partitions in parallel; wait for all ----
+  i=0
+  while [ $i -lt "$PAR" ]; do
+    ssh -n "$VM" "cmd /c call %USERPROFILE%\\d$i.cmd" >/dev/null 2>&1 &
+    i=$((i+1))
+  done
+  wait
+  # ---- collect one results tarball; diff locally ----
+  ssh -n "$VM" "cmd /c \"cd /d $TDIR & tar -czf %USERPROFILE%\\engout.tgz $RUN\"" >/dev/null 2>&1
+  scp -q "${VM}:engout.tgz" "$work/engout.tgz"
+  ( cd "$work" && tar xzf engout.tgz )
   for f in tests/engines/*.lisp; do
-    b=$(basename "$f")
-    chk "cmd-jit"    "$f" "$(ssh -n -o ConnectTimeout=300 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & mkdir wj_$b & cd wj_$b & set PATH=%USERPROFILE%\\$DIR;%PATH%& set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call load-cmd.cmd ..\\engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
-    chk "cmd-interp" "$f" "$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & set PORTSH_SCRIPT=1& set PORTSH_TEST_VAR=hello& call interp-cmd.cmd engines\\$b alpha beta-42 2>&1\"" 2>&1 | tr -d '\r')"
+    b=$(basename "$f" .lisp)
+    chk "cmd-jit"    "$f" "$(tr -d '\r' < "$work/$RUN/$b.jit.txt" 2>/dev/null)"
+    chk "cmd-interp" "$f" "$(tr -d '\r' < "$work/$RUN/$b.itp.txt" 2>/dev/null)"
   done
-  for eng in load-cmd.cmd interp-cmd.cmd; do
-    rc=$(ssh -n -o ConnectTimeout=540 "$VM" "cmd /c \"cd /d %USERPROFILE%\\$DIR & mkdir wx_$eng & cd wx_$eng & set PATH=%USERPROFILE%\\$DIR;%PATH%& set PORTSH_SCRIPT=1& cmd /c call $eng ..\\engines\\exitcode.lisp >nul 2>&1 & if errorlevel 3 if not errorlevel 4 (echo RC=3) else (echo RC=BAD)\"" 2>&1 | tr -d '\r' | grep -o 'RC=[A-Z0-9]*')
-    if [ "$rc" = "RC=3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL %-12s exitcode (%s)\n' "$eng" "$rc"; fi
+  for leg in jit itp; do
+    rc=$(tr -dc 0-9 < "$work/$RUN/exitcode.$leg.rc" 2>/dev/null)
+    if [ "$rc" = 3 ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL cmd-%s exitcode (got %s, want 3)\n' "$leg" "${rc:-none}"; fi
   done
-  ssh -n "$VM" 'powershell -c "taskkill /f /im cmd.exe 2>$null; exit 0"' >/dev/null 2>&1 || true
+  ssh -n "$VM" "cmd /c \"cd /d $TDIR & rmdir /s /q $RUN\"" >/dev/null 2>&1 || true
+  printf 'vm legs: %ss (%s mode, %s-way)\n' "$(( $(date +%s) - t0 ))" "$([ -n "${PORTSH_FAST:-}" ] && echo fast || echo full)" "$PAR"
 fi
 printf '\nengines: pass=%d fail=%d\n' "$pass" "$fail"
 [ "$fail" = 0 ]

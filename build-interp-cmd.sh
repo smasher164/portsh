@@ -86,6 +86,11 @@ exit /b 0
 rem the program's atom-const globals (FULL path -- a bare `call _consts.cmd` would resolve in PATH order
 rem and could hit the comp's own _consts.cmd in the tooling cache)
 if exist "!PORTSH_OSRDIR!\_consts.cmd" call "!PORTSH_OSRDIR!\_consts.cmd"
+rem ...and the AOT stdlib's fn-VALUE registrations (G_<mangled>=C:<label>), PATH-resolved from the
+rem tooling cache -- the COLD path loads _consts_std.cmd right after _consts.cmd, and without it a
+rem warm thunk that rebinds through a stdlib fn's value ((define f ->string)) reads an unset G_ and
+rem dispatches an EMPTY callee. Program consts load FIRST so a program define shadows the stdlib.
+for %%c in (_consts_std.cmd) do if exist "%%~$PATH:c" call "%%~$PATH:c"
 set "RUNQ="
 for /f "usebackq delims=" %%t in ("!PORTSH_OSRDIR!\_thunks") do set "RUNQ=%%t"
 :in_wr_loop
