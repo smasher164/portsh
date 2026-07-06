@@ -149,6 +149,18 @@ digests case-normalized with `string-downcase`), and installs the verified
 binary. Refuses to install on a hash mismatch. Packed, it is a standalone
 installer a Windows user can double-click.
 
+## And a third: a diagnostics collector
+
+[`examples/collect-diagnostics.lisp`](examples/collect-diagnostics.lisp) is
+the "run this and send support the file" story: it gathers OS, environment,
+and tool-availability facts into one identically-shaped report on both hosts.
+It also demonstrates when to use which command form: `run`/`run-capture`
+(literal tokens) for cmd *internal* commands like `ver` — they parse their raw
+command line and reject quoted switches — and `run-argv`/`run-capture-argv`
+(computed tokens) for external tools like `where`/`which`, which parse quoted
+argv fine. Packed as `diagnose.cmd`, a Windows user double-clicks it and mails
+back `diagnostics.txt`.
+
 ## The polyglot trick
 
 `sh` and `cmd.exe` each see a valid program in their own language: `:` is a

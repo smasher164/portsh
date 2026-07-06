@@ -1121,8 +1121,17 @@ endlocal & set "wcar=%w%"
 setlocal disableDelayedExpansion
 set "wlD=%wcar:@B1@=!%"
 set "wlD=%wlD:@B8@=@PQ@%"
->>"%~1" <nul set /p =%wlD:@PQ@="%
+rem leading '=' / space are cmd token separators: set /p errors on '=' and eats a space run --
+rem route through echo( with one caret escaping the first separator (see runtime.cmd wl_emit_c)
+set "wl0=%wlD:~0,1%"
+if "%wl0%"=="=" goto wl_sep
+if "%wl0%"==" " goto wl_sep
+>>"%~1" <nul set /p wlpd=%wlD:@PQ@="%
 >>"%~1" echo(
+endlocal
+goto :eof
+:wl_sep
+>>"%~1" echo(^%wlD:@PQ@="%
 endlocal
 goto :eof
 :pa_fex
@@ -1307,6 +1316,10 @@ rem an empty string leaves R undefined; %R:..=..% on an undefined var leaks the
 rem literal "=!", so skip the decode and just emit the newline for empty output.
 if not defined R goto pr_nl
 setlocal enableDelayedExpansion
+rem separator-leading output ('=' / space): quoted set/p mis-parses '=' and eats a space
+rem run -- echo( with one caret, operator-escaped (see runtime.cmd :print / :wl_sep_c)
+if "!R:~0,1!"=="=" goto pa_pr_sep
+if "!R:~0,1!"==" " goto pa_pr_sep
 set "pdec=!R:%BANG2%=%%!"
 endlocal & set "pcar=%pdec%"
 setlocal disableDelayedExpansion
@@ -1316,6 +1329,20 @@ set "pout=%pout:@B1@=!%"
 endlocal
 :pr_nl
 echo(
+set "R=NIL"
+goto :eof
+:pa_pr_sep
+set "w=!R:&=^&!"
+set "w=!w:|=^|!"
+set "w=!w:<=^<!"
+set "w=!w:>=^>!"
+set "w=!w:@B7@=^^!"
+set "w=!w:%BANG2%=%%!"
+endlocal & set "pcar=%w%"
+setlocal disableDelayedExpansion
+set "pout=%pcar:@B1@=!%"
+echo(^%pout%
+endlocal
 set "R=NIL"
 goto :eof
 

@@ -12,6 +12,12 @@
 (print (file-exists? "pk_t/sub/a.txt"))
 (print (delete-file "pk_t/sub/a.txt"))
 (print (delete-file "pk_t/sub/b.txt"))
+; lines BEGINNING with '=' or spaces must round-trip (cmd write-lines: '='/space are token
+; separators -- set /p errored on '=' and silently ate a leading space run)
+(write-lines "pk_t/sub/eq.txt" (list "== header ==" "  indented x" "a=b"))
+(print (car (read-lines "pk_t/sub/eq.txt")))
+(print (car (cdr (read-lines "pk_t/sub/eq.txt"))))
+(print (delete-file "pk_t/sub/eq.txt"))
 ; (host) is the one host-DIVERGENT primitive (sh|cmd by design) -- pin it portably: it must be
 ; one of the two symbols, and it must agree with itself as a value and across calls.
 (print (if (eq? (host) (quote sh)) (quote ok) (if (eq? (host) (quote cmd)) (quote ok) (quote bad))))

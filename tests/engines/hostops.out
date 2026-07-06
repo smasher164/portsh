@@ -9,5 +9,8 @@ t
 ()
 t
 t
+== header ==
+  indented x
+t
 ok
 t

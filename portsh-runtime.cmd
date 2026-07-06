@@ -78,8 +78,19 @@ set "w=!w:=%%!"
 endlocal & set "wcar=%w%"
 setlocal disableDelayedExpansion
 set "wd=%wcar:=!%"
->>"%~1" <nul set /p =%wd:="%
+rem '=' and space are cmd TOKEN SEPARATORS: set /p hard-errors on a leading '=' (with or
+rem without a var name, caret or not) and silently EATS a leading space run. Such lines go
+rem through echo( with ONE caret escaping the first separator (the same caret contract as the
+rem operator escapes; echo( emits the newline itself). A leading TAB remains a known gap.
+set "wl0=%wd:~0,1%"
+if "%wl0%"=="=" goto wl_sep_c
+if "%wl0%"==" " goto wl_sep_c
+>>"%~1" <nul set /p wlpd=%wd:="%
 >>"%~1" echo(
+endlocal
+goto :eof
+:wl_sep_c
+>>"%~1" echo(^%wd:="%
 endlocal
 goto :eof
 rem :print -- A1 = a tagged value. Render it (byte-identical to the interpreter's print /
@@ -94,6 +105,11 @@ rem a QUOTED set/p (operators & | < > ^ ( ) pass verbatim), then a newline.
 call :pr_write 0 "!A1!"
 if not defined R goto pr_nl
 setlocal enableDelayedExpansion
+rem separator-leading output ('=' or space): the quoted set/p mis-parses a leading '=' and
+rem eats a leading space run -- route through echo( with one caret, operator-escaped like
+rem wl_enc_c (echo( emits its own newline).
+if "!R:~0,1!"=="=" goto pr_sep
+if "!R:~0,1!"==" " goto pr_sep
 set "pdec=!R:=%%!"
 endlocal & set "pcar=%pdec%"
 setlocal disableDelayedExpansion
@@ -103,6 +119,20 @@ set "pout=%pout:=!%"
 endlocal
 :pr_nl
 echo(
+set "R=NIL"
+goto :eof
+:pr_sep
+set "w=!R:&=^&!"
+set "w=!w:|=^|!"
+set "w=!w:<=^<!"
+set "w=!w:>=^>!"
+set "w=!w:=^^!"
+set "w=!w:=%%!"
+endlocal & set "pcar=%w%"
+setlocal disableDelayedExpansion
+set "pout=%pcar:=!%"
+echo(^%pout%
+endlocal
 set "R=NIL"
 goto :eof
 :pr_write
