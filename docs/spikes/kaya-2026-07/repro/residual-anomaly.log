@@ -1,0 +1,25 @@
+xample "todos") generated 1 warning (1 duplicate)
+warning: `kaya` (example "feed") generated 1 warning (1 duplicate)
+warning: `kaya` (example "confirm") generated 1 warning (1 duplicate)
+warning: `kaya` (example "grow") generated 1 warning (1 duplicate)
+warning: `kaya` (example "align") generated 1 warning (1 duplicate)
+    Finished `release` profile [optimized] target(s) in 0.03s
+TIMING build 1s
+go127 present
+'"java -version >nul 2>&1' is not recognized as an internal or external command,
+operable program or batch file.
+'"winget install --id Microsoft.OpenJDK.17 --architecture arm64 --silent --accept-package-agreements --accept-source-agreements --scope machine' is not recognized as an internal or external command,
+operable program or batch file.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the path specified.
+The system cannot find the
